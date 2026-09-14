@@ -15,6 +15,7 @@ function ProjectList() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     loadProjects();
@@ -28,6 +29,24 @@ function ProjectList() {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleImport() {
+    const filePath = prompt("Enter path to semantic_result.json:");
+    if (!filePath) return;
+    const name = prompt("Project name:", filePath.split("/").pop()?.replace(".json", "") || "Imported");
+    if (!name) return;
+
+    setImporting(true);
+    setError(null);
+    try {
+      await invoke("import_semantic_file", { filePath, projectName: name });
+      await loadProjects();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -49,10 +68,11 @@ function ProjectList() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Projects</h2>
         <button
-          onClick={() => alert("Import coming in PR-4")}
-          className="px-4 py-2 bg-accent/20 text-accent rounded-md hover:bg-accent/30 transition-colors"
+          onClick={handleImport}
+          disabled={importing}
+          className="px-4 py-2 bg-accent/20 text-accent rounded-md hover:bg-accent/30 transition-colors disabled:opacity-50"
         >
-          + Import
+          {importing ? "Importing..." : "+ Import"}
         </button>
       </div>
 
@@ -61,7 +81,7 @@ function ProjectList() {
           <p className="text-4xl mb-4">📂</p>
           <p>No projects yet.</p>
           <p className="text-sm mt-2">
-            Import a TraceView project to get started.
+            Import a TraceView semantic_result.json to get started.
           </p>
         </div>
       ) : (
@@ -75,7 +95,7 @@ function ProjectList() {
               <div className="flex gap-4 mt-2 text-xs text-text-muted">
                 {p.genre && <span>Genre: {p.genre}</span>}
                 {p.word_count && <span>{p.word_count.toLocaleString()} words</span>}
-                {p.chapter_count && <span>{p.chapter_count} chapters</span>}
+                {p.chapter_count && <span>{p.chapter_count} documents</span>}
                 <span>{new Date(p.created_at).toLocaleDateString()}</span>
               </div>
             </div>
