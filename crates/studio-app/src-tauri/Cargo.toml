@@ -14,4 +14,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 studio-core = { path = "../../studio-core" }
 studio-storage = { path = "../../studio-storage" }
+studio-import = { path = "../../studio-import" }
 duckdb = { version = "1", features = ["chrono"] }

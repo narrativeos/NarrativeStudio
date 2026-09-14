@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use duckdb::Connection;
 use studio_core::project::{Project, ProjectSummary};
+use studio_import::parse_semantic_result;
 use studio_storage::{run_migrations, ProjectRepo};
 use tauri::{Manager, State};
 
@@ -35,6 +36,21 @@ fn create_project(state: State<AppState>, name: String) -> Result<Project, Strin
     repo.create(&project).map_err(|e| e.to_string())
 }
 
+/// Import a TraceView semantic_result.json file.
+#[tauri::command]
+fn import_semantic_file(
+    state: State<AppState>,
+    file_path: String,
+    project_name: String,
+) -> Result<Project, String> {
+    let content =
+        std::fs::read_to_string(&file_path).map_err(|e| format!("Failed to read file: {e}"))?;
+    let _doc = parse_semantic_result(&content).map_err(|e| format!("Failed to parse: {e}"))?;
+    let project = Project::new(project_name);
+    let repo = state.project_repo.lock().map_err(|e| e.to_string())?;
+    repo.create(&project).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -43,7 +59,11 @@ pub fn run() {
             app.manage(AppState::new());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_projects, create_project])
+        .invoke_handler(tauri::generate_handler![
+            list_projects,
+            create_project,
+            import_semantic_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -4,3 +4,7 @@
 //! into internal data models.
 
 pub use studio_core::error::Result;
+
+mod semantic;
+
+pub use semantic::parse_semantic_result;
