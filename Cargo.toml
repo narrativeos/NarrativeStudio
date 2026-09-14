@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/studio-core",
+    "crates/studio-import",
+    "crates/studio-analysis",
+    "crates/studio-storage",
+    "crates/studio-report",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/narrativeos/NarrativeStudio"
+
+[workspace.dependencies]
+# Internal crates
+studio-core = { path = "crates/studio-core" }
+studio-import = { path = "crates/studio-import" }
+studio-analysis = { path = "crates/studio-analysis" }
+studio-storage = { path = "crates/studio-storage" }
+studio-report = { path = "crates/studio-report" }
+
+# External dependencies
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
