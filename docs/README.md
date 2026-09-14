@@ -8,3 +8,9 @@
 
 - 全局架构、跨仓库规范、统一知识库内容请查看 narrative-docs
 - 当前仓库如需补充说明，请仅添加与本仓库直接相关的内容
+
+## 文档索引
+
+| 文档 | 说明 |
+|------|------|
+| [product-design.md](product-design.md) | NarrativeStudio 产品设计文档（v0.1.0） |
