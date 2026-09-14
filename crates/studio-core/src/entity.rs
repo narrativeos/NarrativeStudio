@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Named entity category.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EntityCategory {
     Person,
@@ -13,6 +13,7 @@ pub enum EntityCategory {
     Facility,
     Product,
     Number,
+    #[default]
     Unknown,
 }
 
