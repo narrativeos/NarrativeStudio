@@ -810,6 +810,275 @@ Rust 后端处理
 前端渲染 (React + SVG 图表)
 ```
 
+### 6.5 分析管线与后台任务架构
+
+#### 6.5.1 真实数据画像（基于 Hardwired 项目实测）
+
+| 数据文件 | 大小 | 规模 | 关键指标 |
+|---------|------|------|---------|
+| `semantic_result.json` | 6.5 MB | 326,465 行 | 300 blocks, 12,804 tokens, 54,570 chars |
+| `popo_result.json` | 212 KB | 4,726 行 | 52 tree nodes, 28 顶层章节 |
+| `enriched_result.json` | 224 KB | - | 616 entities, 2 relations |
+
+**实体分布（enriched）：**
+
+| 类别 | 数量 | 占比 |
+|------|------|------|
+| UNKNOWN | 378 | 61.4% |
+| PERSON | 205 | 33.3% |
+| DATE | 19 | 3.1% |
+| ORGANIZATION | 5 | 0.8% |
+| LOCATION | 5 | 0.8% |
+| FACILITY | 3 | 0.5% |
+| PRODUCT | 1 | 0.2% |
+
+**名词信号：** 552 个唯一词，2,609 次总出现，Top-5: analysis(438), story(176), conflict(77), character(72), Plot(70)
+
+**块分布：** 242 text + 56 title + 2 empty；279/300 含实体，298/300 含名词信号；51 个唯一 section_path
+
+**Popo 结构树（28 个顶层章节）：**
+Premise → Genre → Overall assessment → Story strengths → Chief opportunities → Word count → Narrative arc (6 节) → Plot (7 节) → Story elements → Character analysis (4 子节) → Character dynamics → POV → Pacing → Conflict (5 子节) → Theme → Author voice → Other
+
+#### 6.5.2 分析任务分类
+
+所有分析任务按**计算特征**分为三类，决定执行策略：
+
+| 类别 | 特征 | 延迟 | 示例 |
+|------|------|------|------|
+| **T0: 纯统计** | 确定性、无 I/O、CPU 密集 | < 100ms | 词频、句长、POS 分布、实体计数、n-gram |
+| **T1: 结构分析** | 确定性、树遍历、规则匹配 | 100ms ~ 2s | 章节结构提取、对话检测、可读性评分、时间线 |
+| **T2: LLM 增强** | 非确定性、网络 I/O、token 消耗 | 5s ~ 60s | 叙事弧线、角色弧线、主题提取、建议生成 |
+
+**T0 任务清单（全部本地，无需 LLM）：**
+
+| 任务 | 输入 | 输出 | 算法 |
+|------|------|------|------|
+| 词频统计 | tokens[] | word → count | HashMap 计数 |
+| 句长分布 | blocks[].content | 句长直方图 | 分句 + 计数 |
+| POS 分布 | tokens[].pos | pos → count | HashMap 计数 |
+| 副词/形容词密度 | tokens[].pos | 占比 | 过滤 RB/JJ 计数 |
+| 实体聚合 | entities[] | category → count, top-N | 分组 + 排序 |
+| 名词信号 Top-N | noun_signals[] | top-N by score | 排序 |
+| 重复短语 | blocks[].content | n-gram 重复列表 | 3-gram 窗口 + 计数 |
+| 拼写检查 | tokens[] | 错误列表 | 词典 + 编辑距离 ≤ 2 |
+| 对话检测 | blocks[].content | 对话占比 | 引号 + 对话标记正则 |
+| 可读性评分 | tokens[], blocks[] | Flesch 分数 | 公式计算 |
+
+**T1 任务清单（本地规则引擎）：**
+
+| 任务 | 输入 | 输出 | 算法 |
+|------|------|------|------|
+| 章节结构提取 | popo tree | 章节层级 + 字数 | 树遍历 |
+| 节奏曲线 | blocks[] × section | 章节 → 紧张度 | 句长变异 + 感叹号密度 + 短句比 |
+| 陈词滥调检测 | blocks[].content | 匹配列表 | 短语库 + 模糊匹配 |
+| 显式语言检测 | blocks[].content | 标记列表 | 敏感词库 + 正则 |
+| 时间线一致性 | DATE entities | 冲突列表 | 时间排序 + 矛盾检测 |
+| 故事结构匹配 | popo tree | 结构类型 | 模式匹配（三幕/英雄之旅等） |
+
+**T2 任务清单（LLM 增强，可选）：**
+
+| 任务 | Prompt 规模 | 输入上下文 | 输出 |
+|------|-----------|-----------|------|
+| 叙事弧线识别 | ~2K tokens | 章节摘要 + 结构树 | 弧线类型 + 转折点 |
+| 角色弧线分析 | ~3K tokens | PERSON 实体 + 相关段落 | 角色发展轨迹 |
+| 主题提取 | ~2K tokens | Top-50 名词信号 + 章节摘要 | 主题列表 + 证据 |
+| 冲突分析 | ~3K tokens | 冲突相关段落 | 冲突类型 + 强度 |
+| 情节线提取 | ~4K tokens | 实体关系 + 章节内容 | 情节线 + 子情节 |
+| 作者声音 | ~2K tokens | 风格统计 + 样本段落 | 文风描述 |
+| 关键建议 | ~3K tokens | 所有 T0/T1 结果摘要 | 优先级排序建议 |
+| 关注点生成 | ~3K tokens | 异常检测结果 | 问题描述 + 位置 |
+
+#### 6.5.3 后台任务管线架构
+
+**核心原则：所有计算任务在后台 tokio 任务中执行，前端永不阻塞。**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Frontend (WebView)                                                 │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  UI 状态: idle → loading → partial → complete                  │ │
+│  │  进度条: [████████░░░░░░░░░░] 5/12 tasks (42%)                 │ │
+│  │  结果流: 每完成一个任务立即渲染对应图表区域                       │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────┤
+│  Tauri IPC (事件通道)                                               │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  请求: analyze_project(project_id, options) → task_id          │ │
+│  │  事件: task_progress { task_id, current, total, label }        │ │
+│  │  事件: task_result   { task_id, dimension, data }              │ │
+│  │  事件: task_complete { task_id, summary }                      │ │
+│  │  取消: cancel_analysis(task_id)                                │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────┤
+│  Backend (Rust) — tokio 异步运行时                                   │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  AnalysisOrchestrator                                          │ │
+│  │  ┌──────────────────────────────────────────────────────────┐  │ │
+│  │  │  1. 数据加载 (spawn)                                      │  │ │
+│  │  │     semantic_result.json → 内存 (serde_json, ~50ms)      │  │ │
+│  │  │     popo_result.json → 内存 (~5ms)                       │  │ │
+│  │  │     enriched_result.json → 内存 (~5ms)                   │  │ │
+│  │  │     → 写入 DuckDB (首次导入时)                            │  │ │
+│  │  ├──────────────────────────────────────────────────────────┤  │ │
+│  │  │  2. T0 统计任务 (并行, join_all)                          │  │ │
+│  │  │     ┌─────────┬─────────┬─────────┬─────────┐           │  │ │
+│  │  │     │ 词频    │ 句长    │ POS     │ 实体    │  ...      │  │ │
+│  │  │     │ <10ms   │ <10ms   │ <5ms    │ <10ms   │           │  │ │
+│  │  │     └─────────┴─────────┴─────────┴─────────┘           │  │ │
+│  │  │     全部完成 → 发射 task_result 事件                      │  │ │
+│  │  ├──────────────────────────────────────────────────────────┤  │ │
+│  │  │  3. T1 结构任务 (并行, join_all)                          │  │ │
+│  │  │     ┌──────────────┬──────────────┬──────────────┐       │  │ │
+│  │  │     │ 章节结构     │ 节奏曲线     │ 对话检测     │ ...   │  │ │
+│  │  │     │ ~50ms       │ ~100ms       │ ~50ms        │       │  │ │
+│  │  │     └──────────────┴──────────────┴──────────────┘       │  │ │
+│  │  │     全部完成 → 发射 task_result 事件                      │  │ │
+│  │  ├──────────────────────────────────────────────────────────┤  │ │
+│  │  │  4. T2 LLM 任务 (串行/限流, 可选)                         │  │ │
+│  │  │     ┌──────────────────────────────────────────────┐     │  │ │
+│  │  │     │ 叙事弧线 → 角色弧线 → 主题 → 冲突 → 建议     │     │  │ │
+│  │  │     │  (5s)       (8s)       (5s)    (8s)   (10s)  │     │  │ │
+│  │  │     └──────────────────────────────────────────────┘     │  │ │
+│  │  │     每个完成 → 立即发射 task_result 事件                  │  │ │
+│  │  │     用户未配置 LLM → 跳过此阶段                           │  │ │
+│  │  └──────────────────────────────────────────────────────────┘  │ │
+│  │                                                                │ │
+│  │  取消: CancellationToken 贯穿所有阶段                           │ │
+│  │  缓存: 结果写入 DuckDB，相同输入不重复计算                       │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 6.5.4 LLM 使用分级
+
+| 级别 | 名称 | 触发条件 | 任务数 | 预估耗时 | Token 消耗 |
+|------|------|---------|--------|---------|-----------|
+| **L0** | 纯本地 | 默认 | 10 T0 + 6 T1 | < 2s | 0 |
+| **L1** | 轻量增强 | 用户开启"快速 AI" | L0 + 3 T2 | ~20s | ~15K |
+| **L2** | 完整增强 | 用户开启"深度 AI" | L0 + 6 T1 + 8 T2 | ~60s | ~50K |
+
+**LLM 调用策略：**
+
+```rust
+// LLM 调用器（studio-analysis crate）
+pub struct LlmClient {
+    provider: LlmProvider,       // OpenAI / Anthropic / Ollama(本地)
+    model: String,
+    max_concurrent: usize,       // 默认 1（串行），避免 rate limit
+    timeout: Duration,           // 单任务 60s
+    retry: u32,                  // 最多重试 2 次
+}
+
+// 任务调度
+pub struct AnalysisTask {
+    id: TaskId,
+    dimension: Dimension,
+    tier: TaskTier,              // T0 / T1 / T2
+    input: AnalysisInput,
+    cancel: CancellationToken,
+}
+```
+
+**关键约束：**
+- LLM 调用**串行执行**（max_concurrent=1），避免 API rate limit
+- 每个 LLM 任务独立超时（60s），超时后标记为 `degraded`，不阻塞后续任务
+- 用户可随时取消，已完成的 T0/T1 结果保留
+- 本地 Ollama 支持（`ollama://localhost:11434`），完全离线可用
+
+#### 6.5.5 进度报告与前端渲染策略
+
+**前端渲染原则：渐进式加载，每完成一个维度立即渲染。**
+
+```typescript
+// 前端 Zustand Store
+interface AnalysisState {
+  status: 'idle' | 'loading' | 'partial' | 'complete' | 'error';
+  progress: { current: number; total: number; label: string };
+  results: Record<string, DimensionResult>;  // 按维度 key 存储
+  errors: Record<string, string>;            // 失败的维度
+}
+
+// 事件监听
+listen('task_progress', (e) => {
+  store.setState({ progress: e.payload });
+});
+listen('task_result', (e) => {
+  const { dimension, data } = e.payload;
+  store.setState((s) => ({
+    results: { ...s.results, [dimension]: data },
+    status: Object.keys(s.results).length === s.progress.total
+      ? 'complete' : 'partial'
+  }));
+});
+```
+
+**渲染优先级（用户感知顺序）：**
+
+| 顺序 | 维度 | 来源 | 用户感知 |
+|------|------|------|---------|
+| 1 | 项目摘要（字数、章节数） | T0 | 立即显示 |
+| 2 | 实体分布饼图 | T0 | 100ms 内 |
+| 3 | 名词信号词云 | T0 | 100ms 内 |
+| 4 | 可读性 + 诊断卡片 | T0 | 100ms 内 |
+| 5 | 维度得分条形图 | T0+T1 | 1s 内 |
+| 6 | 节奏曲线 | T1 | 2s 内 |
+| 7 | 章节热力图 | T1 | 2s 内 |
+| 8 | 叙事弧线（LLM） | T2 | 10-30s |
+| 9 | 角色分析（LLM） | T2 | 20-40s |
+| 10 | 关键建议（LLM） | T2 | 最后完成 |
+
+#### 6.5.6 缓存与增量分析
+
+| 策略 | 说明 |
+|------|------|
+| **输入哈希** | 对 semantic_result.json + popo_result.json 计算 SHA-256，存入 DuckDB |
+| **结果缓存** | 每个维度的分析结果 + 输入哈希存入 `analysis_cache` 表 |
+| **增量判断** | 导入时比较哈希，未变化则直接读缓存，跳过计算 |
+| **T2 单独缓存** | LLM 结果单独缓存（成本高），T0/T1 结果轻量可重算 |
+| **手动刷新** | 用户可强制重新分析（清除缓存） |
+
+```sql
+CREATE TABLE analysis_cache (
+    cache_key     VARCHAR PRIMARY KEY,  -- SHA256(input) + dimension
+    project_id    UUID REFERENCES projects(project_id),
+    dimension     VARCHAR NOT NULL,
+    tier          VARCHAR NOT NULL,     -- T0 / T1 / T2
+    result_json   TEXT NOT NULL,
+    computed_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    input_hash    VARCHAR NOT NULL
+);
+```
+
+#### 6.5.7 对 Crate 架构的影响
+
+基于管线设计，`studio-analysis` crate 内部结构细化为：
+
+```
+studio-analysis/
+├── src/
+│   ├── lib.rs
+│   ├── orchestrator.rs      # AnalysisOrchestrator: 任务调度、进度报告
+│   ├── tasks/
+│   │   ├── mod.rs
+│   │   ├── t0_stats.rs      # 纯统计任务（词频、句长、POS、实体聚合...）
+│   │   ├── t1_structural.rs # 结构分析任务（章节、节奏、对话、可读性...）
+│   │   └── t2_llm.rs        # LLM 增强任务（弧线、角色、主题、建议...）
+│   ├── llm/
+│   │   ├── mod.rs
+│   │   ├── client.rs        # LLM 客户端（OpenAI/Anthropic/Ollama）
+│   │   ├── prompts.rs       # Prompt 模板
+│   │   └── parser.rs        # LLM 输出解析
+│   ├── cache.rs             # 缓存逻辑（哈希比较、DuckDB 读写）
+│   └── types.rs             # 任务类型、进度事件、结果类型
+```
+
+**新增依赖：**
+- `tokio` (rt-multi-thread, macros, sync, time) — 异步运行时
+- `tokio-util` — CancellationToken
+- `reqwest` (json, stream) — LLM HTTP 调用
+- `sha2` — 输入哈希
+- `futures` — 并行任务 join_all
+
 ---
 
 ## 7. 数据模型
