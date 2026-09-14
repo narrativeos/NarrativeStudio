@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #1a1a2e;
+  --color-surface-alt: #16213e;
+  --color-accent: #4fc3f7;
+  --color-text: #e0e0e0;
+  --color-text-muted: #8892b0;
+}
+
+body {
+  @apply bg-surface text-text font-sans antialiased;
+  margin: 0;
+  overflow: hidden;
+}

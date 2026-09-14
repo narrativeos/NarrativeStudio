@@ -6,6 +6,7 @@ members = [
     "crates/studio-analysis",
     "crates/studio-storage",
     "crates/studio-report",
+    "crates/studio-app/src-tauri",
 ]
 
 [workspace.package]
