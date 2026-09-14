@@ -13,8 +13,26 @@ interface T0Stats {
   avg_sentence_length: number;
 }
 
+interface SectionInfo {
+  path: string;
+  block_count: number;
+  char_count: number;
+}
+
+interface T1Stats {
+  sections: SectionInfo[];
+  section_count: number;
+  title_blocks: number;
+  paragraph_blocks: number;
+  list_blocks: number;
+  block_type_distribution: [string, number][];
+  longest_section: string | null;
+  shortest_section: string | null;
+}
+
 function Analysis() {
-  const [stats, setStats] = useState<T0Stats | null>(null);
+  const [t0, setT0] = useState<T0Stats | null>(null);
+  const [t1, setT1] = useState<T1Stats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,8 +42,12 @@ function Analysis() {
     try {
       const filePath = prompt("Enter path to semantic_result.json:");
       if (!filePath) return;
-      const result = await invoke<T0Stats>("analyze_t0", { filePath });
-      setStats(result);
+      const [t0Result, t1Result] = await Promise.all([
+        invoke<T0Stats>("analyze_t0", { filePath }),
+        invoke<T1Stats>("analyze_t1", { filePath }),
+      ]);
+      setT0(t0Result);
+      setT1(t1Result);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -36,7 +58,7 @@ function Analysis() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">T0 Analysis</h2>
+        <h2 className="text-xl font-semibold">Analysis</h2>
         <button
           onClick={runAnalysis}
           disabled={loading}
@@ -53,21 +75,21 @@ function Analysis() {
         </div>
       )}
 
-      {stats && (
+      {t0 && t1 && (
         <div className="space-y-6">
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard label="Words" value={stats.word_count.toLocaleString()} />
-            <StatCard label="Blocks" value={stats.block_count.toString()} />
-            <StatCard label="Entities" value={stats.entity_counts.reduce((s, [, c]) => s + c, 0).toString()} />
-            <StatCard label="Noun Signals" value={stats.noun_signal_count.toString()} />
+            <StatCard label="Words" value={t0.word_count.toLocaleString()} />
+            <StatCard label="Blocks" value={t0.block_count.toString()} />
+            <StatCard label="Sections" value={t1.section_count.toString()} />
+            <StatCard label="Entities" value={t0.entity_counts.reduce((s, [, c]) => s + c, 0).toString()} />
           </div>
 
-          {/* Top words */}
+          {/* T0: Top words */}
           <section>
             <h3 className="text-sm font-medium text-text-muted mb-2">Top Words</h3>
             <div className="flex flex-wrap gap-2">
-              {stats.top_words.slice(0, 20).map(([word, count]) => (
+              {t0.top_words.slice(0, 20).map(([word, count]) => (
                 <span key={word} className="px-2 py-1 bg-surface-alt rounded text-xs">
                   {word} <span className="text-text-muted">({count})</span>
                 </span>
@@ -75,11 +97,11 @@ function Analysis() {
             </div>
           </section>
 
-          {/* POS distribution */}
+          {/* T0: POS distribution */}
           <section>
             <h3 className="text-sm font-medium text-text-muted mb-2">POS Distribution</h3>
             <div className="flex flex-wrap gap-2">
-              {stats.pos_distribution.map(([pos, count]) => (
+              {t0.pos_distribution.map(([pos, count]) => (
                 <span key={pos} className="px-2 py-1 bg-surface-alt rounded text-xs">
                   {pos} <span className="text-text-muted">({count})</span>
                 </span>
@@ -87,15 +109,28 @@ function Analysis() {
             </div>
           </section>
 
-          {/* Entity counts */}
-          {stats.entity_counts.length > 0 && (
+          {/* T1: Block type distribution */}
+          <section>
+            <h3 className="text-sm font-medium text-text-muted mb-2">Block Types</h3>
+            <div className="flex flex-wrap gap-2">
+              {t1.block_type_distribution.map(([bt, count]) => (
+                <span key={bt} className="px-2 py-1 bg-surface-alt rounded text-xs">
+                  {bt} <span className="text-text-muted">({count})</span>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          {/* T1: Sections */}
+          {t1.sections.length > 0 && (
             <section>
-              <h3 className="text-sm font-medium text-text-muted mb-2">Entities by Category</h3>
-              <div className="flex flex-wrap gap-2">
-                {stats.entity_counts.map(([cat, count]) => (
-                  <span key={cat} className="px-2 py-1 bg-surface-alt rounded text-xs">
-                    {cat} <span className="text-text-muted">({count})</span>
-                  </span>
+              <h3 className="text-sm font-medium text-text-muted mb-2">Sections</h3>
+              <div className="space-y-1">
+                {t1.sections.map((s) => (
+                  <div key={s.path} className="flex justify-between text-xs px-3 py-2 bg-surface-alt rounded">
+                    <span>{s.path || "(root)"}</span>
+                    <span className="text-text-muted">{s.block_count} blocks, {s.char_count} chars</span>
+                  </div>
                 ))}
               </div>
             </section>
@@ -103,7 +138,7 @@ function Analysis() {
         </div>
       )}
 
-      {!stats && !loading && !error && (
+      {!t0 && !loading && !error && (
         <div className="text-center py-12 text-text-muted">
           <p className="text-4xl mb-4">📊</p>
           <p>Click "Run Analysis" to analyze a TraceView semantic_result.json file.</p>
