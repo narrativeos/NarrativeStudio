@@ -110,6 +110,46 @@ fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
     run_t1_analysis(&doc).map_err(|e| e.to_string())
 }
 
+/// List documents for a project.
+#[tauri::command]
+fn list_documents(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<Vec<(String, String)>, String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let conn = storage.project_repo.conn();
+    let mut stmt = conn
+        .prepare(
+            "SELECT doc_id, title FROM documents WHERE project_id = ? ORDER BY created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?;
+    let mut docs = Vec::new();
+    for row in rows {
+        docs.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(docs)
+}
+
+/// Load a document by ID.
+#[tauri::command]
+fn load_document(
+    state: State<AppState>,
+    doc_id: String,
+) -> Result<studio_core::document::DocumentData, String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let doc_uuid: uuid::Uuid =
+        uuid::Uuid::parse_str(&doc_id).map_err(|e: uuid::Error| e.to_string())?;
+    storage
+        .document_repo
+        .load_document(doc_uuid)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -123,7 +163,9 @@ pub fn run() {
             create_project,
             import_semantic_file,
             analyze_t0,
-            analyze_t1
+            analyze_t1,
+            list_documents,
+            load_document
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

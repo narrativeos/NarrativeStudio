@@ -34,6 +34,11 @@ impl ProjectRepo {
         Self { conn }
     }
 
+    /// Get a reference to the underlying connection.
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     /// Create a new project and return it.
     pub fn create(&self, project: &Project) -> Result<Project> {
         self.conn
