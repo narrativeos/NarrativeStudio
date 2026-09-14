@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use duckdb::Connection;
+use studio_analysis::{run_t0_analysis, T0Stats};
 use studio_core::project::{Project, ProjectSummary};
 use studio_import::parse_semantic_result;
 use studio_storage::{run_migrations, ProjectRepo};
@@ -51,6 +52,15 @@ fn import_semantic_file(
     repo.create(&project).map_err(|e| e.to_string())
 }
 
+/// Run T0 analysis on a semantic_result.json file.
+#[tauri::command]
+fn analyze_t0(file_path: String) -> Result<T0Stats, String> {
+    let content =
+        std::fs::read_to_string(&file_path).map_err(|e| format!("Failed to read file: {e}"))?;
+    let doc = parse_semantic_result(&content).map_err(|e| format!("Failed to parse: {e}"))?;
+    run_t0_analysis(&doc).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -62,7 +72,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_projects,
             create_project,
-            import_semantic_file
+            import_semantic_file,
+            analyze_t0
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
