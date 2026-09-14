@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import ProjectList from "./pages/ProjectList";
+import Analysis from "./pages/Analysis";
 
 type Page = "projects" | "analysis" | "settings";
 
@@ -12,9 +13,7 @@ function App() {
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
       <main className="flex-1 overflow-auto p-6">
         {currentPage === "projects" && <ProjectList />}
-        {currentPage === "analysis" && (
-          <div className="text-text-muted">Analysis view (coming soon)</div>
-        )}
+        {currentPage === "analysis" && <Analysis />}
         {currentPage === "settings" && (
           <div className="text-text-muted">Settings (coming soon)</div>
         )}
