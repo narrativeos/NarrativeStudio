@@ -14,3 +14,4 @@
 | 文档 | 说明 |
 |------|------|
 | [product-design.md](product-design.md) | NarrativeStudio 产品设计文档（v0.1.0） |
+| [development.md](development.md) | NarrativeStudio 开发文档（v0.1.0） |
