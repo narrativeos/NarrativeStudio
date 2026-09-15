@@ -28,27 +28,29 @@ struct RawAggregation {
 }
 
 #[derive(Debug, Deserialize)]
-struct RawBlock {
+pub(crate) struct RawBlock {
     #[serde(default)]
-    source_block_ids: Vec<String>,
+    pub(crate) source_block_ids: Vec<String>,
     #[serde(default)]
-    content: String,
+    pub(crate) block_ids: Vec<u64>,
     #[serde(default)]
-    section_path: String,
+    pub(crate) content: String,
+    #[serde(default)]
+    pub(crate) section_path: String,
     #[serde(default, rename = "type")]
-    block_type: Option<String>,
+    pub(crate) block_type: Option<String>,
     #[serde(default)]
-    title: Option<String>,
+    pub(crate) title: Option<String>,
     #[serde(default)]
-    tokens: Vec<RawToken>,
+    pub(crate) tokens: Vec<RawToken>,
     #[serde(default)]
-    entities: Vec<RawEntity>,
+    pub(crate) entities: Vec<RawEntity>,
     #[serde(default)]
-    noun_signals: Vec<RawNounSignal>,
+    pub(crate) noun_signals: Vec<RawNounSignal>,
 }
 
 #[derive(Debug, Deserialize)]
-struct RawToken {
+pub(crate) struct RawToken {
     text: String,
     pos: String,
     #[serde(default)]
@@ -60,7 +62,7 @@ struct RawToken {
 }
 
 #[derive(Debug, Deserialize)]
-struct RawEntity {
+pub(crate) struct RawEntity {
     #[serde(default)]
     text: String,
     #[serde(default)]
@@ -80,25 +82,27 @@ struct RawEntity {
 }
 
 #[derive(Debug, Deserialize)]
-struct RawNounSignal {
-    text: String,
-    pos: String,
+pub(crate) struct RawNounSignal {
     #[serde(default)]
-    syntactic_role: Option<String>,
+    pub(crate) text: String,
     #[serde(default)]
-    score: f32,
+    pub(crate) pos: String,
     #[serde(default)]
-    span: Vec<usize>,
+    pub(crate) syntactic_role: Option<String>,
     #[serde(default)]
-    evidence: Option<RawNounSignalEvidence>,
+    pub(crate) score: f32,
+    #[serde(default)]
+    pub(crate) span: Vec<usize>,
+    #[serde(default)]
+    pub(crate) evidence: Option<RawNounSignalEvidence>,
 }
 
 #[derive(Debug, Deserialize)]
-struct RawNounSignalEvidence {
+pub(crate) struct RawNounSignalEvidence {
     #[serde(default)]
-    head_rel: Option<String>,
+    pub(crate) head_rel: Option<String>,
     #[serde(default)]
-    extra: Option<serde_json::Value>,
+    pub(crate) extra: Option<serde_json::Value>,
 }
 
 fn convert_token(raw: RawToken) -> Token {
@@ -166,8 +170,48 @@ fn convert_block(raw: RawBlock) -> SemanticBlock {
 
 /// Parse a TraceView semantic_result.json file into DocumentData.
 pub fn parse_semantic_result(json: &str) -> Result<DocumentData> {
-    let raw: RawSemanticResult = serde_json::from_str(json)
+    parse_semantic_result_enriched(json, None, None)
+}
+
+/// Parse a TraceView semantic_result.json file into DocumentData, optionally
+/// enriching the blocks with:
+///
+/// * `popo_json` — popo_result.json; its TOC is matched against block titles
+///   to fill in `section_path` (chapter/section hierarchy).
+/// * `term_json` — term_result.json; its domain terms are attached to their
+///   blocks as noun signals (领域术语).
+///
+/// Enrichment is best-effort: a missing or malformed auxiliary file logs a
+/// warning but never fails the import.
+pub fn parse_semantic_result_enriched(
+    semantic_json: &str,
+    popo_json: Option<&str>,
+    term_json: Option<&str>,
+) -> Result<DocumentData> {
+    let mut raw: RawSemanticResult = serde_json::from_str(semantic_json)
         .map_err(|e| studio_core::error::StudioError::Import(e.to_string()))?;
+
+    if let Some(popo) = popo_json {
+        match crate::popo::parse_popo_toc(popo) {
+            Ok(toc) if !toc.is_empty() => {
+                let matched = crate::enrich::apply_toc(&mut raw.blocks, &toc);
+                eprintln!("[import] TOC enrichment: {matched}/{} entries matched", toc.len());
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("[import] popo TOC enrichment skipped: {e}"),
+        }
+    }
+
+    if let Some(terms) = term_json {
+        match crate::term::parse_term_result(terms) {
+            Ok(parsed) if !parsed.is_empty() => {
+                let added = crate::enrich::apply_terms(&mut raw.blocks, &parsed);
+                eprintln!("[import] term enrichment: {added} noun signals added");
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("[import] term enrichment skipped: {e}"),
+        }
+    }
 
     let blocks: Vec<SemanticBlock> = raw.blocks.into_iter().map(convert_block).collect();
     let total_word_count = blocks.iter().map(|b| b.tokens.len() as u64).sum();
@@ -244,5 +288,60 @@ mod tests {
     fn test_invalid_json() {
         let result = parse_semantic_result("not json");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_semantic_result_enriched() {
+        let semantic = r#"{
+            "blocks": [
+                {"block_ids": [1], "content": "第一章 出版学的核心概念", "type": "title"},
+                {"block_ids": [2], "content": "正文段落 出版学 是研究出版活动的", "type": "text"},
+                {"block_ids": [3], "content": "第一节 出版物", "type": "title"},
+                {"block_ids": [4], "content": "正文段落二", "type": "text"}
+            ]
+        }"#;
+        let popo = r#"{
+            "result": {
+                "toc": {
+                    "entries": [
+                        {"title": "第一章 出版学的核心概念", "level": 1},
+                        {"title": "第一节 出版物", "level": 2}
+                    ]
+                }
+            }
+        }"#;
+        let terms = r#"{
+            "terms": [
+                {"text": "出版学", "category": "UNKNOWN", "score": 0.9, "block_ids": [2]}
+            ]
+        }"#;
+
+        let doc = parse_semantic_result_enriched(semantic, Some(popo), Some(terms)).unwrap();
+        assert_eq!(doc.blocks.len(), 4);
+        assert_eq!(doc.blocks[0].section_path, "第一章 出版学的核心概念");
+        assert_eq!(doc.blocks[1].section_path, "第一章 出版学的核心概念");
+        assert_eq!(
+            doc.blocks[2].section_path,
+            "第一章 出版学的核心概念 / 第一节 出版物"
+        );
+        assert_eq!(
+            doc.blocks[3].section_path,
+            "第一章 出版学的核心概念 / 第一节 出版物"
+        );
+        assert_eq!(doc.blocks[1].noun_signals.len(), 1);
+        assert_eq!(doc.blocks[1].noun_signals[0].text, "出版学");
+        assert_eq!(doc.blocks[1].noun_signals[0].pos, "UNKNOWN");
+    }
+
+    #[test]
+    fn test_parse_semantic_result_enriched_bad_aux_files() {
+        // Malformed auxiliary files must not fail the import.
+        let semantic = r#"{"blocks": [{"block_ids": [1], "content": "正文", "type": "text"}]}"#;
+        let doc =
+            parse_semantic_result_enriched(semantic, Some("not json"), Some("also not json"))
+                .unwrap();
+        assert_eq!(doc.blocks.len(), 1);
+        assert_eq!(doc.blocks[0].section_path, "");
+        assert!(doc.blocks[0].noun_signals.is_empty());
     }
 }

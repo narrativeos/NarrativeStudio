@@ -5,7 +5,7 @@ use serde::Serialize;
 use studio_analysis::{run_t0_analysis, run_t1_analysis, T0Stats, T1Stats};
 use studio_core::document::DocumentData;
 use studio_core::project::{Project, ProjectSummary};
-use studio_import::parse_semantic_result;
+use studio_import::{parse_semantic_result, parse_semantic_result_enriched};
 use studio_storage::{create, delete, get, list, load_document, run_migrations, save_document};
 use tauri::{Emitter, Manager, State};
 use uuid::Uuid;
@@ -231,6 +231,45 @@ fn run_import(
     let content = std::fs::read_to_string(&semantic_path)
         .map_err(|e| format!("Failed to read semantic_result.json: {e}"))?;
 
+    // 4b. Read optional enrichment files:
+    //     - popo/popo_result.json        -> TOC (chapter/section structure)
+    //     - semantic/term_result.json    -> domain terms (noun signals)
+    let popo_path = project_dir.join("popo").join("popo_result.json");
+    let popo_content = if popo_path.exists() {
+        app_handle
+            .emit(
+                "import-progress",
+                ImportProgress::Status {
+                    message: "读取 popo TOC (章节结构) ...".into(),
+                },
+            )
+            .ok();
+        Some(
+            std::fs::read_to_string(&popo_path)
+                .map_err(|e| format!("Failed to read popo_result.json: {e}"))?,
+        )
+    } else {
+        None
+    };
+
+    let term_path = project_dir.join("semantic").join("term_result.json");
+    let term_content = if term_path.exists() {
+        app_handle
+            .emit(
+                "import-progress",
+                ImportProgress::Status {
+                    message: "读取 term_result.json (领域术语) ...".into(),
+                },
+            )
+            .ok();
+        Some(
+            std::fs::read_to_string(&term_path)
+                .map_err(|e| format!("Failed to read term_result.json: {e}"))?,
+        )
+    } else {
+        None
+    };
+
     app_handle
         .emit(
             "import-progress",
@@ -240,8 +279,12 @@ fn run_import(
         )
         .ok();
 
-    let doc = parse_semantic_result(&content)
-        .map_err(|e| format!("Failed to parse semantic data: {e}"))?;
+    let doc = parse_semantic_result_enriched(
+        &content,
+        popo_content.as_deref(),
+        term_content.as_deref(),
+    )
+    .map_err(|e| format!("Failed to parse semantic data: {e}"))?;
 
     let block_count = doc.blocks.len() as u64;
     app_handle

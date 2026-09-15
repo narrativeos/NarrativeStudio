@@ -5,6 +5,11 @@
 
 pub use studio_core::error::Result;
 
+mod enrich;
+mod popo;
 mod semantic;
+mod term;
 
-pub use semantic::parse_semantic_result;
+pub use popo::{parse_popo_toc, TocEntry};
+pub use semantic::{parse_semantic_result, parse_semantic_result_enriched};
+pub use term::{parse_term_result, Term};
