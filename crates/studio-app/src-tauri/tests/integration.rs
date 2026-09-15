@@ -84,9 +84,10 @@ fn test_full_import_and_analysis_flow() {
 
     // 8. Run T1 analysis
     let t1 = run_t1_analysis(&doc).expect("T1 analysis failed");
-    assert!(
-        t1.section_count >= 0,
-        "Section count should be >= 0"
+    assert_eq!(
+        t1.section_count as usize,
+        t1.sections.len(),
+        "Section count should match sections list length"
     );
     assert!(
         !t1.block_type_distribution.is_empty(),
