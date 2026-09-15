@@ -27,6 +27,20 @@ function App() {
     }
   }
 
+  async function deleteProject(id: string) {
+    try {
+      await invoke("delete_project", { projectId: id });
+      if (selectedProjectId === id) {
+        setSelectedProjectId(null);
+        setView("home");
+      }
+      await loadProjects();
+    } catch (e) {
+      console.error("Failed to delete project:", e);
+      window.alert(`删除项目失败：${e}`);
+    }
+  }
+
   const selectProject = useCallback((id: string) => {
     setSelectedProjectId(id);
     setView("project");
@@ -67,6 +81,7 @@ function App() {
         onExitCompare={exitCompare}
         onToggleCompare={toggleCompare}
         onOpenSettings={openSettings}
+        onDeleteProject={deleteProject}
       />
       <main className="flex-1 overflow-auto p-6">
         {view === "home" && (
