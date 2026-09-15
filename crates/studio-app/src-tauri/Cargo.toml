@@ -19,3 +19,6 @@ studio-import = { path = "../../studio-import" }
 studio-analysis = { path = "../../studio-analysis" }
 duckdb = { version = "1", features = ["chrono"] }
 uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

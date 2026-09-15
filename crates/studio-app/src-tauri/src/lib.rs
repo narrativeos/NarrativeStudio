@@ -45,6 +45,10 @@ impl AppState {
             .map_err(|e| format!("Failed to create data dir: {e}"))?;
         let db_path = data_dir.join("narrative_studio.duckdb");
 
+        // Fail fast with a clear message if another instance holds the lock.
+        #[cfg(unix)]
+        check_db_lock(&db_path)?;
+
         let conn = Connection::open(&db_path).map_err(|e| {
             format!(
                 "Failed to open database at {}.\n\n{}\n\n\
@@ -59,6 +63,45 @@ impl AppState {
             storage: Mutex::new(Storage { conn }),
         })
     }
+}
+
+/// Pre-flight check: fail fast with a clear message if the database file is
+/// already locked by another process, instead of blocking in `Connection::open`.
+///
+/// DuckDB (on Unix) takes an exclusive `flock` on the database file, so a
+/// non-blocking `flock` probe tells us whether another instance holds it.
+#[cfg(unix)]
+fn check_db_lock(db_path: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::prelude::AsRawFd;
+
+    // Nothing to probe if the file does not exist yet (DuckDB will create it).
+    if !db_path.exists() {
+        return Ok(());
+    }
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(db_path)
+        .map_err(|e| format!("Failed to open database file for lock check: {e}"))?;
+
+    // SAFETY: `file` owns a valid fd for the duration of the call.
+    let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if ret != 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            return Err(format!(
+                "The database is locked by another running instance of NarrativeStudio:\n{}\n\nPlease close the other instance first.",
+                db_path.display()
+            ));
+        }
+        return Err(format!("Failed to check database lock: {err}"));
+    }
+
+    // Release immediately; DuckDB acquires its own lock right after.
+    // SAFETY: same fd as above.
+    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+    Ok(())
 }
 
 /// List all projects.
