@@ -1,8 +1,14 @@
 [package]
 name = "studio-app"
+# 可执行文件名用 NarrativeStudio（进程名 / target/debug 下的二进制名）
+default-run = "NarrativeStudio"
 description = "NarrativeStudio Tauri application"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "NarrativeStudio"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
