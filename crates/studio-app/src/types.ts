@@ -18,6 +18,8 @@ export interface T0Stats {
   top_words: [string, number][];
   pos_distribution: [string, number][];
   entity_counts: [string, number][];
+  top_entities: [string, number][];
+  top_noun_signals: [string, number][];
   noun_signal_count: number;
   avg_block_length: number;
   avg_sentence_length: number;

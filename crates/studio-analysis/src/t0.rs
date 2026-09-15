@@ -17,6 +17,8 @@ pub struct T0Stats {
     pub top_words: Vec<(String, u32)>,
     pub pos_distribution: Vec<(String, u32)>,
     pub entity_counts: Vec<(String, u32)>,
+    pub top_entities: Vec<(String, u32)>,
+    pub top_noun_signals: Vec<(String, u32)>,
     pub noun_signal_count: u32,
     pub avg_block_length: f64,
     pub avg_sentence_length: f64,
@@ -62,6 +64,28 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         .collect();
     entity_counts.sort_by(|a, b| b.1.cmp(&a.1));
 
+    // Top entity texts by frequency (key characters / places / objects).
+    let mut entity_text_freq: HashMap<String, u32> = HashMap::new();
+    for block in &doc.blocks {
+        for entity in &block.entities {
+            *entity_text_freq.entry(entity.text.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut top_entities: Vec<(String, u32)> = entity_text_freq.into_iter().collect();
+    top_entities.sort_by(|a, b| b.1.cmp(&a.1));
+    top_entities.truncate(50);
+
+    // Top noun signals (domain terms) by frequency.
+    let mut signal_freq: HashMap<String, u32> = HashMap::new();
+    for block in &doc.blocks {
+        for signal in &block.noun_signals {
+            *signal_freq.entry(signal.text.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut top_noun_signals: Vec<(String, u32)> = signal_freq.into_iter().collect();
+    top_noun_signals.sort_by(|a, b| b.1.cmp(&a.1));
+    top_noun_signals.truncate(50);
+
     let noun_signal_count: u32 = doc.blocks.iter().map(|b| b.noun_signals.len() as u32).sum();
 
     let avg_block_length = if block_count > 0 {
@@ -82,6 +106,8 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         top_words,
         pos_distribution,
         entity_counts,
+        top_entities,
+        top_noun_signals,
         noun_signal_count,
         avg_block_length,
         avg_sentence_length,
@@ -272,6 +298,23 @@ mod tests {
         let doc = sample_doc();
         let stats = run_t0_analysis(&doc).unwrap();
         assert_eq!(stats.noun_signal_count, 1);
+    }
+
+    #[test]
+    fn test_t0_top_entities() {
+        let doc = sample_doc();
+        let stats = run_t0_analysis(&doc).unwrap();
+        // block1 contributes exactly one entity.
+        assert_eq!(stats.top_entities.len(), 1);
+        assert_eq!(stats.top_entities[0].1, 1);
+    }
+
+    #[test]
+    fn test_t0_top_noun_signals() {
+        let doc = sample_doc();
+        let stats = run_t0_analysis(&doc).unwrap();
+        assert_eq!(stats.top_noun_signals[0].0, "fox");
+        assert_eq!(stats.top_noun_signals[0].1, 1);
     }
 
     #[test]
