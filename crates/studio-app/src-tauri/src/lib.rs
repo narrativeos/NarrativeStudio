@@ -3,12 +3,14 @@ use std::sync::Mutex;
 use duckdb::Connection;
 use serde::Serialize;
 use studio_analysis::{run_t0_analysis, run_t1_analysis, T0Stats, T1Stats};
+use studio_core::document::DocumentData;
 use studio_core::project::{Project, ProjectSummary};
 use studio_import::parse_semantic_result;
 use studio_storage::{
-    create, list, load_document, run_migrations, save_document,
+    create, get, list, load_document, run_migrations, save_document,
 };
 use tauri::{Emitter, Manager, State};
+use uuid::Uuid;
 
 /// Application state holding the storage layer.
 pub struct AppState {
@@ -284,6 +286,82 @@ fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
     run_t1_analysis(&doc).map_err(|e| e.to_string())
 }
 
+/// Analysis result for a single project (T0 + T1).
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectAnalysis {
+    pub project_id: String,
+    pub name: String,
+    pub t0: T0Stats,
+    pub t1: T1Stats,
+}
+
+/// Load all documents of a project and merge them into a single `DocumentData`.
+///
+/// A project currently holds one document, but this merges any number so the
+/// analysis stays correct if a project ever contains multiple documents.
+fn load_project_document(conn: &Connection, project_id: Uuid) -> Result<DocumentData, String> {
+    let mut stmt = conn
+        .prepare("SELECT doc_id FROM documents WHERE project_id = ? ORDER BY created_at ASC")
+        .map_err(|e| e.to_string())?;
+    let doc_ids: Vec<String> = stmt
+        .query_map([project_id.to_string()], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut merged = DocumentData {
+        doc_id: Uuid::new_v4(),
+        title: String::new(),
+        blocks: Vec::new(),
+        total_word_count: 0,
+        total_char_count: 0,
+    };
+
+    for doc_id in doc_ids {
+        let uuid = Uuid::parse_str(&doc_id).map_err(|e| e.to_string())?;
+        let doc = load_document(conn, uuid).map_err(|e| e.to_string())?;
+        merged.total_word_count += doc.total_word_count;
+        merged.total_char_count += doc.total_char_count;
+        merged.blocks.extend(doc.blocks);
+    }
+
+    Ok(merged)
+}
+
+/// Core: run T0/T1 analysis on a project by loading its documents from the DB.
+fn analyze_project_inner(state: &State<AppState>, project_id: &str) -> Result<ProjectAnalysis, String> {
+    let pid = Uuid::parse_str(project_id).map_err(|e| e.to_string())?;
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let project = get(&storage.conn, pid).map_err(|e| e.to_string())?;
+    let doc = load_project_document(&storage.conn, pid)?;
+    let t0 = run_t0_analysis(&doc).map_err(|e| e.to_string())?;
+    let t1 = run_t1_analysis(&doc).map_err(|e| e.to_string())?;
+    Ok(ProjectAnalysis {
+        project_id: pid.to_string(),
+        name: project.name,
+        t0,
+        t1,
+    })
+}
+
+/// Run T0/T1 analysis on a single project (data loaded from the database).
+#[tauri::command]
+fn analyze_project(state: State<AppState>, project_id: String) -> Result<ProjectAnalysis, String> {
+    analyze_project_inner(&state, &project_id)
+}
+
+/// Run T0/T1 analysis on multiple projects for cross-project comparison.
+#[tauri::command]
+fn analyze_projects(
+    state: State<AppState>,
+    project_ids: Vec<String>,
+) -> Result<Vec<ProjectAnalysis>, String> {
+    project_ids
+        .iter()
+        .map(|id| analyze_project_inner(&state, id))
+        .collect()
+}
+
 /// List documents for a project.
 #[tauri::command]
 fn list_documents(
@@ -354,6 +432,8 @@ pub fn run() {
             import_project,
             analyze_t0,
             analyze_t1,
+            analyze_project,
+            analyze_projects,
             list_documents,
             load_document_cmd
         ])

@@ -1,77 +1,60 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import type { ProjectAnalysis } from "../types";
 
-interface T0Stats {
-  word_count: number;
-  char_count: number;
-  block_count: number;
-  top_words: [string, number][];
-  pos_distribution: [string, number][];
-  entity_counts: [string, number][];
-  noun_signal_count: number;
-  avg_block_length: number;
-  avg_sentence_length: number;
+interface AnalysisProps {
+  projectId: string;
+  onBack: () => void;
 }
 
-interface SectionInfo {
-  path: string;
-  block_count: number;
-  char_count: number;
-}
-
-interface T1Stats {
-  sections: SectionInfo[];
-  section_count: number;
-  title_blocks: number;
-  paragraph_blocks: number;
-  list_blocks: number;
-  block_type_distribution: [string, number][];
-  longest_section: string | null;
-  shortest_section: string | null;
-}
-
-function Analysis() {
-  const [t0, setT0] = useState<T0Stats | null>(null);
-  const [t1, setT1] = useState<T1Stats | null>(null);
+function Analysis({ projectId, onBack }: AnalysisProps) {
+  const [data, setData] = useState<ProjectAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function runAnalysis() {
-    setLoading(true);
-    setError(null);
-    try {
-      const filePath = await open({
-        title: "选择 semantic_result.json 文件",
-        filters: [{ name: "JSON", extensions: ["json"] }],
-        multiple: false,
-      });
-      if (!filePath || typeof filePath !== "string") return;
-      const [t0Result, t1Result] = await Promise.all([
-        invoke<T0Stats>("analyze_t0", { filePath }),
-        invoke<T1Stats>("analyze_t1", { filePath }),
-      ]);
-      setT0(t0Result);
-      setT1(t1Result);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      setLoading(true);
+      setError(null);
+      setData(null);
+      try {
+        const result = await invoke<ProjectAnalysis>("analyze_project", { projectId });
+        if (!cancelled) setData(result);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-  }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">Analysis</h2>
+      <div className="flex items-center gap-3 mb-4">
         <button
-          onClick={runAnalysis}
-          disabled={loading}
-          className="px-4 py-2 bg-accent/20 text-accent rounded-md hover:bg-accent/30 transition-colors disabled:opacity-50"
+          onClick={onBack}
+          className="px-2 py-1 text-lg leading-none text-text-muted hover:text-text hover:bg-gray-700/50 rounded-md transition-colors"
+          title="返回项目列表"
         >
-          {loading ? "Analyzing..." : "Run Analysis"}
+          ←
         </button>
+        <div>
+          <h2 className="text-xl font-semibold">{data?.name ?? "Project"}</h2>
+          {data && (
+            <p className="text-xs text-text-muted mt-0.5">
+              {data.t0.block_count} blocks · {data.t1.section_count} sections ·{" "}
+              {data.t0.word_count.toLocaleString()} words
+            </p>
+          )}
+        </div>
       </div>
+
+      {loading && <div className="text-text-muted">Analyzing…</div>}
 
       {error && (
         <div className="text-red-400 mb-4">
@@ -80,21 +63,22 @@ function Analysis() {
         </div>
       )}
 
-      {t0 && t1 && (
+      {data && (
         <div className="space-y-6">
-          {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard label="Words" value={t0.word_count.toLocaleString()} />
-            <StatCard label="Blocks" value={t0.block_count.toString()} />
-            <StatCard label="Sections" value={t1.section_count.toString()} />
-            <StatCard label="Entities" value={t0.entity_counts.reduce((s, [, c]) => s + c, 0).toString()} />
+            <StatCard label="Words" value={data.t0.word_count.toLocaleString()} />
+            <StatCard label="Blocks" value={data.t0.block_count.toString()} />
+            <StatCard label="Sections" value={data.t1.section_count.toString()} />
+            <StatCard
+              label="Entities"
+              value={data.t0.entity_counts.reduce((s, [, c]) => s + c, 0).toString()}
+            />
           </div>
 
-          {/* T0: Top words */}
           <section>
             <h3 className="text-sm font-medium text-text-muted mb-2">Top Words</h3>
             <div className="flex flex-wrap gap-2">
-              {t0.top_words.slice(0, 20).map(([word, count]) => (
+              {data.t0.top_words.slice(0, 20).map(([word, count]) => (
                 <span key={word} className="px-2 py-1 bg-surface-alt rounded text-xs">
                   {word} <span className="text-text-muted">({count})</span>
                 </span>
@@ -102,11 +86,10 @@ function Analysis() {
             </div>
           </section>
 
-          {/* T0: POS distribution */}
           <section>
             <h3 className="text-sm font-medium text-text-muted mb-2">POS Distribution</h3>
             <div className="flex flex-wrap gap-2">
-              {t0.pos_distribution.map(([pos, count]) => (
+              {data.t0.pos_distribution.map(([pos, count]) => (
                 <span key={pos} className="px-2 py-1 bg-surface-alt rounded text-xs">
                   {pos} <span className="text-text-muted">({count})</span>
                 </span>
@@ -114,11 +97,10 @@ function Analysis() {
             </div>
           </section>
 
-          {/* T1: Block type distribution */}
           <section>
             <h3 className="text-sm font-medium text-text-muted mb-2">Block Types</h3>
             <div className="flex flex-wrap gap-2">
-              {t1.block_type_distribution.map(([bt, count]) => (
+              {data.t1.block_type_distribution.map(([bt, count]) => (
                 <span key={bt} className="px-2 py-1 bg-surface-alt rounded text-xs">
                   {bt} <span className="text-text-muted">({count})</span>
                 </span>
@@ -126,27 +108,24 @@ function Analysis() {
             </div>
           </section>
 
-          {/* T1: Sections */}
-          {t1.sections.length > 0 && (
+          {data.t1.sections.length > 0 && (
             <section>
               <h3 className="text-sm font-medium text-text-muted mb-2">Sections</h3>
               <div className="space-y-1">
-                {t1.sections.map((s) => (
-                  <div key={s.path} className="flex justify-between text-xs px-3 py-2 bg-surface-alt rounded">
+                {data.t1.sections.map((s) => (
+                  <div
+                    key={s.path}
+                    className="flex justify-between text-xs px-3 py-2 bg-surface-alt rounded"
+                  >
                     <span>{s.path || "(root)"}</span>
-                    <span className="text-text-muted">{s.block_count} blocks, {s.char_count} chars</span>
+                    <span className="text-text-muted">
+                      {s.block_count} blocks, {s.char_count} chars
+                    </span>
                   </div>
                 ))}
               </div>
             </section>
           )}
-        </div>
-      )}
-
-      {!t0 && !loading && !error && (
-        <div className="text-center py-12 text-text-muted">
-          <p className="text-4xl mb-4">📊</p>
-          <p>Click "Run Analysis" to analyze a TraceView semantic_result.json file.</p>
         </div>
       )}
     </div>
