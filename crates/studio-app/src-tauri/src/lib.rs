@@ -6,9 +6,7 @@ use studio_analysis::{run_t0_analysis, run_t1_analysis, T0Stats, T1Stats};
 use studio_core::document::DocumentData;
 use studio_core::project::{Project, ProjectSummary};
 use studio_import::parse_semantic_result;
-use studio_storage::{
-    create, delete, get, list, load_document, run_migrations, save_document,
-};
+use studio_storage::{create, delete, get, list, load_document, run_migrations, save_document};
 use tauri::{Emitter, Manager, State};
 use uuid::Uuid;
 
@@ -29,7 +27,11 @@ pub enum ImportProgress {
     #[serde(rename = "status")]
     Status { message: String },
     #[serde(rename = "progress")]
-    Progress { current: u64, total: u64, message: String },
+    Progress {
+        current: u64,
+        total: u64,
+        message: String,
+    },
     #[serde(rename = "done")]
     Done { project_id: String },
     #[serde(rename = "error")]
@@ -141,12 +143,28 @@ fn delete_project(state: State<AppState>, project_id: String) -> Result<(), Stri
 /// └── semantic/semantic_result.json
 /// ```
 #[tauri::command]
-fn import_project(
+async fn import_project(
     app_handle: tauri::AppHandle,
-    state: State<AppState>,
     project_path: String,
 ) -> Result<Project, String> {
-    let project_dir = std::path::Path::new(&project_path);
+    // Run the blocking import on the async runtime's blocking pool so the UI
+    // thread stays responsive, emitting `import-progress` events as it goes.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        run_import(&app_handle, &state, &project_path)
+    })
+    .await
+    .map_err(|e| format!("Import task failed: {e}"))?
+}
+
+/// Blocking body of [`import_project`]: reads the folder, parses the semantic
+/// result, and writes it to the database, emitting progress events along the way.
+fn run_import(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    project_path: &str,
+) -> Result<Project, String> {
+    let project_dir = std::path::Path::new(project_path);
 
     // 1. Validate: project.json must exist
     let project_json_path = project_dir.join("project.json");
@@ -159,9 +177,12 @@ fn import_project(
 
     // 2. Read project.json for metadata
     app_handle
-        .emit("import-progress", ImportProgress::Status {
-            message: "读取 project.json ...".into(),
-        })
+        .emit(
+            "import-progress",
+            ImportProgress::Status {
+                message: "读取 project.json ...".into(),
+            },
+        )
         .ok();
 
     let project_json_content = std::fs::read_to_string(&project_json_path)
@@ -177,9 +198,12 @@ fn import_project(
 
     // 3. Find semantic_result.json
     app_handle
-        .emit("import-progress", ImportProgress::Status {
-            message: "查找 semantic/semantic_result.json ...".into(),
-        })
+        .emit(
+            "import-progress",
+            ImportProgress::Status {
+                message: "查找 semantic/semantic_result.json ...".into(),
+            },
+        )
         .ok();
 
     let semantic_path = project_dir.join("semantic").join("semantic_result.json");
@@ -226,8 +250,7 @@ fn import_project(
             ImportProgress::Status {
                 message: format!(
                     "解析完成: {} 个文本块, {} 字",
-                    block_count,
-                    doc.total_char_count
+                    block_count, doc.total_char_count
                 ),
             },
         )
@@ -244,7 +267,7 @@ fn import_project(
         .ok();
 
     let mut project = Project::new(&project_name);
-    project.source_path = Some(project_path.clone());
+    project.source_path = Some(project_path.to_string());
 
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
     let project = create(&storage.conn, &project).map_err(|e| e.to_string())?;
@@ -261,8 +284,24 @@ fn import_project(
         )
         .ok();
 
-    save_document(&storage.conn, project.project_id, &doc)
-        .map_err(|e| e.to_string())?;
+    save_document(
+        &storage.conn,
+        project.project_id,
+        &doc,
+        Some(&|current, total| {
+            app_handle
+                .emit(
+                    "import-progress",
+                    ImportProgress::Progress {
+                        current,
+                        total,
+                        message: "写入数据库 ...".into(),
+                    },
+                )
+                .ok();
+        }),
+    )
+    .map_err(|e| e.to_string())?;
 
     // 7. Done
     app_handle
@@ -338,7 +377,10 @@ fn load_project_document(conn: &Connection, project_id: Uuid) -> Result<Document
 }
 
 /// Core: run T0/T1 analysis on a project by loading its documents from the DB.
-fn analyze_project_inner(state: &State<AppState>, project_id: &str) -> Result<ProjectAnalysis, String> {
+fn analyze_project_inner(
+    state: &State<AppState>,
+    project_id: &str,
+) -> Result<ProjectAnalysis, String> {
     let pid = Uuid::parse_str(project_id).map_err(|e| e.to_string())?;
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
     let project = get(&storage.conn, pid).map_err(|e| e.to_string())?;

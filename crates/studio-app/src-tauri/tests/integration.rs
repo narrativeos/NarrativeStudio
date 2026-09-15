@@ -45,11 +45,13 @@ fn test_full_import_and_analysis_flow() {
     // 3. Create a project
     let project = Project::new("Test Import Project");
     let project = create(&conn, &project).expect("Failed to create project");
-    println!("✓ Created project: {} ({})", project.name, project.project_id);
+    println!(
+        "✓ Created project: {} ({})",
+        project.name, project.project_id
+    );
 
     // 4. Save the document
-    save_document(&conn, project.project_id, &doc)
-        .expect("Failed to save document");
+    save_document(&conn, project.project_id, &doc, None).expect("Failed to save document");
     println!("✓ Document saved");
 
     // 5. List projects
@@ -71,10 +73,7 @@ fn test_full_import_and_analysis_flow() {
     let t0 = run_t0_analysis(&doc).expect("T0 analysis failed");
     assert!(t0.word_count > 0, "Word count should be > 0");
     assert!(t0.block_count > 0, "Block count should be > 0");
-    assert!(
-        !t0.top_words.is_empty(),
-        "Top words should not be empty"
-    );
+    assert!(!t0.top_words.is_empty(), "Top words should not be empty");
     println!(
         "✓ T0: {} words, {} blocks, top word: {}",
         t0.word_count,
@@ -114,10 +113,7 @@ fn test_parse_semantic_result_structure() {
 
     // Check first block has content
     let first = &doc.blocks[0];
-    assert!(
-        !first.content.is_empty(),
-        "First block should have content"
-    );
+    assert!(!first.content.is_empty(), "First block should have content");
 
     // Check tokens exist
     let total_tokens: usize = doc.blocks.iter().map(|b| b.tokens.len()).sum();

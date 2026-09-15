@@ -220,7 +220,10 @@ mod tests {
         assert_eq!(doc.total_word_count, 1);
         assert_eq!(doc.total_char_count, 31);
         assert_eq!(doc.blocks[0].content, "Hardwired: Marlowe 3.0 analysis");
-        assert_eq!(doc.blocks[0].source_block_id, "53f1a2b9-ac84-486d-9fe1-a4df1c832433");
+        assert_eq!(
+            doc.blocks[0].source_block_id,
+            "53f1a2b9-ac84-486d-9fe1-a4df1c832433"
+        );
         assert_eq!(doc.blocks[0].block_type, "title");
         assert_eq!(doc.blocks[0].tokens.len(), 1);
         assert_eq!(doc.blocks[0].entities.len(), 1);

@@ -163,7 +163,8 @@ pub fn delete(conn: &Connection, project_id: Uuid) -> Result<()> {
     tx.execute("DELETE FROM projects WHERE project_id = ?", [pid.as_str()])
         .map_err(|e| crate::StudioError::Database(e.to_string()))?;
 
-    tx.commit().map_err(|e| crate::StudioError::Database(e.to_string()))
+    tx.commit()
+        .map_err(|e| crate::StudioError::Database(e.to_string()))
 }
 
 #[cfg(test)]
@@ -260,7 +261,7 @@ mod tests {
             total_word_count: 1,
             total_char_count: 5,
         };
-        save_document(&conn, project.project_id, &doc).unwrap();
+        save_document(&conn, project.project_id, &doc, None).unwrap();
 
         // Sanity: the imported data exists before the delete.
         let blocks: i64 = conn

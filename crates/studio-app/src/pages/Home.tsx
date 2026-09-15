@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -22,8 +22,17 @@ interface HomeProps {
 function Home({ projects, onOpenProject, onImported }: HomeProps) {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const logBoxRef = useRef<HTMLDivElement | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
+
+  // Keep the log box scrolled to the newest line as it grows.
+  useEffect(() => {
+    if (logBoxRef.current) {
+      logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
+    }
+  }, [logs]);
 
   async function handleImport() {
     const folderPath = await open({
@@ -35,26 +44,34 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
 
     setImporting(true);
     setError(null);
+    setLogs([]);
     setProgress(null);
 
     unlistenRef.current = await listen<ImportProgress>("import-progress", (event) => {
-      setProgress(event.payload);
-      if (event.payload.type === "done") {
+      const p = event.payload;
+      if ((p.type === "status" || p.type === "progress") && p.message) {
+        setLogs((prev) => [...prev, p.message as string]);
+      }
+      if (p.type === "progress" && p.total != null && p.total > 0) {
+        setProgress({ current: p.current ?? 0, total: p.total });
+      }
+      if (p.type === "done") {
         setImporting(false);
-        setProgress(null);
         onImported();
+      }
+      if (p.type === "error") {
+        setError(p.message ?? "Import failed");
+        setImporting(false);
       }
     });
 
     try {
       await invoke("import_project", { projectPath: folderPath });
       setImporting(false);
-      setProgress(null);
       onImported();
     } catch (e) {
       setError(String(e));
       setImporting(false);
-      setProgress(null);
     } finally {
       if (unlistenRef.current) {
         unlistenRef.current();
@@ -89,28 +106,31 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
             <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
             <span className="text-sm text-accent font-medium">Importing...</span>
           </div>
-          {progress && (
-            <>
-              <p className="text-sm text-text-muted">{progress.message}</p>
-              {progress.type === "progress" &&
-                progress.total != null &&
-                progress.total > 0 && (
-                  <div className="mt-2">
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent transition-all duration-300"
-                        style={{
-                          width: `${Math.round(((progress.current ?? 0) / progress.total) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs text-text-muted mt-1">
-                      {(progress.current ?? 0).toLocaleString()} / {progress.total.toLocaleString()}
-                    </p>
-                  </div>
-                )}
-            </>
+          {progress && progress.total > 0 && (
+            <div className="mt-1">
+              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent transition-all duration-200"
+                  style={{
+                    width: `${Math.min(100, Math.round((progress.current / progress.total) * 100))}%`,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-text-muted mt-1">
+                {progress.current.toLocaleString()} / {progress.total.toLocaleString()} blocks
+              </p>
+            </div>
           )}
+          <div
+            ref={logBoxRef}
+            className="mt-3 max-h-48 overflow-y-auto bg-black/40 rounded-md p-2 font-mono text-xs text-text-muted space-y-1"
+          >
+            {logs.map((line, i) => (
+              <div key={i} className="whitespace-pre-wrap break-words">
+                {line}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
