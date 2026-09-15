@@ -23,7 +23,7 @@ studio-core = { path = "../../studio-core" }
 studio-storage = { path = "../../studio-storage" }
 studio-import = { path = "../../studio-import" }
 studio-analysis = { path = "../../studio-analysis" }
-duckdb = { version = "1", features = ["chrono"] }
+duckdb = { version = "1", features = ["chrono", "bundled"] }
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(unix)'.dependencies]
