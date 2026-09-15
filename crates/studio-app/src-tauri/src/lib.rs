@@ -345,15 +345,25 @@ fn analyze_project_inner(state: &State<AppState>, project_id: &str) -> Result<Pr
 }
 
 /// Run T0/T1 analysis on a single project (data loaded from the database).
+///
+/// Marked `async` so the DB load + T0/T1 analysis run on Tauri's async runtime
+/// (a worker thread) rather than the main/UI thread. Keeping this heavy work off
+/// the main thread is what prevents the frontend from freezing on large docs.
 #[tauri::command]
-fn analyze_project(state: State<AppState>, project_id: String) -> Result<ProjectAnalysis, String> {
+async fn analyze_project(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<ProjectAnalysis, String> {
     analyze_project_inner(&state, &project_id)
 }
 
 /// Run T0/T1 analysis on multiple projects for cross-project comparison.
+///
+/// `async` for the same reason as [`analyze_project`]: keep the heavy work off
+/// the main/UI thread so the frontend stays responsive.
 #[tauri::command]
-fn analyze_projects(
-    state: State<AppState>,
+async fn analyze_projects(
+    state: State<'_, AppState>,
     project_ids: Vec<String>,
 ) -> Result<Vec<ProjectAnalysis>, String> {
     project_ids

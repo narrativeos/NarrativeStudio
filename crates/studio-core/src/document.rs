@@ -19,7 +19,7 @@ pub struct Token {
 /// A semantic block — the basic unit of text analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticBlock {
-    pub block_ids: Vec<u32>,
+    pub source_block_id: String,
     pub content: String,
     pub section_path: String,
     pub block_type: String,
@@ -57,7 +57,7 @@ mod tests {
 
     fn sample_block() -> SemanticBlock {
         SemanticBlock {
-            block_ids: vec![1],
+            source_block_id: "blk-test-1".to_string(),
             content: "Hardwired: Marlowe 3.0 analysis".to_string(),
             section_path: "Hardwired: Marlowe 3.0 analysis".to_string(),
             block_type: "title".to_string(),

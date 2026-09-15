@@ -98,7 +98,7 @@ mod tests {
 
     fn block(path: &str, bt: &str, content: &str) -> SemanticBlock {
         SemanticBlock {
-            block_ids: vec![1],
+            source_block_id: "blk-test".into(),
             content: content.to_string(),
             section_path: path.to_string(),
             block_type: bt.to_string(),

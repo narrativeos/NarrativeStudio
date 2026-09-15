@@ -30,7 +30,7 @@ struct RawAggregation {
 #[derive(Debug, Deserialize)]
 struct RawBlock {
     #[serde(default)]
-    block_ids: Vec<u32>,
+    source_block_ids: Vec<String>,
     #[serde(default)]
     content: String,
     #[serde(default)]
@@ -149,7 +149,7 @@ fn convert_noun_signal(raw: RawNounSignal) -> NounSignal {
 
 fn convert_block(raw: RawBlock) -> SemanticBlock {
     SemanticBlock {
-        block_ids: raw.block_ids,
+        source_block_id: raw.source_block_ids.first().cloned().unwrap_or_default(),
         content: raw.content,
         section_path: raw.section_path,
         block_type: raw.block_type.unwrap_or_else(|| "paragraph".to_string()),
@@ -190,7 +190,7 @@ mod tests {
         "version": "1.0",
         "blocks": [
             {
-                "block_ids": [1],
+                "source_block_ids": ["53f1a2b9-ac84-486d-9fe1-a4df1c832433"],
                 "content": "Hardwired: Marlowe 3.0 analysis",
                 "section_path": "Hardwired: Marlowe 3.0 analysis",
                 "type": "title",
@@ -220,6 +220,7 @@ mod tests {
         assert_eq!(doc.total_word_count, 1);
         assert_eq!(doc.total_char_count, 31);
         assert_eq!(doc.blocks[0].content, "Hardwired: Marlowe 3.0 analysis");
+        assert_eq!(doc.blocks[0].source_block_id, "53f1a2b9-ac84-486d-9fe1-a4df1c832433");
         assert_eq!(doc.blocks[0].block_type, "title");
         assert_eq!(doc.blocks[0].tokens.len(), 1);
         assert_eq!(doc.blocks[0].entities.len(), 1);

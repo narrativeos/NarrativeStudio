@@ -54,13 +54,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "create_semantic_blocks",
         "
         CREATE TABLE IF NOT EXISTS semantic_blocks (
-            block_id INTEGER PRIMARY KEY,
+            source_block_id VARCHAR PRIMARY KEY,
             doc_id UUID NOT NULL,
+            seq INTEGER NOT NULL,
             content TEXT NOT NULL,
             section_path TEXT NOT NULL,
             block_type TEXT NOT NULL,
             title TEXT
         );
+        CREATE INDEX IF NOT EXISTS idx_semantic_blocks_doc ON semantic_blocks(doc_id);
     ",
     )?;
 
@@ -70,8 +72,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "create_tokens",
         "
         CREATE TABLE IF NOT EXISTS tokens (
-            token_id INTEGER PRIMARY KEY,
-            block_id INTEGER NOT NULL,
+            token_id UUID PRIMARY KEY,
+            source_block_id VARCHAR NOT NULL,
+            seq INTEGER NOT NULL,
             text TEXT NOT NULL,
             pos TEXT NOT NULL,
             confidence REAL NOT NULL,
@@ -79,7 +82,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             span_end INTEGER NOT NULL,
             source TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_tokens_block ON tokens(block_id);
+        CREATE INDEX IF NOT EXISTS idx_tokens_block ON tokens(source_block_id);
     ",
     )?;
 
@@ -89,8 +92,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "create_entities",
         "
         CREATE TABLE IF NOT EXISTS entities (
-            entity_id INTEGER PRIMARY KEY,
-            block_id INTEGER NOT NULL,
+            entity_id UUID PRIMARY KEY,
+            source_block_id VARCHAR NOT NULL,
+            seq INTEGER NOT NULL,
             text TEXT NOT NULL,
             category TEXT NOT NULL,
             confidence REAL NOT NULL,
@@ -101,7 +105,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             span_start INTEGER NOT NULL,
             span_end INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(block_id);
+        CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(source_block_id);
         CREATE INDEX IF NOT EXISTS idx_entities_category ON entities(category);
     ",
     )?;
@@ -112,8 +116,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "create_noun_signals",
         "
         CREATE TABLE IF NOT EXISTS noun_signals (
-            signal_id INTEGER PRIMARY KEY,
-            block_id INTEGER NOT NULL,
+            signal_id UUID PRIMARY KEY,
+            source_block_id VARCHAR NOT NULL,
+            seq INTEGER NOT NULL,
             text TEXT NOT NULL,
             pos TEXT NOT NULL,
             syntactic_role TEXT,
@@ -121,7 +126,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             span_start INTEGER NOT NULL,
             span_end INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_noun_signals_block ON noun_signals(block_id);
+        CREATE INDEX IF NOT EXISTS idx_noun_signals_block ON noun_signals(source_block_id);
     ",
     )?;
 
@@ -169,6 +174,81 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "add_source_path_to_projects",
         "
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS source_path TEXT;
+    ",
+    )?;
+
+    // v10: re-key the block tables by the TraceView source UUID.
+    //
+    // The original schema used a per-document integer `block_id` (and per-document
+    // integer counters for token/entity/signal ids), which collides across
+    // documents and breaks multi-project analysis. We now key blocks by their
+    // globally-unique `source_block_id` (the UUID from semantic_result.json) and
+    // use UUID primary keys + a `seq` column for the child tables. Existing rows
+    // cannot be backfilled (the source UUID was never stored), so the block
+    // tables are dropped and recreated; the user re-imports their projects.
+    migrate(
+        conn,
+        10,
+        "rekey_blocks_by_source_block_id",
+        "
+        DROP TABLE IF EXISTS noun_signals;
+        DROP TABLE IF EXISTS entities;
+        DROP TABLE IF EXISTS tokens;
+        DROP TABLE IF EXISTS semantic_blocks;
+
+        CREATE TABLE IF NOT EXISTS semantic_blocks (
+            source_block_id VARCHAR PRIMARY KEY,
+            doc_id UUID NOT NULL,
+            seq INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            section_path TEXT NOT NULL,
+            block_type TEXT NOT NULL,
+            title TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_blocks_doc ON semantic_blocks(doc_id);
+
+        CREATE TABLE IF NOT EXISTS tokens (
+            token_id UUID PRIMARY KEY,
+            source_block_id VARCHAR NOT NULL,
+            seq INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            span_start INTEGER NOT NULL,
+            span_end INTEGER NOT NULL,
+            source TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tokens_block ON tokens(source_block_id);
+
+        CREATE TABLE IF NOT EXISTS entities (
+            entity_id UUID PRIMARY KEY,
+            source_block_id VARCHAR NOT NULL,
+            seq INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            category TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            source TEXT NOT NULL,
+            keep BOOLEAN NOT NULL DEFAULT TRUE,
+            filter TEXT,
+            filter_reason TEXT,
+            span_start INTEGER NOT NULL,
+            span_end INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(source_block_id);
+        CREATE INDEX IF NOT EXISTS idx_entities_category ON entities(category);
+
+        CREATE TABLE IF NOT EXISTS noun_signals (
+            signal_id UUID PRIMARY KEY,
+            source_block_id VARCHAR NOT NULL,
+            seq INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            syntactic_role TEXT,
+            score REAL NOT NULL,
+            span_start INTEGER NOT NULL,
+            span_end INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_noun_signals_block ON noun_signals(source_block_id);
     ",
     )?;
 

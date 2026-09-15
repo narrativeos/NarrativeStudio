@@ -123,7 +123,7 @@ mod tests {
 
     fn sample_doc() -> DocumentData {
         let block1 = SemanticBlock {
-            block_ids: vec![1],
+            source_block_id: "blk-1".into(),
             content: "The quick brown fox jumps over the lazy dog".to_string(),
             section_path: "Test".to_string(),
             block_type: "paragraph".to_string(),
@@ -214,7 +214,7 @@ mod tests {
         };
 
         let block2 = SemanticBlock {
-            block_ids: vec![2],
+            source_block_id: "blk-2".into(),
             content: "The dog barked".to_string(),
             section_path: "Test".to_string(),
             block_type: "paragraph".to_string(),
