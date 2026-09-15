@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 interface T0Stats {
   word_count: number;
@@ -40,8 +41,12 @@ function Analysis() {
     setLoading(true);
     setError(null);
     try {
-      const filePath = prompt("Enter path to semantic_result.json:");
-      if (!filePath) return;
+      const filePath = await open({
+        title: "选择 semantic_result.json 文件",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+        multiple: false,
+      });
+      if (!filePath || typeof filePath !== "string") return;
       const [t0Result, t1Result] = await Promise.all([
         invoke<T0Stats>("analyze_t0", { filePath }),
         invoke<T1Stats>("analyze_t1", { filePath }),

@@ -163,6 +163,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     ",
     )?;
 
+    migrate(
+        conn,
+        9,
+        "add_source_path_to_projects",
+        "
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS source_path TEXT;
+    ",
+    )?;
+
     Ok(())
 }
 
