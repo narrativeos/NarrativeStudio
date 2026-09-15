@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4338CA"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角方形背景（macOS squircle 比例） -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <!-- 叙事弧线：起承转合，抛物线升至高潮后回落 -->
+  <path d="M 192 704 Q 512 -64 832 704" fill="none" stroke="#FFFFFF" stroke-width="72" stroke-linecap="round"/>
+  <!-- 三幕节点：开端 / 高潮 / 结局 -->
+  <circle cx="192" cy="704" r="60" fill="#FFFFFF"/>
+  <circle cx="512" cy="320" r="60" fill="#FFFFFF"/>
+  <circle cx="832" cy="704" r="60" fill="#FFFFFF"/>
+</svg>
