@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import BarList from "../components/charts/BarList";
+import LineChart from "../components/charts/LineChart";
 import type { ProjectAnalysis } from "../types";
 
 interface AnalysisProps {
@@ -8,11 +9,30 @@ interface AnalysisProps {
   onBack: () => void;
 }
 
+const ARC_SHAPE_LABELS: Record<string, string> = {
+  mountain: "先扬后抑",
+  rising: "渐强",
+  falling: "渐弱",
+  steady: "平稳",
+};
+
+const SEVERITY_STYLES: Record<string, string> = {
+  high: "bg-red-500/15 text-red-400 border-red-500/30",
+  medium: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  low: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+};
+
+const SEVERITY_LABELS: Record<string, string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+};
+
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural)
- * analysis for the selected project and presents the full statistical
- * portrait, grouped by dimension. Deeper dimensions (radar scoring,
- * narrative arc, pacing, ...) are M2/M3 and render here as they land.
+ * analysis plus a rule-based assessment for the selected project, and
+ * presents the full portrait grouped by dimension: overview, assessment,
+ * statistics, text diagnostics, structure, and narrative.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -84,10 +104,73 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
         <StatCard label="字数" value={t0.word_count.toLocaleString()} />
         <StatCard label="文本块" value={t0.block_count.toLocaleString()} />
         <StatCard label="章节" value={t1.section_count.toLocaleString()} />
+        <StatCard label="句子" value={t0.sentence_count.toLocaleString()} />
         <StatCard label="实体" value={entityTotal.toLocaleString()} />
         <StatCard label="名词信号" value={t0.noun_signal_count.toLocaleString()} />
-        <StatCard label="平均句长" value={t0.avg_sentence_length.toFixed(1)} />
       </div>
+
+      {/* Overall assessment */}
+      <section>
+        <SectionTitle>总体评估</SectionTitle>
+        <div className="grid md:grid-cols-2 gap-4">
+          <Panel title={`综合评分 ${data.assessment.overall.toFixed(0)} / 100`}>
+            <div className="space-y-2.5">
+              {data.assessment.dimensions.map((d) => (
+                <div key={d.key} className="flex items-center gap-2 text-xs">
+                  <span className="w-16 shrink-0 text-text">{d.label}</span>
+                  <div className="flex-1 h-4 bg-gray-800/60 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${
+                        d.score >= 80
+                          ? "bg-emerald-400"
+                          : d.score >= 60
+                            ? "bg-amber-400"
+                            : "bg-red-400"
+                      }`}
+                      style={{ width: `${Math.max(2, d.score)}%` }}
+                    />
+                  </div>
+                  <span className="w-8 shrink-0 text-right text-text-muted tabular-nums">
+                    {d.score.toFixed(0)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 space-y-1">
+              {data.assessment.dimensions.map((d) => (
+                <p key={d.key} className="text-[11px] text-text-muted">
+                  {d.label}：{d.detail}
+                </p>
+              ))}
+            </div>
+          </Panel>
+          <Panel title={`关键建议（${data.assessment.recommendations.length}）`}>
+            {data.assessment.recommendations.length === 0 ? (
+              <p className="text-xs text-text-muted">
+                未检测到明显问题，文本质量良好。
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {data.assessment.recommendations.map((r, i) => (
+                  <li key={i} className="text-xs flex items-start gap-2">
+                    <span
+                      className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded border text-[10px] ${
+                        SEVERITY_STYLES[r.severity] ?? SEVERITY_STYLES.low
+                      }`}
+                    >
+                      {SEVERITY_LABELS[r.severity] ?? r.severity}
+                    </span>
+                    <span>
+                      <span className="text-text">{r.title}</span>
+                      <span className="text-text-muted"> — {r.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+      </section>
 
       {/* Statistical analysis */}
       <section>
@@ -123,6 +206,64 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               items={t0.pos_distribution.map(([label, value]) => ({ label, value }))}
               limit={12}
               colorClass="bg-violet-400"
+            />
+          </Panel>
+        </div>
+        <div className="mt-4 grid md:grid-cols-2 gap-4">
+          <Panel title={`句子统计（${t0.sentence_count.toLocaleString()} 句，平均 ${t0.avg_sentence_chars.toFixed(1)} 字）`}>
+            <BarList
+              items={t0.sentence_length_distribution.map(([label, value]) => ({
+                label: `${label} 字`,
+                value,
+              }))}
+              colorClass="bg-indigo-400"
+            />
+          </Panel>
+          <Panel title="可读性">
+            <div className="flex items-center gap-4">
+              <div
+                className={`text-3xl font-semibold tabular-nums ${
+                  t0.readability.score >= 80
+                    ? "text-emerald-400"
+                    : t0.readability.score >= 60
+                      ? "text-amber-400"
+                      : "text-red-400"
+                }`}
+              >
+                {t0.readability.score.toFixed(0)}
+              </div>
+              <div className="text-xs text-text-muted">
+                <p>等级：{t0.readability.level}</p>
+                <p>方法：{t0.readability.method}</p>
+              </div>
+            </div>
+          </Panel>
+        </div>
+      </section>
+
+      {/* Text diagnostics */}
+      <section>
+        <SectionTitle>文本诊断</SectionTitle>
+        <div className="grid md:grid-cols-3 gap-4">
+          <Panel title="重复短语 Top 15">
+            <BarList
+              items={t0.top_repeated_phrases.map((p) => ({ label: p.text, value: p.count }))}
+              limit={15}
+              colorClass="bg-pink-400"
+            />
+          </Panel>
+          <Panel title={`高频副词 Top 15（共 ${t0.adverb_count.toLocaleString()} 个）`}>
+            <BarList
+              items={t0.top_adverbs.map(([label, value]) => ({ label, value }))}
+              limit={15}
+              colorClass="bg-orange-400"
+            />
+          </Panel>
+          <Panel title={`高频形容词 Top 15（共 ${t0.adjective_count.toLocaleString()} 个）`}>
+            <BarList
+              items={t0.top_adjectives.map(([label, value]) => ({ label, value }))}
+              limit={15}
+              colorClass="bg-lime-400"
             />
           </Panel>
         </div>
@@ -171,6 +312,85 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                         </td>
                         <td className="py-1.5 text-right text-text-muted tabular-nums">
                           {s.char_count.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </div>
+      </section>
+
+      {/* Narrative analysis */}
+      <section>
+        <SectionTitle>叙事分析</SectionTitle>
+        <div className="grid md:grid-cols-2 gap-4">
+          <Panel
+            title={`叙事弧线（${ARC_SHAPE_LABELS[t1.arc.shape] ?? t1.arc.shape}）`}
+          >
+            {t1.arc.points.length === 0 ? (
+              <p className="text-xs text-text-muted">暂无数据</p>
+            ) : (
+              <LineChart
+                points={t1.arc.points.map((p) => ({
+                  label: p.section || "(root)",
+                  value: p.intensity,
+                }))}
+              />
+            )}
+          </Panel>
+          <Panel title="实体共现 Top 15（情节骨架）">
+            <BarList
+              items={t1.entity_cooccurrences.map(([label, value]) => ({ label, value }))}
+              limit={15}
+              colorClass="bg-cyan-400"
+            />
+          </Panel>
+        </div>
+        <div className="mt-4">
+          <Panel title={`角色（${t1.characters.length}）`}>
+            {t1.characters.length === 0 ? (
+              <p className="text-xs text-text-muted">
+                未检测到人物实体（非叙事文本或 NER 未识别人名）。
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-text-muted border-b border-gray-700">
+                      <th className="text-left py-1.5 font-medium">角色</th>
+                      <th className="text-right py-1.5 font-medium">提及</th>
+                      <th className="text-right py-1.5 font-medium">跨度</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">首次出现</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">最后出现</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">常共现</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {t1.characters.map((c) => (
+                      <tr key={c.name} className="border-b border-gray-700/40">
+                        <td className="py-1.5 font-medium">{c.name}</td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {c.mentions}
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {(c.span_ratio * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-1.5 pl-4 truncate max-w-[160px]" title={c.first_section}>
+                          {c.first_section || "(root)"}
+                        </td>
+                        <td className="py-1.5 pl-4 truncate max-w-[160px]" title={c.last_section}>
+                          {c.last_section || "(root)"}
+                        </td>
+                        <td className="py-1.5 pl-4 text-text-muted">
+                          {c.top_cooccurrences.length === 0
+                            ? "—"
+                            : c.top_cooccurrences
+                                .slice(0, 3)
+                                .map(([n, cnt]) => `${n}(${cnt})`)
+                                .join("、")}
                         </td>
                       </tr>
                     ))}

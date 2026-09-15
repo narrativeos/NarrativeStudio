@@ -22,12 +22,8 @@ fn main() {
         .exists()
         .then(|| std::fs::read_to_string(&term_path).expect("read term_result.json"));
 
-    let doc = parse_semantic_result_enriched(
-        &semantic,
-        popo.as_deref(),
-        terms.as_deref(),
-    )
-    .expect("parse failed");
+    let doc = parse_semantic_result_enriched(&semantic, popo.as_deref(), terms.as_deref())
+        .expect("parse failed");
 
     // Section grouping (same logic as T1).
     let mut sections: HashMap<String, (u32, u64)> = HashMap::new();
@@ -61,4 +57,3 @@ fn main() {
         println!("  {count:>5}  {text}");
     }
 }
-

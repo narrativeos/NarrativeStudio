@@ -34,11 +34,62 @@ pub fn normalize_for_match(s: &str) -> String {
 fn is_match_punct(c: char) -> bool {
     matches!(
         c,
-        '，' | '。' | '、' | '；' | '：' | '？' | '！' | '…' | '—' | '–' | '·' | '～' | '※' | '＊'
-            | '“' | '”' | '‘' | '’' | '（' | '）' | '《' | '》' | '【' | '】' | '〈' | '〉' | '〔'
-            | '〕' | ',' | '.' | ';' | ':' | '?' | '!' | '-' | '_' | '(' | ')' | '[' | ']' | '{'
-            | '}' | '/' | '\\' | '|' | '*' | '"' | '\'' | '#' | '@' | '&' | '%' | '$' | '+' | '='
-            | '~' | '`'
+        '，' | '。'
+            | '、'
+            | '；'
+            | '：'
+            | '？'
+            | '！'
+            | '…'
+            | '—'
+            | '–'
+            | '·'
+            | '～'
+            | '※'
+            | '＊'
+            | '“'
+            | '”'
+            | '‘'
+            | '’'
+            | '（'
+            | '）'
+            | '《'
+            | '》'
+            | '【'
+            | '】'
+            | '〈'
+            | '〉'
+            | '〔'
+            | '〕'
+            | ','
+            | '.'
+            | ';'
+            | ':'
+            | '?'
+            | '!'
+            | '-'
+            | '_'
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '/'
+            | '\\'
+            | '|'
+            | '*'
+            | '"'
+            | '\''
+            | '#'
+            | '@'
+            | '&'
+            | '%'
+            | '$'
+            | '+'
+            | '='
+            | '~'
+            | '`'
     )
 }
 
@@ -93,11 +144,10 @@ pub fn apply_toc(blocks: &mut [RawBlock], toc: &[TocEntry]) -> usize {
             continue;
         }
         // Pass 1: title-type blocks, equality or containment.
-        let mut found = (search_from..blocks.len())
-            .find(|&bi| {
-                blocks[bi].block_type.as_deref() == Some("title")
-                    && title_matches(&title_norm, &contents[bi])
-            });
+        let mut found = (search_from..blocks.len()).find(|&bi| {
+            blocks[bi].block_type.as_deref() == Some("title")
+                && title_matches(&title_norm, &contents[bi])
+        });
         // Pass 2: any block, exact equality only (avoids TOC listing lines
         // that contain many titles at once).
         if found.is_none() {
@@ -123,7 +173,11 @@ pub fn apply_toc(blocks: &mut [RawBlock], toc: &[TocEntry]) -> usize {
     let mut current_path: Vec<String> = Vec::new();
     for (bi, block) in blocks.iter_mut().enumerate() {
         if let Some(entry) = boundaries.get(&bi) {
-            while stack.last().map(|(lvl, _)| *lvl >= entry.level).unwrap_or(false) {
+            while stack
+                .last()
+                .map(|(lvl, _)| *lvl >= entry.level)
+                .unwrap_or(false)
+            {
                 stack.pop();
             }
             stack.push((entry.level, entry.title.as_str()));
@@ -257,7 +311,11 @@ mod tests {
         // A TOC listing page (text block containing many titles) must not be
         // matched when a real title block exists later in the document.
         let mut blocks = vec![
-            raw_block(1, "第一章 出版学的核心概念 …… 013 第一节 出版物 …… 013", "text"),
+            raw_block(
+                1,
+                "第一章 出版学的核心概念 …… 013 第一节 出版物 …… 013",
+                "text",
+            ),
             raw_block(2, "第一章 出版学的核心概念", "title"),
             raw_block(3, "正文", "text"),
         ];
@@ -394,7 +452,3 @@ mod tests {
         assert_eq!(apply_terms(&mut empty, &terms), 0);
     }
 }
-
-
-
-

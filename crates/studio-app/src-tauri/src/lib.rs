@@ -2,7 +2,9 @@ use std::sync::Mutex;
 
 use duckdb::Connection;
 use serde::Serialize;
-use studio_analysis::{run_t0_analysis, run_t1_analysis, T0Stats, T1Stats};
+use studio_analysis::{
+    run_assessment, run_t0_analysis, run_t1_analysis, Assessment, T0Stats, T1Stats,
+};
 use studio_core::document::DocumentData;
 use studio_core::project::{Project, ProjectSummary};
 use studio_import::{parse_semantic_result, parse_semantic_result_enriched};
@@ -279,12 +281,9 @@ fn run_import(
         )
         .ok();
 
-    let doc = parse_semantic_result_enriched(
-        &content,
-        popo_content.as_deref(),
-        term_content.as_deref(),
-    )
-    .map_err(|e| format!("Failed to parse semantic data: {e}"))?;
+    let doc =
+        parse_semantic_result_enriched(&content, popo_content.as_deref(), term_content.as_deref())
+            .map_err(|e| format!("Failed to parse semantic data: {e}"))?;
 
     let block_count = doc.blocks.len() as u64;
     app_handle
@@ -377,13 +376,14 @@ fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
     run_t1_analysis(&doc).map_err(|e| e.to_string())
 }
 
-/// Analysis result for a single project (T0 + T1).
+/// Analysis result for a single project (T0 + T1 + rule-based assessment).
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectAnalysis {
     pub project_id: String,
     pub name: String,
     pub t0: T0Stats,
     pub t1: T1Stats,
+    pub assessment: Assessment,
 }
 
 /// Load all documents of a project and merge them into a single `DocumentData`.
@@ -430,11 +430,13 @@ fn analyze_project_inner(
     let doc = load_project_document(&storage.conn, pid)?;
     let t0 = run_t0_analysis(&doc).map_err(|e| e.to_string())?;
     let t1 = run_t1_analysis(&doc).map_err(|e| e.to_string())?;
+    let assessment = run_assessment(&t0, &t1);
     Ok(ProjectAnalysis {
         project_id: pid.to_string(),
         name: project.name,
         t0,
         t1,
+        assessment,
     })
 }
 

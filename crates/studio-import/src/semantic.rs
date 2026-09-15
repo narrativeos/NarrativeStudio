@@ -195,7 +195,10 @@ pub fn parse_semantic_result_enriched(
         match crate::popo::parse_popo_toc(popo) {
             Ok(toc) if !toc.is_empty() => {
                 let matched = crate::enrich::apply_toc(&mut raw.blocks, &toc);
-                eprintln!("[import] TOC enrichment: {matched}/{} entries matched", toc.len());
+                eprintln!(
+                    "[import] TOC enrichment: {matched}/{} entries matched",
+                    toc.len()
+                );
             }
             Ok(_) => {}
             Err(e) => eprintln!("[import] popo TOC enrichment skipped: {e}"),
@@ -337,9 +340,8 @@ mod tests {
     fn test_parse_semantic_result_enriched_bad_aux_files() {
         // Malformed auxiliary files must not fail the import.
         let semantic = r#"{"blocks": [{"block_ids": [1], "content": "正文", "type": "text"}]}"#;
-        let doc =
-            parse_semantic_result_enriched(semantic, Some("not json"), Some("also not json"))
-                .unwrap();
+        let doc = parse_semantic_result_enriched(semantic, Some("not json"), Some("also not json"))
+            .unwrap();
         assert_eq!(doc.blocks.len(), 1);
         assert_eq!(doc.blocks[0].section_path, "");
         assert!(doc.blocks[0].noun_signals.is_empty());
