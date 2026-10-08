@@ -8,8 +8,8 @@
 use chrono::{DateTime, Utc};
 
 use studio_analysis::{
-    Assessment, ClicheStats, ConflictStats, DialogueStats, PacingStats, PlotStats, SettingStats,
-    T0Stats, T1Stats, ThemeStats, ANALYSIS_VERSION,
+    Assessment, ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats,
+    SettingStats, T0Stats, T1Stats, ThemeStats, ANALYSIS_VERSION,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -26,6 +26,7 @@ pub struct ReportInput<'a> {
     pub setting: &'a SettingStats,
     pub cliche: &'a ClicheStats,
     pub dialogue: &'a DialogueStats,
+    pub explicit: &'a ExplicitStats,
     pub assessment: &'a Assessment,
 }
 
@@ -50,6 +51,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_theme(&mut out, input.theme);
     write_setting(&mut out, input.setting);
     write_cliche(&mut out, input.cliche);
+    write_explicit(&mut out, input.explicit);
     write_footer(&mut out);
     out
 }
@@ -941,6 +943,142 @@ fn write_cliche(out: &mut String, cliche: &ClicheStats) {
     out.push_str("_命中只说明字面撞上词库里的说法，不等于写得差；是否真的是陈词滥调、要不要改，由人来判断。_\n\n");
 }
 
+fn write_explicit(out: &mut String, explicit: &ExplicitStats) {
+    out.push_str("## 显式语言\n\n");
+    let library = if explicit.total_hits > 0 {
+        format!(
+            " · 词库 {} 项 / {} 个形变",
+            explicit.lexicon_size, explicit.lexicon_variants
+        )
+    } else {
+        String::new()
+    };
+    out.push_str(&format!(
+        "内容分级：**{}**（`{}`）· 命中 {} 处（{:.1} 处/万字）· 涉及 {} 个词条 · 对白内 {} 处{library}\n\n",
+        explicit_advisory_label(&explicit.advisory),
+        explicit.advisory,
+        explicit.total_hits,
+        explicit.per_10k,
+        explicit.distinct_terms,
+        explicit.dialogue_hits
+    ));
+
+    // The three tiers always print, including when a document carries none of them:
+    // the shape of the line is what tells a reader that a zero is a zero and not a
+    // missing measurement.
+    let tiers: Vec<String> = explicit
+        .tiers
+        .iter()
+        .map(|(tier, count)| format!("{} {} 处", explicit_tier_label(tier), count))
+        .collect();
+    out.push_str(&format!("按强度：{}\n\n", tiers.join(" · ")));
+
+    out.push_str(&format!(
+        "最常用：{}（占命中 {:.0}%）· 峰值段落：{}（{:.0}）\n\n",
+        if explicit.top_term.is_empty() {
+            "—".to_string()
+        } else {
+            format!("「{}」", esc(&explicit.top_term))
+        },
+        explicit.top_share * 100.0,
+        if explicit.peak_section.is_empty() {
+            "—".to_string()
+        } else {
+            esc(&explicit.peak_section)
+        },
+        explicit.peak_intensity
+    ));
+
+    if !explicit.advisory_categories.is_empty() {
+        let parts: Vec<String> = explicit
+            .advisory_categories
+            .iter()
+            .map(|k| explicit_category_label(k).to_string())
+            .collect();
+        out.push_str(&format!(
+            "需要读者提示的内容：{}（按词库分级，只说明词面）\n\n",
+            parts.join("、")
+        ));
+    }
+
+    if !explicit.categories.is_empty() {
+        let parts: Vec<String> = explicit
+            .categories
+            .iter()
+            .map(|(k, v)| format!("{}×{}", explicit_category_label(k), v))
+            .collect();
+        out.push_str(&format!("类型分布：{}\n\n", parts.join("、")));
+    }
+
+    out.push_str(&format!("### 命中词条（{} 个）\n\n", explicit.terms.len()));
+    if explicit.terms.is_empty() {
+        out.push_str("没有命中词库里的用词。\n\n");
+    } else {
+        out.push_str(
+            "| 词条 | 类型 | 强度 | 次数 | 占比 | 覆盖 | 首次 | 末次 |\n| --- | --- | --- | ---: | ---: | ---: | --- | --- |\n",
+        );
+        for t in explicit.terms.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} | {:.0}% | {:.0}% | {} | {} |\n",
+                esc(&t.term),
+                explicit_category_label(&t.category),
+                explicit_tier_label(&t.tier),
+                t.count,
+                t.share * 100.0,
+                t.coverage * 100.0,
+                esc(&t.first_section),
+                esc(&t.last_section)
+            ));
+        }
+        out.push_str(&omitted(explicit.distinct_terms as usize, MAX_ROWS));
+        out.push('\n');
+
+        out.push_str("### 词库说明\n\n");
+        for t in explicit.terms.iter().take(6) {
+            out.push_str(&format!("- **{}** — {}\n", esc(&t.term), esc(&t.note)));
+        }
+        out.push('\n');
+    }
+
+    if !explicit.hits.is_empty() {
+        out.push_str(&format!(
+            "### 命中位置（前 {} 处）\n\n",
+            explicit.hits.len().min(MAX_ROWS)
+        ));
+        for h in explicit.hits.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}** · {} · {}（第 {} 字）{} · {}\n",
+                esc(&h.section),
+                esc(&h.term),
+                esc(&h.excerpt),
+                h.offset,
+                explicit_tier_label(&h.tier),
+                if h.in_dialogue { "对白内" } else { "叙述" }
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !explicit.issues.is_empty() {
+        out.push_str("### 内容提示\n\n");
+        for i in explicit.issues.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}**（{}）— {}\n",
+                explicit_issue_label(&i.kind),
+                if i.section.is_empty() {
+                    "全文".to_string()
+                } else {
+                    esc(&i.section)
+                },
+                esc(&i.detail)
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("_本维度不给出评分：一部战争题材并不比田园题材更差，露骨与否是内容属性而不是质量。命中只说明词面撞上词库，不等于剧情如此；分级只反映用词强度，不反映事件本身，是否需要读者提示由人决定。_\n\n");
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -1190,15 +1328,65 @@ fn dialogue_issue_label(kind: &str) -> &'static str {
     }
 }
 
+/// How strong the words found are. `none` says the library found nothing, not that the
+/// content is gentle — a text can be brutal in words the library does not carry.
+fn explicit_advisory_label(advisory: &str) -> &'static str {
+    match advisory {
+        "none" => "词库未见",
+        "mild" => "轻微",
+        "moderate" => "中等",
+        "strong" => "强烈",
+        _ => "未知",
+    }
+}
+
+/// Which content family a hit belongs to.
+fn explicit_category_label(category: &str) -> &'static str {
+    match category {
+        "profanity" => "粗口辱骂",
+        "sexual" => "性描写",
+        "sexual_violence" => "性暴力",
+        "violence" => "暴力血腥",
+        "self_harm" => "自伤",
+        "hate" => "贬损歧视",
+        "substance" => "毒品",
+        _ => "未知",
+    }
+}
+
+/// How strong one term's wording is.
+fn explicit_tier_label(tier: &str) -> &'static str {
+    match tier {
+        "mild" => "轻",
+        "moderate" => "中",
+        "strong" => "重",
+        _ => "未知",
+    }
+}
+
+/// Why a family is being surfaced.
+fn explicit_issue_label(kind: &str) -> &'static str {
+    match kind {
+        "self_harm" => "自伤描写",
+        "sexual_violence" => "性暴力",
+        "sexual_content" => "露骨性描写",
+        "gore" => "血腥细节",
+        "hate_slur" => "贬损歧视用语",
+        "substance" => "毒品描写",
+        "dense_segment" => "局部密集",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
         ArcPoint, ClicheHit, ClicheIssue, ClichePhrase, ClichePoint, ConflictAbsence,
         ConflictPoint, ConflictType, DialogueIssue, DialoguePoint, DialogueSample, DimensionScore,
-        DragSection, FlatStretch, NarrativeArc, PacingPoint, Place, Plotline, PlotlineStage,
-        Readability, Recommendation, RepeatedPhrase, Scene, SectionInfo, SettingIssue, Theme,
-        TurningPoint,
+        DragSection, ExplicitHit, ExplicitIssue, ExplicitTerm, FlatStretch, NarrativeArc,
+        PacingPoint, Place, Plotline, PlotlineStage, Readability, Recommendation, RepeatedPhrase,
+        Scene, SectionInfo, SettingIssue, Theme, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -1419,6 +1607,36 @@ mod tests {
         }
     }
 
+    fn empty_explicit() -> ExplicitStats {
+        ExplicitStats {
+            points: vec![],
+            segment_count: 0,
+            chunked: false,
+            char_count: 0,
+            total_hits: 0,
+            distinct_terms: 0,
+            per_10k: 0.0,
+            advisory: "none".into(),
+            tiers: vec![
+                ("mild".into(), 0),
+                ("moderate".into(), 0),
+                ("strong".into(), 0),
+            ],
+            categories: vec![],
+            advisory_categories: vec![],
+            terms: vec![],
+            hits: vec![],
+            dialogue_hits: 0,
+            top_share: 0.0,
+            top_term: String::new(),
+            peak_section: String::new(),
+            peak_intensity: 0.0,
+            issues: vec![],
+            lexicon_size: 35,
+            lexicon_variants: 190,
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -1446,6 +1664,7 @@ mod tests {
             clean_assessment(),
         );
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1458,6 +1677,7 @@ mod tests {
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -1477,6 +1697,7 @@ mod tests {
             clean_assessment(),
         );
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1489,6 +1710,7 @@ mod tests {
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let expected = "\
@@ -1630,6 +1852,20 @@ _对白按引号与破折号识别：原文不用引号时会漏判，引号本�
 
 _命中只说明字面撞上词库里的说法，不等于写得差；是否真的是陈词滥调、要不要改，由人来判断。_
 
+## 显式语言
+
+内容分级：**词库未见**（`none`）· 命中 0 处（0.0 处/万字）· 涉及 0 个词条 · 对白内 0 处
+
+按强度：轻 0 处 · 中 0 处 · 重 0 处
+
+最常用：—（占命中 0%）· 峰值段落：—（0）
+
+### 命中词条（0 个）
+
+没有命中词库里的用词。
+
+_本维度不给出评分：一部战争题材并不比田园题材更差，露骨与否是内容属性而不是质量。命中只说明词面撞上词库，不等于剧情如此；分级只反映用词强度，不反映事件本身，是否需要读者提示由人决定。_
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -1659,6 +1895,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_cliche(),
         );
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1671,6 +1908,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1689,6 +1927,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 主题",
             "## 场景/设定",
             "## 陈词滥调",
+            "## 显式语言",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -1700,8 +1939,8 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }
         assert_eq!(
             md.matches("\n## ").count(),
-            13,
-            "exactly thirteen H2 sections"
+            14,
+            "exactly fourteen H2 sections"
         );
     }
 
@@ -1733,6 +1972,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             },
         ];
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1745,6 +1985,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1773,6 +2014,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             char_count: 100,
         }];
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1785,6 +2027,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1827,6 +2070,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             })
             .collect();
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1839,6 +2083,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1882,6 +2127,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             },
         ];
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1894,6 +2140,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1961,6 +2208,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         plot.late_arrivals = vec!["Tobey".into()];
 
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1973,6 +2221,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2035,6 +2284,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }];
 
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2047,6 +2297,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2125,6 +2376,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }];
 
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2137,6 +2389,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2170,6 +2423,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             clean_assessment(),
         );
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2182,6 +2436,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2244,6 +2499,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         ];
 
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2256,6 +2512,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2286,6 +2543,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             clean_assessment(),
         );
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2298,6 +2556,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2388,6 +2647,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         setting.top_env_terms = vec![("房间".into(), 6), ("夜色".into(), 4)];
 
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2400,6 +2660,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2520,6 +2781,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         ];
 
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2532,6 +2794,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         });
 
@@ -2562,6 +2825,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
     #[test]
     fn test_dialogue_section_renders_split_curve_and_issues() {
         let mut dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         dialogue.char_count = 2000;
         dialogue.dialogue_chars = 600;
         dialogue.narrative_chars = 1400;
@@ -2650,6 +2914,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &assessment,
         });
         // The all-narrative wording is only for text where no speech was detected.
@@ -2694,6 +2959,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }];
 
         let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2706,6 +2972,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             setting: &setting,
             cliche: &cliche,
             dialogue: &dialogue,
+            explicit: &explicit,
             assessment: &a,
         });
 
@@ -2713,5 +2980,174 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(!md.contains("用词评分："));
         // The hits survive the missing grade: the reader still sees what was found.
         assert!(md.contains("| 深吸一口气 | 身体反应 | 2 | 100% | 100% | 1/10 | 3/10 |"));
+    }
+
+    #[test]
+    fn test_explicit_section_renders_advisory_tiers_and_hits() {
+        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            empty_theme(),
+            empty_setting(),
+            clean_assessment(),
+        );
+        let cliche = empty_cliche();
+        let dialogue = empty_dialogue();
+
+        let mut explicit = empty_explicit();
+        explicit.total_hits = 4;
+        explicit.distinct_terms = 2;
+        explicit.per_10k = 12.0;
+        explicit.advisory = "strong".into();
+        explicit.tiers = vec![
+            ("mild".into(), 1),
+            ("moderate".into(), 0),
+            ("strong".into(), 3),
+        ];
+        explicit.categories = vec![("violence".into(), 3), ("self_harm".into(), 1)];
+        explicit.advisory_categories = vec!["violence".into(), "self_harm".into()];
+        explicit.terms = vec![
+            ExplicitTerm {
+                term: "(屠杀|割喉)".into(),
+                category: "violence".into(),
+                tier: "strong".into(),
+                count: 3,
+                share: 0.75,
+                variants: vec![("割喉".into(), 3)],
+                segments_touched: 2,
+                coverage: 0.5,
+                first_section: "第一章".into(),
+                last_section: "第三章".into(),
+                note: "血腥细节：读者提示的主要依据".into(),
+            },
+            ExplicitTerm {
+                term: "(自杀|轻生)".into(),
+                category: "self_harm".into(),
+                tier: "strong".into(),
+                count: 1,
+                share: 0.25,
+                variants: vec![("轻生".into(), 1)],
+                segments_touched: 1,
+                coverage: 0.25,
+                first_section: "第二章".into(),
+                last_section: "第二章".into(),
+                note: "自伤或自杀描写：多数平台建议读者提示".into(),
+            },
+        ];
+        explicit.hits = vec![
+            ExplicitHit {
+                section: "第一章".into(),
+                term: "割喉".into(),
+                pattern: "(屠杀|割喉)".into(),
+                category: "violence".into(),
+                tier: "strong".into(),
+                offset: 12,
+                excerpt: "他拔刀割喉。".into(),
+                in_dialogue: false,
+                note: "血腥细节".into(),
+            },
+            ExplicitHit {
+                section: "第二章".into(),
+                term: "轻生".into(),
+                pattern: "(自杀|轻生)".into(),
+                category: "self_harm".into(),
+                tier: "strong".into(),
+                offset: 5,
+                excerpt: "他低声说：“我想轻生。”".into(),
+                in_dialogue: true,
+                note: "自伤描写".into(),
+            },
+        ];
+        explicit.dialogue_hits = 1;
+        explicit.top_share = 0.75;
+        explicit.top_term = "(屠杀|割喉)".into();
+        explicit.peak_section = "第一章".into();
+        explicit.peak_intensity = 40.0;
+        explicit.issues = vec![
+            ExplicitIssue {
+                kind: "self_harm".into(),
+                section: "第二章".into(),
+                detail: "1 处自伤或自杀描写，最集中于第二章（1 处）".into(),
+            },
+            ExplicitIssue {
+                kind: "gore".into(),
+                section: "第一章".into(),
+                detail: "3 处血腥细节描写，最集中于第一章（3 处）".into(),
+            },
+        ];
+
+        let md = render_markdown(&ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            dialogue: &dialogue,
+            explicit: &explicit,
+            assessment: &a,
+        });
+
+        assert!(md.contains("## 显式语言"));
+        assert!(md.contains("内容分级：**强烈**（`strong`）· 命中 4 处"));
+        // All three tiers print even though the middle one is empty: a zero has to look
+        // like a measurement and not like a missing one.
+        assert!(md.contains("按强度：轻 1 处 · 中 0 处 · 重 3 处"));
+        assert!(md.contains("需要读者提示的内容：暴力血腥、自伤"));
+        assert!(md.contains("类型分布：暴力血腥×3、自伤×1"));
+        assert!(md.contains("| (屠杀\\|割喉) | 暴力血腥 | 重 | 3 | 75% | 50% | 第一章 | 第三章 |"));
+        assert!(md.contains("- **第一章** · 割喉 · 他拔刀割喉。（第 12 字）重 · 叙述"));
+        assert!(md.contains("- **第二章** · 轻生 · 他低声说：“我想轻生。”（第 5 字）重 · 对白内"));
+        assert!(md.contains("- **自伤描写**（第二章）— 1 处自伤或自杀描写"));
+        assert!(md.contains("- **血腥细节**（第一章）— 3 处血腥细节描写"));
+        // The dimension is measured, never graded: no score line belongs to it.
+        assert!(md.contains("_本维度不给出评分：一部战争题材并不比田园题材更差"));
+    }
+
+    #[test]
+    fn test_explicit_silence_says_the_library_found_nothing() {
+        let (t0, t1, plot, pacing, conflict, theme, setting, cliche, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            empty_theme(),
+            empty_setting(),
+            empty_cliche(),
+            clean_assessment(),
+        );
+        let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
+
+        let md = render_markdown(&ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            dialogue: &dialogue,
+            explicit: &explicit,
+            assessment: &a,
+        });
+
+        // "词库未见" rather than "无敏感内容": silence is about the library, not the text.
+        assert!(md.contains("内容分级：**词库未见**（`none`）"));
+        assert!(md.contains("没有命中词库里的用词。"));
+        assert!(!md.contains("需要读者提示的内容："));
+        // The library size is printed only next to hits, where it means something.
+        assert!(!md.contains("词库 35 项"));
     }
 }

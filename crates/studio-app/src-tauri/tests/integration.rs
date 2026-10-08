@@ -14,14 +14,16 @@
 //! 11. Run setting analysis
 //! 12. Run cliché analysis
 //! 13. Run dialogue analysis
+//! 14. Run explicit language analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
-    run_dialogue_analysis, run_pacing_analysis, run_plot_analysis, run_setting_analysis,
-    run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment, ClicheStats, ConflictStats,
-    DialogueStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats, ThemeStats,
+    run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
+    run_setting_analysis, run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment,
+    ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats,
+    T0Stats, T1Stats, ThemeStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -211,6 +213,7 @@ fn test_analysis_cache_roundtrip() {
     let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
     let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
     let dialogue = run_dialogue_analysis(&loaded).expect("dialogue analysis failed");
+    let explicit = run_explicit_analysis(&loaded).expect("explicit language analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -303,6 +306,18 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&dialogue).unwrap(),
     )
     .expect("save dialogue");
+    // Explicit language carries no score either: what a text contains is not a mark
+    // against it, so the row records the absence rather than a 0.
+    save_result(
+        &conn,
+        project.project_id,
+        "explicit",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&explicit).unwrap(),
+    )
+    .expect("save explicit");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -475,13 +490,27 @@ fn test_analysis_cache_roundtrip() {
         (cached_dialogue.dialogue_share - dialogue.dialogue_share).abs() < 1e-9,
         "dialogue share must survive the cache"
     );
+    let cached_explicit =
+        load_cached::<ExplicitStats>(&conn, project.project_id, "explicit", &hash)
+            .unwrap()
+            .expect("explicit cache hit");
+    assert_eq!(cached_explicit.total_hits, explicit.total_hits);
+    assert_eq!(cached_explicit.distinct_terms, explicit.distinct_terms);
+    assert_eq!(cached_explicit.hits.len(), explicit.hits.len());
+    assert_eq!(cached_explicit.terms.len(), explicit.terms.len());
+    assert_eq!(cached_explicit.advisory, explicit.advisory);
+    assert_eq!(cached_explicit.tiers, explicit.tiers);
+    assert!(
+        (cached_explicit.per_10k - explicit.per_10k).abs() < 1e-9,
+        "explicit rate must survive the cache"
+    );
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
@@ -489,6 +518,7 @@ fn test_analysis_cache_roundtrip() {
         setting.scene_count,
         cliche.total_hits,
         dialogue.unit_count,
+        explicit.total_hits,
         assessment.recommendations.len()
     );
 
@@ -504,8 +534,9 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: nine dimensions.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 10);
+    // "重新分析" clears everything for the project: ten dimensions plus the assessment
+    // derived from them.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 11);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -538,6 +569,7 @@ fn test_report_generation_and_export() {
     let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
     let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
     let dialogue = run_dialogue_analysis(&loaded).expect("dialogue analysis failed");
+    let explicit = run_explicit_analysis(&loaded).expect("explicit language analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -553,6 +585,7 @@ fn test_report_generation_and_export() {
         setting: &setting,
         cliche: &cliche,
         dialogue: &dialogue,
+        explicit: &explicit,
         assessment: &assessment,
     });
 
@@ -572,6 +605,7 @@ fn test_report_generation_and_export() {
         "## 主题",
         "## 场景/设定",
         "## 陈词滥调",
+        "## 显式语言",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -693,8 +727,43 @@ fn test_report_generation_and_export() {
             "text with no detected speech still has to say so"
         );
     }
+    // The explicit-language section reports an advisory level and never a grade: a
+    // manuscript is not marked down for what its subject matter contains.
+    assert!(
+        markdown.contains(&format!(
+            "内容分级：**{}**（`{}`）",
+            match explicit.advisory.as_str() {
+                "none" => "词库未见",
+                "mild" => "轻微",
+                "moderate" => "中等",
+                "strong" => "强烈",
+                _ => "未知",
+            },
+            explicit.advisory
+        )),
+        "explicit advisory missing from the report"
+    );
+    assert!(
+        markdown.contains("本维度不给出评分"),
+        "explicit section missing its no-score note"
+    );
+    if let Some(hit) = explicit.hits.first() {
+        assert!(
+            markdown.contains("### 命中位置（"),
+            "explicit hit list missing from the report"
+        );
+        assert!(
+            markdown.contains(&hit.excerpt),
+            "first explicit hit missing from the report"
+        );
+    } else {
+        assert!(
+            markdown.contains("没有命中词库里的用词"),
+            "an empty explicit pass still has to say so"
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
@@ -704,6 +773,7 @@ fn test_report_generation_and_export() {
         setting.scene_count,
         cliche.total_hits,
         dialogue.unit_count,
+        explicit.total_hits,
         assessment.recommendations.len()
     );
 
