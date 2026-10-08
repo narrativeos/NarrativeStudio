@@ -19,21 +19,13 @@
 //! Deterministic: no clock, no randomness, segments in reading order, and the
 //! same document always yields the same points and the same score.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use studio_core::document::DocumentData;
 
-use crate::t1::top_level_section;
+use crate::segment::plan_segments;
 use crate::text::{count_quoted_chars, split_sentences, visible_char_count};
 use crate::Result;
 
-/// Below this many top-level sections the document is chunked by block instead,
-/// and the pacing score declines to judge: with too few segments, "flat" and
-/// "varied" say the same thing about one long block.
-const MIN_SECTIONS: usize = 3;
-/// Segments used when the document has no usable section structure.
-const FALLBACK_SEGMENTS: usize = 10;
 /// A sentence at or under this many visible characters counts as short (the same
 /// cut the arc uses, so both modules mean the same thing by it).
 const SHORT_SENTENCE_CHARS: usize = 12;
@@ -216,53 +208,26 @@ pub fn run_pacing_analysis(doc: &DocumentData) -> Result<PacingStats> {
     })
 }
 
-/// Group the blocks into curve segments: top-level sections when there are at
-/// least `MIN_SECTIONS` of them, otherwise `FALLBACK_SEGMENTS` equal block
-/// chunks. This is the same segmentation the arc uses, so the two curves line up
-/// on the same X axis.
+/// Group the blocks into curve segments and total up what the tension is computed
+/// from. The cut itself lives in [`crate::segment`], shared with the conflict and
+/// setting curves so all three curves read against the same X axis.
 fn collect_segments(doc: &DocumentData) -> (Vec<Segment>, bool) {
-    if doc.blocks.is_empty() {
+    let plan = plan_segments(doc);
+    if plan.labels.is_empty() {
         return (Vec::new(), false);
     }
 
-    let mut order: Vec<String> = Vec::new();
-    let mut index_of: HashMap<String, usize> = HashMap::new();
-    for block in &doc.blocks {
-        let top = top_level_section(&block.section_path);
-        if !index_of.contains_key(&top) {
-            index_of.insert(top.clone(), order.len());
-            order.push(top);
-        }
-    }
-
-    let use_sections = order.len() >= MIN_SECTIONS;
-    let count = if use_sections {
-        order.len()
-    } else {
-        FALLBACK_SEGMENTS
-    };
-    let chunk_size = (doc.blocks.len() as f64 / count as f64).ceil() as usize;
-
-    let mut segments: Vec<Segment> = (0..count)
-        .map(|i| Segment {
-            label: if use_sections {
-                order[i].clone()
-            } else {
-                format!("{}/{}", i + 1, count)
-            },
+    let mut segments: Vec<Segment> = plan
+        .labels
+        .iter()
+        .map(|label| Segment {
+            label: label.clone(),
             ..Default::default()
         })
         .collect();
 
     for (idx, block) in doc.blocks.iter().enumerate() {
-        let seg = if use_sections {
-            *index_of
-                .get(&top_level_section(&block.section_path))
-                .expect("section was registered above")
-        } else {
-            (idx / chunk_size.max(1)).min(count - 1)
-        };
-        let s = &mut segments[seg];
+        let s = &mut segments[plan.segment_of[idx]];
         s.chars += visible_char_count(&block.content) as u64;
         s.quoted += count_quoted_chars(&block.content) as u64;
         s.excl += block
@@ -283,7 +248,7 @@ fn collect_segments(doc: &DocumentData) -> (Vec<Segment>, bool) {
         s.entities += block.entities.len() as u64;
     }
 
-    (segments, !use_sections)
+    (segments, plan.chunked)
 }
 
 /// Tension on the absolute scale: each signal saturates at its own reference
@@ -452,6 +417,7 @@ fn stdev_f64(values: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segment::FALLBACK_SEGMENTS;
     use studio_core::document::SemanticBlock;
 
     /// Narration with no dialogue, no exclamations, no entities and no short
