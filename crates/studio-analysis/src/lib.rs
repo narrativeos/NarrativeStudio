@@ -9,11 +9,13 @@ pub use studio_core::error::Result;
 
 mod assessment;
 mod hash;
+mod plot;
 mod t0;
 mod t1;
 mod text;
 
 pub use assessment::{run_assessment, Assessment, DimensionScore, Recommendation};
 pub use hash::{document_hash, ANALYSIS_VERSION};
+pub use plot::{run_plot_analysis, PlotStats, Plotline, PlotlineStage, TurningPoint};
 pub use t0::{run_t0_analysis, Readability, RepeatedPhrase, T0Stats};
 pub use t1::{run_t1_analysis, ArcPoint, CharacterProfile, NarrativeArc, SectionInfo, T1Stats};

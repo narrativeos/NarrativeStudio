@@ -227,7 +227,7 @@ fn analyze_characters(doc: &DocumentData) -> Vec<CharacterProfile> {
 }
 
 /// Entity categories that carry narrative meaning (excludes noisy DATE/NUMBER).
-const PLOT_ENTITY_CATEGORIES: &[EntityCategory] = &[
+pub(crate) const PLOT_ENTITY_CATEGORIES: &[EntityCategory] = &[
     EntityCategory::Person,
     EntityCategory::Organization,
     EntityCategory::Location,
