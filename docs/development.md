@@ -366,23 +366,21 @@ Closes #42
 
 ### 4.1 Command 列表
 
-所有 Tauri Commands 定义在 `studio-app/src-tauri/src/commands/` 中，前端通过 `@tauri-apps/api/tauri` 的 `invoke` 调用。
+所有 Tauri Commands 目前定义在 `studio-app/src-tauri/src/lib.rs` 中，前端通过 `invoke` 调用（参数用 camelCase，Tauri 自动映射到 Rust 的 snake_case）。
 
 | Command | 参数 | 返回 | 说明 |
 |---------|------|------|------|
-| `project_create` | `{ name, description?, genre? }` | `Project` | 创建项目 |
-| `project_list` | - | `Vec<ProjectSummary>` | 列出所有项目 |
-| `project_get` | `{ project_id }` | `Project` | 获取项目详情 |
-| `project_delete` | `{ project_id }` | - | 删除项目 |
-| `import_traceview` | `{ project_id, path }` | `ImportResult` | 导入 TraceView 成果 |
-| `import_document` | `{ project_id, path, format }` | `ImportResult` | 导入原始文档 |
-| `analyze_project` | `{ project_id, options }` | `TaskId` | 启动分析（后台） |
-| `analyze_cancel` | `{ task_id }` | - | 取消分析 |
-| `analyze_status` | `{ task_id }` | `TaskStatus` | 查询任务状态 |
-| `report_generate` | `{ project_id, format }` | `ReportMeta` | 生成报告 |
-| `report_export` | `{ project_id, format, path }` | `ExportResult` | 导出报告 |
-| `settings_get` | - | `Settings` | 获取设置 |
-| `settings_update` | `{ settings }` | - | 更新设置 |
+| `list_projects` | - | `Vec<ProjectSummary>` | 列出所有项目 |
+| `create_project` | `{ name }` | `Project` | 创建项目 |
+| `delete_project` | `{ project_id }` | - | 删除项目及其级联数据 |
+| `import_project` | `{ project_path }` | `Project` | 导入 TraceView 项目目录（`spawn_blocking` + `import-progress` 事件） |
+| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
+| `analyze_projects` | `{ project_ids }` | `Vec<ProjectAnalysis>` | 多项目对比，始终读缓存 |
+| `analyze_t0` / `analyze_t1` | `{ file_path }` | `T0Stats` / `T1Stats` | 直接分析 `semantic_result.json`，调试用，不走缓存 |
+| `list_documents` | `{ project_id }` | `Vec<(doc_id, title)>` | 项目下的文档 |
+| `load_document_cmd` | `{ doc_id }` | `DocumentData` | 按 ID 载入文档 |
+
+> 上表是**已实现**的命令面。设计稿中的异步任务合约（`analyze_cancel` / `analyze_status` / `report_generate` / `report_export` / `settings_get` / `settings_update`）尚未实现：当前分析命令同步返回结果（用 `async fn` + `spawn_blocking` 保证不阻塞 UI 线程），没有 `TaskId` + 事件流。
 
 ### 4.2 事件合约
 
@@ -738,6 +736,25 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
     Ok(())
 }
 ```
+
+### 6.5 分析结果缓存
+
+分析是纯函数（同一文档 → 同一结果），所以结果按输入指纹持久化，二次打开项目直接读缓存而不重算。
+
+**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, assessment}`。
+
+`input_hash = SHA-256(ANALYSIS_VERSION ‖ 每个 block 的字节长度 ‖ block 的 JSON)`（`studio-analysis/src/hash.rs`）：
+
+- 走 block 的 JSON 形式：分析器读什么就哈希什么，文档模型新增字段自动被覆盖；
+- 混入字节长度：同样的文本、不同的切块方式不会撞哈希；
+- **不含 `doc_id`**：每次导入都会生成新的 UUID，纳入哈希会导致重复导入同一份内容时必然失效；
+- `ANALYSIS_VERSION` 是盐：分析代码变了而输入没变时，改这个常量即可让全部旧结果失效。
+
+**失效路径**：文本变化 → 哈希变化 → 天然 miss，不需要显式清理；「重新分析」按钮走 `force: true`，先 `invalidate_project` 删除该项目的 `analysis_results` 与 `concerns` 再重算，用于哈希无法感知的情况（分析代码变更）或用户主动要求。
+
+**写入约定**：`save_result` 先按缓存键删除旧行再插入（配合 v11 的唯一索引 `(project_id, dimension, input_hash)`），保证重复分析不堆积历史行、`concerns` 不重复挂接。评估的 `recommendations` 会落为 `concerns` 行，报告导出可直接查询。缓存**写入**失败只记日志、不报错——用户已经拿到结果，代价只是下次重算。
+
+**DuckDB 注意**：`ALTER TABLE ... ADD COLUMN` 不支持带约束的列（`NOT NULL DEFAULT` 会报 "Adding columns with constraints not yet supported"），所以 v11 新增的 `tier` / `input_hash` 是可空列，由读取侧对历史行兜底默认值。
 
 ---
 
