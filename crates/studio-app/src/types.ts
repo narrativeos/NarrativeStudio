@@ -686,6 +686,96 @@ export interface ExplicitStats {
   lexicon_variants: number;
 }
 
+/** A place where the document's own signals say something happens. */
+export interface StructureLandmark {
+  /** `opening` | `turn` | `peak` | `trough` | `climax`. */
+  kind: string;
+  /** The curve segment the landmark sits in. */
+  section: string;
+  /** Document fraction (0-1), by character mass. */
+  position: number;
+  /** How strong the signal is: thread change (0-1) for a turn, tension (0-100) otherwise. */
+  strength: number;
+  /** What the signals show there. */
+  detail: string;
+}
+
+/** One beat a model expects, and what the document puts there. */
+export interface StructureBeat {
+  beat: string;
+  /** Where the model expects it, as document fractions. */
+  window: [number, number];
+  /** `found` | `displaced` | `missing`. */
+  status: string;
+  /** Where the supporting landmark is; empty when the beat is 未见. */
+  section: string;
+  /** Position of that landmark (0-1); 0 when missing. */
+  position: number;
+  /** How far outside the window the nearest landmark sits (0 when inside). */
+  offset: number;
+  /** Which landmark answers the beat, in words. */
+  evidence: string;
+}
+
+/** One classic shape tried against the document. */
+export interface StructureModel {
+  /** `three_act` | `kisho_tenketsu` | `hero_journey`. */
+  model: string;
+  /** `matched` | `partial` | `unclear` — how many beats land where expected. */
+  fit: string;
+  beats: StructureBeat[];
+  found: number;
+  displaced: number;
+  missing: number;
+}
+
+/** One act of the document's own three-way split, cut at its two strongest turns. */
+export interface StructureAct {
+  /** `act_one` | `act_two` | `act_three`. */
+  name: string;
+  from_section: string;
+  to_section: string;
+  char_count: number;
+  /** Share of the document's visible characters (0-1). */
+  share: number;
+  mean_tension: number;
+  min_tension: number;
+  max_tension: number;
+}
+
+/** Something the shape does that a writer would want to know about. */
+export interface StructureIssue {
+  /** `no_early_turn` | `missing_midpoint` | `climax_early` | `no_descent` |
+   *  `act_imbalance` | `too_few_landmarks`. */
+  kind: string;
+  section: string;
+  detail: string;
+}
+
+/**
+ * Story structure analysis. There is no score field: the dimension describes where
+ * the document's own signals place a shape, it does not grade the shape.
+ */
+export interface StructureStats {
+  /** The landmarks the matching worked from, reading order. */
+  landmarks: StructureLandmark[];
+  /** The document's own three-way split; empty when fewer than two turns were found. */
+  acts: StructureAct[];
+  /** The shapes tried against the document; empty when `readable` is false. */
+  models: StructureModel[];
+  issues: StructureIssue[];
+  segment_count: number;
+  /** True when the segments are block chunks rather than sections. */
+  chunked: boolean;
+  char_count: number;
+  /** Turns among the landmarks. */
+  turn_count: number;
+  /** False when the document is too short, or has no tension curve to place beats on. */
+  readable: boolean;
+  /** Why `readable` is false, in words; empty when it is true. */
+  note: string;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -730,6 +820,7 @@ export interface ProjectAnalysis {
   cliche: ClicheStats;
   dialogue: DialogueStats;
   explicit: ExplicitStats;
+  structure: StructureStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

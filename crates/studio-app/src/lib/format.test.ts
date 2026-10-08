@@ -41,6 +41,16 @@ import {
   settingIssueStyle,
   settingVerdictLabel,
   settingVerdictStyle,
+  structureActLabel,
+  structureBeatLabel,
+  structureFitLabel,
+  structureFitStyle,
+  structureIssueLabel,
+  structureIssueStyle,
+  structureLandmarkLabel,
+  structureModelLabel,
+  structureStatusLabel,
+  structureStatusStyle,
   themeConcentrationLabel,
   themeReachLabel,
   themeReachStyle,
@@ -454,5 +464,100 @@ describe("explicit language labels", () => {
 
   it("falls back to the density style for an unknown notice kind", () => {
     expect(explicitIssueStyle("smuggling")).toBe(explicitIssueStyle("dense_segment"));
+  });
+});
+
+describe("story structure labels", () => {
+  it("names every shape the analysis tries", () => {
+    expect(structureModelLabel("three_act")).toBe("三幕结构");
+    expect(structureModelLabel("kisho_tenketsu")).toBe("起承转合");
+    expect(structureModelLabel("hero_journey")).toBe("英雄之旅");
+    expect(structureModelLabel("save_the_cat")).toBe("save_the_cat");
+  });
+
+  it("names every beat of every model", () => {
+    const beats = [
+      "setup",
+      "first_turn",
+      "midpoint",
+      "second_turn",
+      "climax",
+      "resolution",
+      "kisho",
+      "sho",
+      "ten",
+      "ketsu",
+      "ordinary_world",
+      "call",
+      "threshold",
+      "tests",
+      "inmost_cave",
+      "resurrection",
+      "return",
+    ];
+    for (const beat of beats) {
+      // A beat left untranslated would show an English id in a Chinese table.
+      expect(structureBeatLabel(beat)).not.toBe(beat);
+    }
+    expect(structureBeatLabel("midpoint")).toBe("中点");
+    expect(structureBeatLabel("inmost_cave")).toBe("最深洞穴");
+  });
+
+  it("never paints an absent beat as a fault", () => {
+    // 未见 says the signals showed nothing there, so it stays neutral rather than red.
+    expect(structureStatusLabel("found")).toBe("命中");
+    expect(structureStatusLabel("displaced")).toBe("错位");
+    expect(structureStatusLabel("missing")).toBe("未见");
+    expect(structureStatusStyle("found")).toContain("text-emerald-400");
+    expect(structureStatusStyle("displaced")).toContain("text-amber-400");
+    expect(structureStatusStyle("missing")).toContain("text-text-muted");
+    expect(structureStatusStyle("missing")).not.toContain("red");
+  });
+
+  it("keeps the fit a word rather than a number", () => {
+    // The dimension is descriptive: the verdict word always travels with its counts,
+    // so it may not read like a grade.
+    expect(structureFitLabel("matched")).toBe("吻合");
+    expect(structureFitLabel("partial")).toBe("部分吻合");
+    expect(structureFitLabel("unclear")).toBe("信号不足");
+    expect(structureFitStyle("unclear")).toContain("text-text-muted");
+    expect(structureFitStyle("nonsense")).toBe(structureFitStyle("unclear"));
+  });
+
+  it("distinguishes the kinds of landmark", () => {
+    expect(structureLandmarkLabel("opening")).toBe("开篇");
+    expect(structureLandmarkLabel("turn")).toBe("线程转折");
+    expect(structureLandmarkLabel("peak")).toBe("张力高点");
+    expect(structureLandmarkLabel("trough")).toBe("张力低点");
+    expect(structureLandmarkLabel("climax")).toBe("张力最高点");
+  });
+
+  it("names the acts of the document's own split", () => {
+    expect(structureActLabel("act_one")).toBe("第一幕");
+    expect(structureActLabel("act_two")).toBe("第二幕");
+    expect(structureActLabel("act_three")).toBe("第三幕");
+    expect(structureActLabel("act_four")).toBe("act_four");
+  });
+
+  it("localizes every structure note the analysis can emit", () => {
+    for (const kind of [
+      "no_early_turn",
+      "missing_midpoint",
+      "climax_early",
+      "no_descent",
+      "act_imbalance",
+      "too_few_landmarks",
+    ]) {
+      expect(structureIssueLabel(kind)).not.toBe(kind);
+    }
+    expect(structureIssueLabel("climax_early")).toBe("张力最高点偏早");
+  });
+
+  it("marks a limit on the reading differently from a claim about the story", () => {
+    // too_few_landmarks is about how little the signals showed, not about the document,
+    // so it stays neutral while the five shape notes carry colour.
+    expect(structureIssueStyle("act_imbalance")).toContain("text-amber-400");
+    expect(structureIssueStyle("too_few_landmarks")).toContain("text-text-muted");
+    expect(structureIssueStyle("unknown_note")).toBe(structureIssueStyle("too_few_landmarks"));
   });
 });

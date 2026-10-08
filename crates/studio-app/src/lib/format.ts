@@ -632,3 +632,168 @@ const EXPLICIT_ISSUE_STYLES: Record<string, string> = {
 export function explicitIssueStyle(kind: string): string {
   return EXPLICIT_ISSUE_STYLES[kind] ?? EXPLICIT_ISSUE_STYLES.dense_segment;
 }
+
+/**
+ * Localized label for a classic shape tried against the document. Mirrors
+ * `structure_model_label` in `studio-report::markdown`.
+ */
+const STRUCTURE_MODEL_LABELS: Record<string, string> = {
+  three_act: "三幕结构",
+  kisho_tenketsu: "起承转合",
+  hero_journey: "英雄之旅",
+};
+
+export function structureModelLabel(model: string): string {
+  return STRUCTURE_MODEL_LABELS[model] ?? model;
+}
+
+/**
+ * Localized label for one beat of a model. Mirrors `structure_beat_label` in
+ * `studio-report::markdown`.
+ */
+const STRUCTURE_BEAT_LABELS: Record<string, string> = {
+  setup: "铺垫",
+  first_turn: "第一转折点",
+  midpoint: "中点",
+  second_turn: "第二转折点",
+  climax: "高潮",
+  resolution: "收束",
+  kisho: "起",
+  sho: "承",
+  ten: "转",
+  ketsu: "合",
+  ordinary_world: "日常世界",
+  call: "冒险的召唤",
+  threshold: "跨越门槛",
+  tests: "试炼与伙伴",
+  inmost_cave: "最深洞穴",
+  resurrection: "复活",
+  return: "携宝归来",
+};
+
+export function structureBeatLabel(beat: string): string {
+  return STRUCTURE_BEAT_LABELS[beat] ?? beat;
+}
+
+/**
+ * Localized label for where a beat was answered. `missing` says the signals showed
+ * nothing there, which is not the same as the story lacking the beat.
+ */
+const STRUCTURE_STATUS_LABELS: Record<string, string> = {
+  found: "命中",
+  displaced: "错位",
+  missing: "未见",
+};
+
+export function structureStatusLabel(status: string): string {
+  return STRUCTURE_STATUS_LABELS[status] ?? status;
+}
+
+/**
+ * Badge classes for a beat. Emerald is a landmark inside the window, amber one the
+ * document puts outside it, gray the absence — never red, because an absent beat is
+ * not a fault.
+ */
+const STRUCTURE_STATUS_STYLES: Record<string, string> = {
+  found: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  displaced: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  missing: "bg-gray-500/15 text-text-muted border-gray-500/30",
+};
+
+export function structureStatusStyle(status: string): string {
+  return STRUCTURE_STATUS_STYLES[status] ?? STRUCTURE_STATUS_STYLES.missing;
+}
+
+/** How many beats landed where the model expects them, in words not points. */
+const STRUCTURE_FIT_LABELS: Record<string, string> = {
+  matched: "吻合",
+  partial: "部分吻合",
+  unclear: "信号不足",
+};
+
+export function structureFitLabel(fit: string): string {
+  return STRUCTURE_FIT_LABELS[fit] ?? fit;
+}
+
+const STRUCTURE_FIT_STYLES: Record<string, string> = {
+  matched: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  partial: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  unclear: "bg-gray-500/15 text-text-muted border-gray-500/30",
+};
+
+export function structureFitStyle(fit: string): string {
+  return STRUCTURE_FIT_STYLES[fit] ?? STRUCTURE_FIT_STYLES.unclear;
+}
+
+/** What kind of signal made a landmark. */
+const STRUCTURE_LANDMARK_LABELS: Record<string, string> = {
+  opening: "开篇",
+  turn: "线程转折",
+  peak: "张力高点",
+  trough: "张力低点",
+  climax: "张力最高点",
+};
+
+export function structureLandmarkLabel(kind: string): string {
+  return STRUCTURE_LANDMARK_LABELS[kind] ?? kind;
+}
+
+/**
+ * Badge classes for a landmark. The two tension extremes share a hue because they are
+ * the same measurement read in opposite directions; a turn comes from the thread set
+ * and is coloured by how sharply it changes.
+ */
+const STRUCTURE_LANDMARK_STYLES: Record<string, string> = {
+  opening: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  turn: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  peak: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  trough: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  climax: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+};
+
+export function structureLandmarkStyle(kind: string): string {
+  return STRUCTURE_LANDMARK_STYLES[kind] ?? STRUCTURE_LANDMARK_STYLES.opening;
+}
+
+/** Which part of the document's own three-way split. */
+const STRUCTURE_ACT_LABELS: Record<string, string> = {
+  act_one: "第一幕",
+  act_two: "第二幕",
+  act_three: "第三幕",
+};
+
+export function structureActLabel(name: string): string {
+  return STRUCTURE_ACT_LABELS[name] ?? name;
+}
+
+/** What the shape does that a writer may want to look at again. */
+const STRUCTURE_ISSUE_LABELS: Record<string, string> = {
+  no_early_turn: "开头无变化",
+  missing_midpoint: "中段空白",
+  climax_early: "张力最高点偏早",
+  no_descent: "结尾未回落",
+  act_imbalance: "幕长失衡",
+  too_few_landmarks: "地标太少",
+};
+
+export function structureIssueLabel(kind: string): string {
+  return STRUCTURE_ISSUE_LABELS[kind] ?? kind;
+}
+
+/**
+ * Badge classes for a structure note. Amber marks the five claims about where the
+ * shape sits; gray marks `too_few_landmarks`, which is a limit on the reading rather
+ * than a property of the story.
+ */
+const STRUCTURE_ISSUE_STYLES: Record<string, string> = {
+  no_early_turn: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  missing_midpoint: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  climax_early: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  no_descent: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  act_imbalance: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  too_few_landmarks: "bg-gray-500/15 text-text-muted border-gray-500/30",
+};
+
+export function structureIssueStyle(kind: string): string {
+  return STRUCTURE_ISSUE_STYLES[kind] ?? STRUCTURE_ISSUE_STYLES.too_few_landmarks;
+}
