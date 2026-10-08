@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use studio_core::document::DocumentData;
 
+use crate::lexicon::{self, Compiled, Index};
 use crate::segment::plan_segments;
 use crate::text::visible_char_count;
 use crate::Result;
@@ -52,11 +53,6 @@ const MAX_PHRASES: usize = 20;
 const MAX_HITS: usize = 60;
 /// How many issues are reported, first found first.
 const MAX_ISSUES: usize = 12;
-/// Characters of context kept on each side of a hit.
-const EXCERPT_RADIUS: usize = 24;
-/// Variants a single pattern may expand into; guards against a careless pattern.
-const MAX_VARIANTS: usize = 16;
-
 /// The phrase library: `pattern, category, note`.
 ///
 /// Every pattern is at least two characters — Chinese has no word boundaries, and a
@@ -400,15 +396,6 @@ pub struct ClicheHit {
     pub note: String,
 }
 
-/// A pattern after its alternation groups have been expanded.
-#[derive(Debug, Clone)]
-struct Compiled {
-    pattern: &'static str,
-    category: &'static str,
-    note: &'static str,
-    variants: Vec<Vec<char>>,
-}
-
 /// A hit before it is placed in the output.
 #[derive(Debug, Clone)]
 struct RawHit {
@@ -491,186 +478,23 @@ pub struct ClicheIssue {
     pub detail: String,
 }
 
-/// Expand a pattern's alternation groups into the variants it stands for.
+/// The phrase library, compiled for the shared matcher.
 ///
-/// `(淡淡|浅浅)一笑` yields `淡淡一笑` and `浅浅一笑`; a `?` after a group means the
-/// group may also be absent. Expansion is capped at [`MAX_VARIANTS`] so a careless
-/// pattern cannot blow up the index.
-fn expand(pattern: &str) -> Vec<Vec<char>> {
-    let mut current: Vec<Vec<char>> = vec![Vec::new()];
-    let mut chars = pattern.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c != '(' {
-            for variant in &mut current {
-                variant.push(c);
-            }
-            continue;
-        }
-
-        let mut body = String::new();
-        while let Some(&c) = chars.peek() {
-            if c == ')' {
-                chars.next();
-                break;
-            }
-            body.push(c);
-            chars.next();
-        }
-
-        let mut options: Vec<Vec<char>> = body
-            .split('|')
-            .map(|part| part.chars().collect::<Vec<char>>())
-            .collect();
-        if chars.peek() == Some(&'?') {
-            chars.next();
-            options.push(Vec::new());
-        }
-
-        let mut next: Vec<Vec<char>> = Vec::new();
-        for prefix in &current {
-            for option in &options {
-                let mut merged = prefix.clone();
-                merged.extend(option.iter().copied());
-                next.push(merged);
-            }
-        }
-        next.truncate(MAX_VARIANTS);
-        current = next;
-    }
-
-    current.retain(|v| !v.is_empty());
-    // Longest first: the scanner relies on this to take the longest match at a
-    // position, which is what stops overlapping patterns from double counting.
-    current.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
-    current
-}
-
-/// The library, compiled once per analysis.
+/// The matcher sees patterns only; what a pattern means stays in [`CLICHE_LIBRARY`],
+/// reachable at the index a hit reports.
 fn compile_library() -> Vec<Compiled> {
-    CLICHE_LIBRARY
-        .iter()
-        .map(|(pattern, category, note)| Compiled {
-            pattern,
-            category,
-            note,
-            variants: expand(pattern),
-        })
-        .collect()
-}
-
-/// Map first character → `(pattern index, variant index)`, longest variant first.
-///
-/// Indexing on the first character keeps a full pass over a novel linear: at each
-/// position only the handful of patterns starting with that character are tried.
-fn build_index(lexicon: &[Compiled]) -> HashMap<char, Vec<(usize, usize)>> {
-    let mut index: HashMap<char, Vec<(usize, usize)>> = HashMap::new();
-    for (p, entry) in lexicon.iter().enumerate() {
-        for (v, variant) in entry.variants.iter().enumerate() {
-            if let Some(&first) = variant.first() {
-                index.entry(first).or_default().push((p, v));
-            }
-        }
-    }
-    for candidates in index.values_mut() {
-        candidates.sort_by(|a, b| {
-            let la = lexicon[a.0].variants[a.1].len();
-            let lb = lexicon[b.0].variants[b.1].len();
-            lb.cmp(&la).then_with(|| a.cmp(b))
-        });
-    }
-    index
-}
-
-/// Whether `variant` fits at `at`.
-fn fits(chars: &[char], at: usize, variant: &[char]) -> bool {
-    at + variant.len() <= chars.len() && chars[at..at + variant.len()] == *variant
-}
-
-/// Opening and closing quotation marks, as the dialogue measures elsewhere treat them.
-fn is_open_quote(c: char) -> bool {
-    matches!(c, '“' | '「' | '『' | '"')
-}
-
-fn is_close_quote(c: char) -> bool {
-    matches!(c, '”' | '」' | '』')
-}
-
-fn apply_quote(c: char, in_quote: &mut bool) {
-    if is_open_quote(c) {
-        *in_quote = true;
-    } else if is_close_quote(c) {
-        *in_quote = false;
-    }
-}
-
-/// A window of context around a hit, with ellipses where characters were cut.
-fn excerpt(chars: &[char], at: usize, len: usize) -> String {
-    let start = at.saturating_sub(EXCERPT_RADIUS);
-    let end = (at + len + EXCERPT_RADIUS).min(chars.len());
-    let mut out = String::new();
-    if start > 0 {
-        out.push('…');
-    }
-    out.extend(chars[start..end].iter());
-    if end < chars.len() {
-        out.push('…');
-    }
-    out
-}
-
-/// Walk one block and collect its hits.
-///
-/// The walk advances one character at a time except past a match, so hits never
-/// overlap. Quotation state is tracked in the same pass: a phrase inside 「」 is
-/// someone's line rather than the narration's, and that difference is reported
-/// instead of resolved.
-fn scan_block(
-    content: &str,
-    index: &HashMap<char, Vec<(usize, usize)>>,
-    lexicon: &[Compiled],
-) -> Vec<RawHit> {
-    let chars: Vec<char> = content.chars().collect();
-    let mut hits = Vec::new();
-    let mut in_quote = false;
-    let mut i = 0usize;
-
-    while i < chars.len() {
-        apply_quote(chars[i], &mut in_quote);
-        let mut step = 1usize;
-
-        if let Some(candidates) = index.get(&chars[i]) {
-            for &(p, v) in candidates {
-                let variant = &lexicon[p].variants[v];
-                if fits(&chars, i, variant) {
-                    hits.push(RawHit {
-                        pattern_idx: p,
-                        matched: variant.iter().collect(),
-                        char_offset: i,
-                        excerpt: excerpt(&chars, i, variant.len()),
-                        in_dialogue: in_quote,
-                        segment: 0,
-                    });
-                    step = variant.len();
-                    break;
-                }
-            }
-        }
-
-        // Quotation state has to stay correct across the characters the match skipped.
-        for c in &chars[i + 1..i + step] {
-            apply_quote(*c, &mut in_quote);
-        }
-        i += step;
-    }
-
-    hits
+    lexicon::compile(
+        &CLICHE_LIBRARY
+            .iter()
+            .map(|(pattern, category, note)| (*pattern, *category, *note))
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// Scan every block, tagging each hit with the curve segment it falls in.
 fn collect_hits(
     doc: &DocumentData,
-    index: &HashMap<char, Vec<(usize, usize)>>,
+    index: &Index,
     lexicon: &[Compiled],
 ) -> (Vec<Segment>, Vec<RawHit>, bool) {
     let plan = plan_segments(doc);
@@ -691,9 +515,15 @@ fn collect_hits(
         let chars = visible_char_count(&block.content) as u64;
         segments[segment].chars += chars;
 
-        let hits = scan_block(&block.content, index, lexicon);
-        for mut hit in hits {
-            hit.segment = segment;
+        for found in lexicon::scan_block(&block.content, index, lexicon) {
+            let hit = RawHit {
+                pattern_idx: found.pattern_idx,
+                matched: found.matched,
+                char_offset: found.char_offset,
+                excerpt: found.excerpt,
+                in_dialogue: found.in_dialogue,
+                segment,
+            };
             let seg = &mut segments[segment];
             seg.hits += 1;
             *seg.phrases.entry(hit.pattern_idx).or_insert(0) += 1;
@@ -902,7 +732,7 @@ fn find_issues(
 /// Count what the library finds, segment by segment.
 pub fn run_cliche_analysis(doc: &DocumentData) -> Result<ClicheStats> {
     let lexicon = compile_library();
-    let index = build_index(&lexicon);
+    let index = lexicon::build_index(&lexicon);
     let (segments, all_hits, chunked) = collect_hits(doc, &index, &lexicon);
 
     let total_chars: u64 = segments.iter().map(|s| s.chars).sum();
@@ -1465,7 +1295,7 @@ mod tests {
     #[test]
     fn test_pattern_expansion_is_longest_first() {
         let text = |pattern: &str| -> Vec<String> {
-            expand(pattern)
+            lexicon::expand(pattern)
                 .iter()
                 .map(|v| v.iter().collect::<String>())
                 .collect()
@@ -1482,7 +1312,7 @@ mod tests {
 
     #[test]
     fn test_expansion_is_capped() {
-        let variants = expand("(a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t)");
-        assert!(variants.len() <= MAX_VARIANTS);
+        let variants = lexicon::expand("(a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t)");
+        assert!(variants.len() <= lexicon::MAX_VARIANTS);
     }
 }

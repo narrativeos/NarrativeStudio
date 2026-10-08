@@ -19,6 +19,7 @@ mod cliche;
 mod conflict;
 mod dialogue;
 mod hash;
+mod lexicon;
 mod pacing;
 mod plot;
 mod segment;
