@@ -9,6 +9,7 @@
 //! - Theme: which terms the document keeps coming back to
 //! - Setting: where the story happens, and whether the reader is told
 //! - Cliché: which stock phrases the text reaches for, and how often
+//! - Dialogue: how much of the text is spoken, and where it is spoken
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
@@ -16,6 +17,7 @@ pub use studio_core::error::Result;
 mod assessment;
 mod cliche;
 mod conflict;
+mod dialogue;
 mod hash;
 mod pacing;
 mod plot;
@@ -32,6 +34,9 @@ pub use cliche::{
 };
 pub use conflict::{
     run_conflict_analysis, ConflictAbsence, ConflictPoint, ConflictStats, ConflictType,
+};
+pub use dialogue::{
+    run_dialogue_analysis, DialogueIssue, DialoguePoint, DialogueSample, DialogueStats,
 };
 pub use hash::{document_hash, ANALYSIS_VERSION};
 pub use pacing::{run_pacing_analysis, DragSection, FlatStretch, PacingPoint, PacingStats};
