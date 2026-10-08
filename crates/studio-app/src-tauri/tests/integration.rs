@@ -10,13 +10,14 @@
 //! 7. Run plot analysis
 //! 8. Run pacing analysis
 //! 9. Run conflict analysis
+//! 10. Run theme analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
     document_hash, run_assessment, run_conflict_analysis, run_pacing_analysis, run_plot_analysis,
-    run_t0_analysis, run_t1_analysis, Assessment, ConflictStats, PacingStats, PlotStats, T0Stats,
-    T1Stats,
+    run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment, ConflictStats, PacingStats,
+    PlotStats, T0Stats, T1Stats, ThemeStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -202,6 +203,7 @@ fn test_analysis_cache_roundtrip() {
     let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
     let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
     let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
+    let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -253,6 +255,16 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&conflict).unwrap(),
     )
     .expect("save conflict");
+    save_result(
+        &conn,
+        project.project_id,
+        "theme",
+        "t1",
+        &hash,
+        theme.theme_score.map(|s| s as f32),
+        &serde_json::to_string(&theme).unwrap(),
+    )
+    .expect("save theme");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -343,16 +355,40 @@ fn test_analysis_cache_roundtrip() {
             "conflict score must survive the cache"
         );
     }
+    let cached_theme = load_cached::<ThemeStats>(&conn, project.project_id, "theme", &hash)
+        .unwrap()
+        .expect("theme cache hit");
+    assert_eq!(cached_theme.source, theme.source);
+    assert_eq!(cached_theme.candidate_count, theme.candidate_count);
+    assert_eq!(cached_theme.total_mentions, theme.total_mentions);
+    assert_eq!(cached_theme.themes.len(), theme.themes.len());
+    for (cached, fresh) in cached_theme.themes.iter().zip(theme.themes.iter()) {
+        assert_eq!(cached.term, fresh.term);
+        assert_eq!(cached.mentions, fresh.mentions);
+        assert_eq!(cached.curve, fresh.curve);
+    }
+    assert_eq!(
+        cached_theme.theme_score.is_some(),
+        theme.theme_score.is_some(),
+        "an unscored theme list must stay unscored in the cache"
+    );
+    if let (Some(cached), Some(fresh)) = (cached_theme.theme_score, theme.theme_score) {
+        assert!(
+            (cached - fresh).abs() < 1e-6,
+            "theme score must survive the cache"
+        );
+    }
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/assessment ({} threads, {} segments, {} conflict hits, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
+        theme.themes.len(),
         assessment.recommendations.len()
     );
 
@@ -368,8 +404,8 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: six dimensions.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 6);
+    // "重新分析" clears everything for the project: seven dimensions.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 7);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -398,6 +434,7 @@ fn test_report_generation_and_export() {
     let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
     let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
     let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
+    let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -409,6 +446,7 @@ fn test_report_generation_and_export() {
         plot: &plot,
         pacing: &pacing,
         conflict: &conflict,
+        theme: &theme,
         assessment: &assessment,
     });
 
@@ -424,6 +462,7 @@ fn test_report_generation_and_export() {
         "## 情节线",
         "## 节奏",
         "## 冲突",
+        "## 主题",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -470,13 +509,25 @@ fn test_report_generation_and_export() {
             "conflict curve table missing from the report"
         );
     }
+    // The theme section names the vocabulary it read, whether or not it scored:
+    // a list rebuilt from POS tags is not as trustworthy as one from noun signals.
+    assert!(markdown.contains("词汇来源：") || markdown.contains("没有可用于主题分析的词汇"));
+    if let Some(top) = theme.themes.first() {
+        assert!(
+            markdown.contains(&top.term),
+            "top theme {} missing from the report",
+            top.term
+        );
+        assert!(markdown.contains("### 主题清单（"));
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
+        theme.themes.len(),
         assessment.recommendations.len()
     );
 

@@ -8,7 +8,8 @@
 use chrono::{DateTime, Utc};
 
 use studio_analysis::{
-    Assessment, ConflictStats, PacingStats, PlotStats, T0Stats, T1Stats, ANALYSIS_VERSION,
+    Assessment, ConflictStats, PacingStats, PlotStats, T0Stats, T1Stats, ThemeStats,
+    ANALYSIS_VERSION,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -21,6 +22,7 @@ pub struct ReportInput<'a> {
     pub plot: &'a PlotStats,
     pub pacing: &'a PacingStats,
     pub conflict: &'a ConflictStats,
+    pub theme: &'a ThemeStats,
     pub assessment: &'a Assessment,
 }
 
@@ -41,6 +43,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_plot(&mut out, input.plot);
     write_pacing(&mut out, input.pacing);
     write_conflict(&mut out, input.conflict);
+    write_theme(&mut out, input.theme);
     write_footer(&mut out);
     out
 }
@@ -496,6 +499,83 @@ fn write_conflict(out: &mut String, conflict: &ConflictStats) {
     out.push_str("_冲突用词按词面计数：每个词权重相同，词库未覆盖的写法不计入。\n\n");
 }
 
+fn write_theme(out: &mut String, theme: &ThemeStats) {
+    out.push_str("## 主题\n\n");
+    match theme.theme_score {
+        Some(score) => out.push_str(&format!(
+            "主题评分：**{:.1} / 100** · 词汇来源：**{}**（`{}`）· {} 个主题 · 候选词命中 {} 次\n\n",
+            score,
+            theme_source_label(&theme.source),
+            theme.source,
+            theme.candidate_count,
+            theme.total_mentions
+        )),
+        // No usable noun, or nothing that ever repeats: there is no theme list to
+        // grade, and saying so beats a low score that reads as a weak subject.
+        None => out.push_str(
+            "没有可用于主题分析的词汇，或没有任何词反复出现，因此**不给出评分**。\n\n",
+        ),
+    }
+
+    if theme.themes.is_empty() {
+        out.push_str("未识别到主题：没有词达到 3 次提及且跨越 2 段以上。\n\n");
+        return;
+    }
+
+    out.push_str(&format!(
+        "最大主题占比 {:.0}% · 前三主题合计 {:.0}% · 仅出现一次的词贡献 {:.0}%\n\n",
+        theme.top_share * 100.0,
+        theme.top3_share * 100.0,
+        theme.singleton_share * 100.0
+    ));
+    out.push_str(&format!("### 主题清单（{} 个）\n\n", theme.themes.len()));
+    out.push_str(
+        "| 主题 | 提及 | 覆盖 | 占比 | 首次 | 末次 | 贯穿度 | 分布 |\n| --- | ---: | ---: | ---: | --- | --- | --- | --- |\n",
+    );
+    for t in theme.themes.iter().take(MAX_ROWS) {
+        out.push_str(&format!(
+            "| {} | {} | {:.0}% | {:.1}% | {} | {} | {} | {} |\n",
+            esc(&t.term),
+            t.mentions,
+            t.coverage * 100.0,
+            t.share * 100.0,
+            esc(&t.first_section),
+            esc(&t.last_section),
+            theme_reach_label(&t.reach),
+            theme_concentration_label(&t.concentration)
+        ));
+    }
+    out.push_str(&omitted(theme.themes.len(), MAX_ROWS));
+    out.push('\n');
+
+    let folded: Vec<String> = theme
+        .themes
+        .iter()
+        .filter(|t| t.members.len() > 1)
+        .take(6)
+        .map(|t| {
+            let parts: Vec<String> = t
+                .members
+                .iter()
+                .map(|(m, count)| format!("{m}×{count}"))
+                .collect();
+            format!("{}：{}", esc(&t.term), parts.join("、"))
+        })
+        .collect();
+    if !folded.is_empty() {
+        out.push_str("同义与包含关系已合并：\n\n");
+        for line in folded {
+            out.push_str(&format!("- {line}\n"));
+        }
+        out.push('\n');
+    }
+
+    out.push_str(&format!(
+        "_主题按名词词汇的复现与分布计算（来源：{}）；反复出现不等于母题，是否有意为之需要人来判断。_\n\n",
+        theme_source_label(&theme.source)
+    ));
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -607,13 +687,46 @@ fn conflict_verdict_label(verdict: &str) -> &'static str {
     }
 }
 
+/// Which vocabulary the theme pass read. Naming the source matters: a list built
+/// from noun signals and one rebuilt from POS tags are not equally trustworthy.
+fn theme_source_label(source: &str) -> &'static str {
+    match source {
+        "noun_signals" => "名词信号",
+        "noun_tokens" => "名词词性",
+        "none" => "无",
+        _ => "未知",
+    }
+}
+
+/// How far a theme reaches across the document.
+fn theme_reach_label(reach: &str) -> &'static str {
+    match reach {
+        "sustained" => "贯穿",
+        "recurring" => "复现",
+        "episodic" => "偶发",
+        "occasional" => "零星",
+        _ => "未知",
+    }
+}
+
+/// Where a theme's mentions sit.
+fn theme_concentration_label(concentration: &str) -> &'static str {
+    match concentration {
+        "spread" => "均匀",
+        "front" => "集中在开头",
+        "middle" => "集中在中段",
+        "back" => "集中在结尾",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
         ArcPoint, ConflictAbsence, ConflictPoint, ConflictType, DimensionScore, DragSection,
         FlatStretch, NarrativeArc, PacingPoint, Plotline, PlotlineStage, Readability,
-        Recommendation, RepeatedPhrase, SectionInfo, TurningPoint,
+        Recommendation, RepeatedPhrase, SectionInfo, Theme, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -726,6 +839,23 @@ mod tests {
         }
     }
 
+    /// What `run_theme_analysis` returns for an empty document: nothing usable, and
+    /// therefore no score.
+    fn empty_theme() -> ThemeStats {
+        ThemeStats {
+            themes: vec![],
+            candidate_count: 0,
+            total_mentions: 0,
+            source: "none".into(),
+            top_share: 0.0,
+            top3_share: 0.0,
+            singleton_share: 0.0,
+            dominant_terms: vec![],
+            section_count: 0,
+            theme_score: None,
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -741,12 +871,13 @@ mod tests {
 
     #[test]
     fn test_render_is_deterministic() {
-        let (t0, t1, plot, pacing, conflict, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -757,6 +888,7 @@ mod tests {
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -764,12 +896,13 @@ mod tests {
 
     #[test]
     fn test_golden_minimal_report() {
-        let (t0, t1, plot, pacing, conflict, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -780,6 +913,7 @@ mod tests {
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let expected = "\
@@ -885,6 +1019,12 @@ mod tests {
 
 未识别到冲突曲线：文档没有可切分的段落。
 
+## 主题
+
+没有可用于主题分析的词汇，或没有任何词反复出现，因此**不给出评分**。
+
+未识别到主题：没有词达到 3 次提及且跨越 2 段以上。
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -903,12 +1043,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 detail: "—".into(),
             });
         }
-        let (t0, t1, plot, pacing, conflict) = (
+        let (t0, t1, plot, pacing, conflict, theme) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
         );
         let input = ReportInput {
             project_name: "P",
@@ -918,6 +1059,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -932,6 +1074,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 情节线",
             "## 节奏",
             "## 冲突",
+            "## 主题",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -941,17 +1084,18 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 "missing dimension {i}"
             );
         }
-        assert_eq!(md.matches("\n## ").count(), 9, "exactly nine H2 sections");
+        assert_eq!(md.matches("\n## ").count(), 10, "exactly ten H2 sections");
     }
 
     #[test]
     fn test_recommendations_grouped_and_counted() {
-        let (t0, t1, plot, pacing, conflict) = (
+        let (t0, t1, plot, pacing, conflict, theme) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
         );
         let mut a = clean_assessment();
         a.recommendations = vec![
@@ -976,6 +1120,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -986,12 +1131,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_table_cells_are_escaped() {
-        let (mut t0, mut t1, plot, pacing, conflict, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, theme, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
             clean_assessment(),
         );
         t0.top_entities = vec![("A|B".into(), 3)];
@@ -1008,6 +1154,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1024,12 +1171,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_long_lists_are_capped_and_announced() {
-        let (mut t0, mut t1, plot, pacing, conflict, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, theme, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
             clean_assessment(),
         );
         t0.top_words = (0..25).map(|i| (format!("w{i}"), i)).collect();
@@ -1054,6 +1202,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1067,12 +1216,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_arc_renders_bar_and_shape() {
-        let (t0, mut t1, plot, pacing, conflict, a) = (
+        let (t0, mut t1, plot, pacing, conflict, theme, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
             clean_assessment(),
         );
         t1.arc.shape = "mountain".into();
@@ -1101,6 +1251,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1116,6 +1267,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let mut plot = empty_plot();
         let pacing = empty_pacing();
         let conflict = empty_conflict();
+        let theme = empty_theme();
         plot.coherence_score = 84.0;
         plot.thread_count = 3;
         plot.section_count = 5;
@@ -1172,6 +1324,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1190,6 +1343,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         let mut pacing = empty_pacing();
         let conflict = empty_conflict();
+        let theme = empty_theme();
         pacing.pace_score = 62.0;
         pacing.verdict = "varied".into();
         pacing.segment_count = 4;
@@ -1238,6 +1392,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1258,6 +1413,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         let pacing = empty_pacing();
         let mut conflict = empty_conflict();
+        let theme = empty_theme();
         conflict.conflict_score = Some(71.0);
         conflict.verdict = "present".into();
         conflict.total_hits = 9;
@@ -1320,6 +1476,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1341,12 +1498,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_conflict_without_vocabulary_says_so_instead_of_scoring() {
-        let (t0, t1, plot, pacing, conflict, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
+            empty_theme(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -1357,6 +1515,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             plot: &plot,
             pacing: &pacing,
             conflict: &conflict,
+            theme: &theme,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1364,5 +1523,109 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("未检测到冲突用词，因此**不给出评分**"));
         assert!(md.contains("### 冲突类型（0 类）"));
         assert!(!md.contains("冲突评分："));
+    }
+
+    #[test]
+    fn test_theme_section_renders_list_shares_and_folding() {
+        let (t0, t1, plot, pacing, conflict, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            clean_assessment(),
+        );
+        let mut theme = empty_theme();
+        theme.theme_score = Some(88.0);
+        theme.source = "noun_signals".into();
+        theme.candidate_count = 2;
+        theme.total_mentions = 12;
+        theme.top_share = 0.583;
+        theme.top3_share = 0.917;
+        theme.singleton_share = 0.083;
+        theme.section_count = 6;
+        theme.themes = vec![
+            Theme {
+                term: "出版".into(),
+                members: vec![("出版".into(), 5), ("出版业".into(), 2)],
+                mentions: 7,
+                sections_touched: 6,
+                coverage: 1.0,
+                share: 0.583,
+                first_section: "第一章".into(),
+                last_section: "第六章".into(),
+                reach: "sustained".into(),
+                longest_gap: 0,
+                concentration: "spread".into(),
+                curve: vec![1, 1, 2, 1, 1, 1],
+            },
+            Theme {
+                term: "合同".into(),
+                members: vec![("合同".into(), 5)],
+                mentions: 5,
+                sections_touched: 2,
+                coverage: 0.333,
+                share: 0.417,
+                first_section: "第五章".into(),
+                last_section: "第六章".into(),
+                reach: "episodic".into(),
+                longest_gap: 4,
+                concentration: "back".into(),
+                curve: vec![0, 0, 0, 0, 3, 2],
+            },
+        ];
+
+        let input = ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            assessment: &a,
+        };
+        let md = render_markdown(&input);
+
+        assert!(md.contains(
+            "主题评分：**88.0 / 100** · 词汇来源：**名词信号**（`noun_signals`）· 2 个主题 · 候选词命中 12 次"
+        ));
+        assert!(md.contains("### 主题清单（2 个）"));
+        assert!(md.contains("| 出版 | 7 | 100% | 58.3% | 第一章 | 第六章 | 贯穿 | 均匀 |"));
+        assert!(md.contains("| 合同 | 5 | 33% | 41.7% | 第五章 | 第六章 | 偶发 | 集中在结尾 |"));
+        // The fold is printed, so a reader can see that 出版 and 出版业 were counted
+        // as one subject rather than two.
+        assert!(md.contains("- 出版：出版×5、出版业×2"));
+        assert!(md.contains("反复出现不等于母题"));
+    }
+
+    #[test]
+    fn test_theme_without_vocabulary_says_so_instead_of_scoring() {
+        let (t0, t1, plot, pacing, conflict, theme, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            empty_theme(),
+            clean_assessment(),
+        );
+        let input = ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            assessment: &a,
+        };
+        let md = render_markdown(&input);
+
+        assert!(md.contains("没有可用于主题分析的词汇"));
+        assert!(md.contains("未识别到主题：没有词达到 3 次提及且跨越 2 段以上"));
+        assert!(!md.contains("主题评分："));
     }
 }
