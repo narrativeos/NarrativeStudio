@@ -9,6 +9,7 @@ import {
   entityTotal,
   formatFixed,
   formatInt,
+  formatOptionalScore,
   formatPercent,
   formatScore,
   pacingVerdictLabel,
@@ -18,6 +19,10 @@ import {
   scoreColor,
   severityLabel,
   severityStyle,
+  themeConcentrationLabel,
+  themeReachLabel,
+  themeReachStyle,
+  themeSourceLabel,
 } from "./format";
 
 /** Only `entity_counts` matters for these helpers; the rest of T0Stats is unused. */
@@ -179,5 +184,53 @@ describe("conflict helpers", () => {
 
   it("falls back to the neutral style for an unknown verdict", () => {
     expect(conflictVerdictStyle("wave")).toBe(conflictVerdictStyle("none"));
+  });
+});
+
+describe("formatOptionalScore", () => {
+  it("says 未评分 instead of inventing a zero", () => {
+    expect(formatOptionalScore(null)).toBe("未评分");
+  });
+
+  it("formats a present score like the other scores", () => {
+    expect(formatOptionalScore(72.4)).toBe("72 / 100");
+  });
+});
+
+describe("theme labels", () => {
+  it("names the vocabulary the analysis read", () => {
+    expect(themeSourceLabel("noun_signals")).toBe("名词信号");
+    expect(themeSourceLabel("noun_tokens")).toBe("名词词性");
+    expect(themeSourceLabel("none")).toBe("无");
+  });
+
+  it("localizes every reach the analysis can emit", () => {
+    expect(themeReachLabel("sustained")).toBe("贯穿");
+    expect(themeReachLabel("recurring")).toBe("复现");
+    expect(themeReachLabel("episodic")).toBe("偶发");
+    expect(themeReachLabel("occasional")).toBe("零星");
+  });
+
+  it("reads a subject that runs through the document as the healthy case", () => {
+    expect(themeReachStyle("sustained")).toContain("text-emerald-400");
+    expect(themeReachStyle("episodic")).toContain("text-amber-400");
+    expect(themeReachStyle("occasional")).toContain("text-text-muted");
+  });
+
+  it("falls back to the muted style for an unknown reach", () => {
+    expect(themeReachStyle("scattered")).toBe(themeReachStyle("occasional"));
+  });
+
+  it("localizes where a theme's mentions sit", () => {
+    expect(themeConcentrationLabel("spread")).toBe("均匀");
+    expect(themeConcentrationLabel("front")).toBe("集中在开头");
+    expect(themeConcentrationLabel("middle")).toBe("集中在中段");
+    expect(themeConcentrationLabel("back")).toBe("集中在结尾");
+  });
+
+  it("passes an unknown label through instead of hiding it", () => {
+    expect(themeSourceLabel("embeddings")).toBe("embeddings");
+    expect(themeReachLabel("weekly")).toBe("weekly");
+    expect(themeConcentrationLabel("sideways")).toBe("sideways");
   });
 });

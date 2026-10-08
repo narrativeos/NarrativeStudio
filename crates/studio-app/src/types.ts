@@ -255,6 +255,52 @@ export interface ConflictStats {
   conflict_score: number | null;
 }
 
+/** A theme: one recurring subject and how far it reaches. */
+export interface Theme {
+  /** The cluster's busiest term; the cluster is named after it. */
+  term: string;
+  /** Terms folded into this theme, busiest first (`term, mentions`). */
+  members: [string, number][];
+  mentions: number;
+  sections_touched: number;
+  /** Fraction of the document's segments this theme appears in (0-1). */
+  coverage: number;
+  /** Share of every collected mention in the document. */
+  share: number;
+  first_section: string;
+  last_section: string;
+  /** `sustained` | `recurring` | `episodic` | `occasional`. */
+  reach: string;
+  /** Longest run of segments where the theme is absent. */
+  longest_gap: number;
+  /** Where its mentions sit: `spread` | `front` | `middle` | `back`. */
+  concentration: string;
+  /** Mentions per segment, aligned with the other curves' X axis. */
+  curve: number[];
+}
+
+export interface ThemeStats {
+  /** Reported themes, biggest first. */
+  themes: Theme[];
+  /** Themes that cleared the mention threshold, including unlisted ones. */
+  candidate_count: number;
+  /** Mentions of every collected term, reported or not. */
+  total_mentions: number;
+  /** `noun_signals` | `noun_tokens` | `none` — which vocabulary was read. */
+  source: "noun_signals" | "noun_tokens" | "none";
+  /** Share of all mentions held by the single biggest theme. */
+  top_share: number;
+  /** Share held by the top three together. */
+  top3_share: number;
+  /** Share of all mentions contributed by terms seen exactly once. */
+  singleton_share: number;
+  /** The three biggest theme names. */
+  dominant_terms: string[];
+  section_count: number;
+  /** 0-100, or null when no usable noun vocabulary was found. */
+  theme_score: number | null;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -294,6 +340,7 @@ export interface ProjectAnalysis {
   plot: PlotStats;
   pacing: PacingStats;
   conflict: ConflictStats;
+  theme: ThemeStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Panel, SectionTitle, StatCard } from "../components/Cards";
 import ConflictSection from "../components/analysis/ConflictSection";
+import ThemeSection from "../components/analysis/ThemeSection";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
 import RadarChart from "../components/charts/RadarChart";
@@ -31,10 +32,10 @@ interface AnalysisProps {
 
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
- * + pacing + conflict analysis plus a rule-based assessment for the selected
- * project, and presents the full portrait grouped by dimension: overview,
- * assessment, statistics, text diagnostics, structure, narrative, plot, pacing,
- * and conflict.
+ * + pacing + conflict + theme analysis plus a rule-based assessment for the
+ * selected project, and presents the full portrait grouped by dimension:
+ * overview, assessment, statistics, text diagnostics, structure, narrative,
+ * plot, pacing, conflict, and theme.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -113,8 +114,13 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (!data) return null;
 
-  const { t0, t1, plot, pacing, conflict } = data;
+  const { t0, t1, plot, pacing, conflict, theme } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
+  // Pacing, conflict and theme all segment the document the same way, so one list
+  // of section names labels every curve's X axis.
+  const segmentLabels = (conflict.points.length > 0 ? conflict.points : pacing.points).map(
+    (p) => p.section,
+  );
 
   return (
     <div className="space-y-8">
@@ -748,6 +754,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
       {/* Conflict analysis */}
       <ConflictSection conflict={conflict} />
+
+      {/* Theme analysis */}
+      <ThemeSection theme={theme} segmentLabels={segmentLabels} />
     </div>
   );
 }

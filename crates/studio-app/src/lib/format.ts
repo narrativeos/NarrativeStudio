@@ -196,3 +196,78 @@ const CONFLICT_VERDICT_STYLES: Record<string, string> = {
 export function conflictVerdictStyle(verdict: string): string {
   return CONFLICT_VERDICT_STYLES[verdict] ?? CONFLICT_VERDICT_STYLES.none;
 }
+
+/**
+ * A score that may be absent.
+ *
+ * Conflict and theme analysis withhold the score rather than reporting 0 when the
+ * vocabulary they need is missing, so every view has one way to say "未评分".
+ */
+export function formatOptionalScore(score: number | null): string {
+  return score === null ? "未评分" : `${formatScore(score)} / 100`;
+}
+
+/**
+ * Localized label for the vocabulary the theme pass read.
+ *
+ * Naming the source matters: a theme list built from the importer's noun signals
+ * and one rebuilt from POS tags are not equally trustworthy, so the screen shows
+ * which one it is looking at. Mirrors `theme_source_label` in
+ * `studio-report::markdown`.
+ */
+const THEME_SOURCE_LABELS: Record<string, string> = {
+  noun_signals: "名词信号",
+  noun_tokens: "名词词性",
+  none: "无",
+};
+
+export function themeSourceLabel(source: string): string {
+  return THEME_SOURCE_LABELS[source] ?? source;
+}
+
+/**
+ * Localized label for how far a theme reaches across the document. Mirrors
+ * `theme_reach_label` in `studio-report::markdown`.
+ */
+const THEME_REACH_LABELS: Record<string, string> = {
+  sustained: "贯穿",
+  recurring: "复现",
+  episodic: "偶发",
+  occasional: "零星",
+};
+
+export function themeReachLabel(reach: string): string {
+  return THEME_REACH_LABELS[reach] ?? reach;
+}
+
+/**
+ * Badge classes for a theme's reach: a subject that runs through the document is
+ * the case the feature is looking for, one that appears twice is worth a look,
+ * and a one-off is noise rather than a theme.
+ */
+const THEME_REACH_STYLES: Record<string, string> = {
+  sustained: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  recurring: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  episodic: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  occasional: "bg-gray-500/15 text-text-muted border-gray-500/30",
+};
+
+export function themeReachStyle(reach: string): string {
+  return THEME_REACH_STYLES[reach] ?? THEME_REACH_STYLES.occasional;
+}
+
+/**
+ * Localized label for where a theme's mentions sit. Mirrors
+ * `theme_concentration_label` in `studio-report::markdown`: a subject that only
+ * ever appears in one stretch is a topic of that passage, not of the book.
+ */
+const THEME_CONCENTRATION_LABELS: Record<string, string> = {
+  spread: "均匀",
+  front: "集中在开头",
+  middle: "集中在中段",
+  back: "集中在结尾",
+};
+
+export function themeConcentrationLabel(concentration: string): string {
+  return THEME_CONCENTRATION_LABELS[concentration] ?? concentration;
+}
