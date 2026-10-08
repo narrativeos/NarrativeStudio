@@ -7,11 +7,13 @@
 //! 4. List projects
 //! 5. Run T0 analysis
 //! 6. Run T1 analysis
+//! 7. Run plot analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
-    document_hash, run_assessment, run_t0_analysis, run_t1_analysis, Assessment, T0Stats, T1Stats,
+    document_hash, run_assessment, run_plot_analysis, run_t0_analysis, run_t1_analysis, Assessment,
+    PlotStats, T0Stats, T1Stats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -194,6 +196,7 @@ fn test_analysis_cache_roundtrip() {
     // Compute, then persist exactly the way the command layer does.
     let t0 = run_t0_analysis(&loaded).expect("T0 failed");
     let t1 = run_t1_analysis(&loaded).expect("T1 failed");
+    let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -215,6 +218,16 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&t1).unwrap(),
     )
     .expect("save t1");
+    save_result(
+        &conn,
+        project.project_id,
+        "plot",
+        "t1",
+        &hash,
+        Some(plot.coherence_score as f32),
+        &serde_json::to_string(&plot).unwrap(),
+    )
+    .expect("save plot");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -260,13 +273,22 @@ fn test_analysis_cache_roundtrip() {
         .unwrap()
         .expect("t1 cache hit");
     assert_eq!(cached_t1.section_count, t1.section_count);
+    let cached_plot = load_cached::<PlotStats>(&conn, project.project_id, "plot", &hash)
+        .unwrap()
+        .expect("plot cache hit");
+    assert_eq!(
+        serde_json::to_string(&cached_plot).unwrap(),
+        serde_json::to_string(&plot).unwrap(),
+        "cached plot analysis must round-trip exactly"
+    );
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/assessment ({} recommendations)",
+        "✓ Cache hit for t0/t1/plot/assessment ({} threads, {} recommendations)",
+        plot.thread_count,
         assessment.recommendations.len()
     );
 
@@ -283,7 +305,7 @@ fn test_analysis_cache_roundtrip() {
     );
 
     // "重新分析" clears everything for the project.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 3);
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 4);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -309,6 +331,7 @@ fn test_report_generation_and_export() {
     let loaded = load_document(&conn, doc.doc_id).expect("load document");
     let t0 = run_t0_analysis(&loaded).expect("T0 failed");
     let t1 = run_t1_analysis(&loaded).expect("T1 failed");
+    let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -317,6 +340,7 @@ fn test_report_generation_and_export() {
         generated_at,
         t0: &t0,
         t1: &t1,
+        plot: &plot,
         assessment: &assessment,
     });
 
@@ -329,12 +353,17 @@ fn test_report_generation_and_export() {
         "## 文本诊断",
         "## 章节结构",
         "## 叙事分析",
+        "## 情节线",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
     assert!(markdown.starts_with(&format!("# {} · 叙事分析报告", project.name)));
     assert!(markdown.contains(&format!("**{:.1} / 100**", assessment.overall)));
     assert!(markdown.contains(&format!("| 字数 | {} |", t0.char_count)));
+    assert!(markdown.contains(&format!(
+        "情节连贯性：**{:.1} / 100**",
+        plot.coherence_score
+    )));
     assert!(
         !markdown.contains("NaN") && !markdown.contains("Inf"),
         "a non-finite number leaked into the report"
@@ -346,10 +375,18 @@ fn test_report_generation_and_export() {
             section.path
         );
     }
+    if let Some(line) = plot.plotlines.first() {
+        assert!(
+            markdown.contains(&line.subject),
+            "top plotline {} missing from the report",
+            line.subject
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
+        plot.thread_count,
         assessment.recommendations.len()
     );
 

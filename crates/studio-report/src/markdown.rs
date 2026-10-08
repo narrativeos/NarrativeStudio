@@ -1,13 +1,13 @@
 //! Markdown report rendering.
 //!
 //! A pure function over the analysis output: the same `T0Stats`/`T1Stats`/
-//! `Assessment` plus the same timestamp produce byte-identical Markdown. That is
-//! what makes the report testable against a golden string, and it is why the
+//! `PlotStats`/`Assessment` plus the same timestamp produce byte-identical Markdown.
+//! That is what makes the report testable against a golden string, and it is why the
 //! timestamp is an input rather than read from the clock inside.
 
 use chrono::{DateTime, Utc};
 
-use studio_analysis::{Assessment, T0Stats, T1Stats, ANALYSIS_VERSION};
+use studio_analysis::{Assessment, PlotStats, T0Stats, T1Stats, ANALYSIS_VERSION};
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
 /// analysis, so a report can be produced straight from cached rows.
@@ -16,6 +16,7 @@ pub struct ReportInput<'a> {
     pub generated_at: DateTime<Utc>,
     pub t0: &'a T0Stats,
     pub t1: &'a T1Stats,
+    pub plot: &'a PlotStats,
     pub assessment: &'a Assessment,
 }
 
@@ -33,6 +34,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_diagnostics(&mut out, input.t0);
     write_structure(&mut out, input.t1);
     write_narrative(&mut out, input.t1);
+    write_plot(&mut out, input.plot);
     write_footer(&mut out);
     out
 }
@@ -238,6 +240,74 @@ fn write_narrative(out: &mut String, t1: &T1Stats) {
     }
 }
 
+/// Plotlines, the sections where the cast changes, and the threads that never pay
+/// off. The shape and score come straight from `studio_analysis::plot`; the report
+/// only translates the keys into labels.
+fn write_plot(out: &mut String, plot: &PlotStats) {
+    out.push_str("## 情节线\n\n");
+    out.push_str(&format!(
+        "情节连贯性：**{:.1} / 100**；共 {} 条线索（{} 个章节）\n\n",
+        plot.coherence_score, plot.thread_count, plot.section_count
+    ));
+    if plot.plotlines.is_empty() {
+        out.push_str("未识别到情节线：没有实体或名词信号达到 3 次的提及门槛。\n\n");
+        return;
+    }
+    out.push_str(
+        "| 线索 | 类型 | 主线 | 形态 | 提及 | 覆盖 | 首次 → 末次 |\n| --- | --- | --- | --- | ---: | ---: | --- |\n",
+    );
+    for p in plot.plotlines.iter().take(MAX_ROWS) {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {:.0}% | {} → {} |\n",
+            esc(&p.subject),
+            p.kind,
+            if p.is_main { "是" } else { "—" },
+            plot_shape_label(&p.shape),
+            p.mentions,
+            p.coverage * 100.0,
+            esc(&p.first_section),
+            esc(&p.last_section)
+        ));
+    }
+    out.push_str(&omitted(plot.plotlines.len(), MAX_ROWS));
+    out.push('\n');
+
+    if !plot.turning_points.is_empty() {
+        out.push_str(&format!(
+            "### 转折点（{} 处）\n\n",
+            plot.turning_points.len()
+        ));
+        out.push_str("| 章节 | 变化 | 登场 | 退场 |\n| --- | ---: | --- | --- |\n");
+        for t in plot.turning_points.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {:.0}% | {} | {} |\n",
+                esc(&t.section),
+                t.change * 100.0,
+                esc(&t.appeared.join("、")),
+                esc(&t.dropped.join("、"))
+            ));
+        }
+        out.push('\n');
+    }
+
+    // Both lists are the actionable part of this section: threads that were set up
+    // and never picked up, and threads that arrive too late to be earned.
+    if !plot.unresolved_threads.is_empty() {
+        out.push_str(&format!(
+            "铺垫未回收（{}）：{}\n\n",
+            plot.unresolved_threads.len(),
+            esc(&plot.unresolved_threads.join("、"))
+        ));
+    }
+    if !plot.late_arrivals.is_empty() {
+        out.push_str(&format!(
+            "结尾登场（{}）：{}\n\n",
+            plot.late_arrivals.len(),
+            esc(&plot.late_arrivals.join("、"))
+        ));
+    }
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -303,12 +373,24 @@ fn arc_shape_label(shape: &str) -> &'static str {
     }
 }
 
+fn plot_shape_label(shape: &str) -> &'static str {
+    match shape {
+        "sustained" => "贯穿",
+        "intermittent" => "断续",
+        "burst" => "集中",
+        "setup_only" => "仅铺垫",
+        "late_arrival" => "迟到",
+        "minor" => "次要",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
-        ArcPoint, DimensionScore, NarrativeArc, Readability, Recommendation, RepeatedPhrase,
-        SectionInfo,
+        ArcPoint, DimensionScore, NarrativeArc, Plotline, PlotlineStage, Readability,
+        Recommendation, RepeatedPhrase, SectionInfo, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -365,6 +447,20 @@ mod tests {
         }
     }
 
+    fn empty_plot() -> PlotStats {
+        PlotStats {
+            plotlines: vec![],
+            thread_count: 0,
+            main_plotlines: vec![],
+            sub_plotlines: vec![],
+            turning_points: vec![],
+            unresolved_threads: vec![],
+            late_arrivals: vec![],
+            coherence_score: 100.0,
+            section_count: 0,
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -380,12 +476,13 @@ mod tests {
 
     #[test]
     fn test_render_is_deterministic() {
-        let (t0, t1, a) = (empty_t0(), empty_t1(), clean_assessment());
+        let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
             t0: &t0,
             t1: &t1,
+            plot: &plot,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -393,12 +490,13 @@ mod tests {
 
     #[test]
     fn test_golden_minimal_report() {
-        let (t0, t1, a) = (empty_t0(), empty_t1(), clean_assessment());
+        let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
             t0: &t0,
             t1: &t1,
+            plot: &plot,
             assessment: &a,
         };
         let expected = "\
@@ -482,6 +580,12 @@ mod tests {
 
 未识别到人物。
 
+## 情节线
+
+情节连贯性：**100.0 / 100**；共 0 条线索（0 个章节）
+
+未识别到情节线：没有实体或名词信号达到 3 次的提及门槛。
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -500,12 +604,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 detail: "—".into(),
             });
         }
-        let (t0, t1) = (empty_t0(), empty_t1());
+        let (t0, t1, plot) = (empty_t0(), empty_t1(), empty_plot());
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
             t0: &t0,
             t1: &t1,
+            plot: &plot,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -517,6 +622,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 文本诊断",
             "## 章节结构",
             "## 叙事分析",
+            "## 情节线",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -526,12 +632,12 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 "missing dimension {i}"
             );
         }
-        assert_eq!(md.matches("\n## ").count(), 6, "exactly six H2 sections");
+        assert_eq!(md.matches("\n## ").count(), 7, "exactly seven H2 sections");
     }
 
     #[test]
     fn test_recommendations_grouped_and_counted() {
-        let (t0, t1) = (empty_t0(), empty_t1());
+        let (t0, t1, plot) = (empty_t0(), empty_t1(), empty_plot());
         let mut a = clean_assessment();
         a.recommendations = vec![
             Recommendation {
@@ -552,6 +658,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             generated_at: at(),
             t0: &t0,
             t1: &t1,
+            plot: &plot,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -562,7 +669,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_table_cells_are_escaped() {
-        let (mut t0, mut t1, a) = (empty_t0(), empty_t1(), clean_assessment());
+        let (mut t0, mut t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         t0.top_entities = vec![("A|B".into(), 3)];
         t1.sections = vec![SectionInfo {
             path: "第一章\n第二节".into(),
@@ -574,6 +681,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             generated_at: at(),
             t0: &t0,
             t1: &t1,
+            plot: &plot,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -590,7 +698,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_long_lists_are_capped_and_announced() {
-        let (mut t0, mut t1, a) = (empty_t0(), empty_t1(), clean_assessment());
+        let (mut t0, mut t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         t0.top_words = (0..25).map(|i| (format!("w{i}"), i)).collect();
         t0.top_repeated_phrases = (0..25)
             .map(|i| RepeatedPhrase {
@@ -610,6 +718,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             generated_at: at(),
             t0: &t0,
             t1: &t1,
+            plot: &plot,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -623,7 +732,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_arc_renders_bar_and_shape() {
-        let (t0, mut t1, a) = (empty_t0(), empty_t1(), clean_assessment());
+        let (t0, mut t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         t1.arc.shape = "mountain".into();
         t1.arc.points = vec![
             ArcPoint {
@@ -647,6 +756,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             generated_at: at(),
             t0: &t0,
             t1: &t1,
+            plot: &plot,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -654,5 +764,76 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("| Ch1 | ░░░░░░░░░░ 0.00 | 100 |"));
         assert!(md.contains("| Ch2 | ██████████ 1.00 | 200 |"));
         assert!(md.contains("| Ch3 | █████░░░░░ 0.50 | 150 |"));
+    }
+
+    #[test]
+    fn test_plot_section_renders_threads_turns_and_dangling_threads() {
+        let (t0, t1, a) = (empty_t0(), empty_t1(), clean_assessment());
+        let mut plot = empty_plot();
+        plot.coherence_score = 84.0;
+        plot.thread_count = 3;
+        plot.section_count = 5;
+        plot.plotlines = vec![
+            Plotline {
+                subject: "Marlowe".into(),
+                kind: "PERSON".into(),
+                mentions: 12,
+                sections_touched: 5,
+                coverage: 1.0,
+                first_section: "第一章".into(),
+                last_section: "第五章".into(),
+                stages: vec![PlotlineStage {
+                    section: "第一章".into(),
+                    mentions: 4,
+                    gap_before: 0,
+                }],
+                longest_gap: 0,
+                shape: "sustained".into(),
+                is_main: true,
+            },
+            Plotline {
+                subject: "Chase".into(),
+                kind: "PERSON".into(),
+                mentions: 3,
+                sections_touched: 1,
+                coverage: 0.2,
+                first_section: "第一章".into(),
+                last_section: "第一章".into(),
+                stages: vec![PlotlineStage {
+                    section: "第一章".into(),
+                    mentions: 3,
+                    gap_before: 0,
+                }],
+                longest_gap: 0,
+                shape: "setup_only".into(),
+                is_main: false,
+            },
+        ];
+        plot.turning_points = vec![TurningPoint {
+            section: "第三章".into(),
+            change: 0.6,
+            appeared: vec!["Tobey".into()],
+            dropped: vec!["Chase".into()],
+        }];
+        plot.unresolved_threads = vec!["Chase".into()];
+        plot.late_arrivals = vec!["Tobey".into()];
+
+        let input = ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            assessment: &a,
+        };
+        let md = render_markdown(&input);
+        assert!(md.contains("## 情节线"));
+        assert!(md.contains("情节连贯性：**84.0 / 100**；共 3 条线索（5 个章节）"));
+        assert!(md.contains("| Marlowe | PERSON | 是 | 贯穿 | 12 | 100% | 第一章 → 第五章 |"));
+        assert!(md.contains("| Chase | PERSON | — | 仅铺垫 | 3 | 20% | 第一章 → 第一章 |"));
+        assert!(md.contains("### 转折点（1 处）"));
+        assert!(md.contains("| 第三章 | 60% | Tobey | Chase |"));
+        assert!(md.contains("铺垫未回收（1）：Chase"));
+        assert!(md.contains("结尾登场（1）：Tobey"));
     }
 }
