@@ -191,7 +191,7 @@ pub fn run_assessment(t0: &T0Stats, t1: &T1Stats) -> Assessment {
 
     let overall = dimensions.iter().map(|d| d.score).sum::<f64>() / dimensions.len().max(1) as f64;
 
-    recommendations.sort_by(|a, b| severity_rank(&a.severity).cmp(&severity_rank(&b.severity)));
+    recommendations.sort_by_key(|a| severity_rank(&a.severity));
 
     Assessment {
         overall,

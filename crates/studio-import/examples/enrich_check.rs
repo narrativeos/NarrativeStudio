@@ -33,7 +33,7 @@ fn main() {
         e.1 += b.content.len() as u64;
     }
     let mut section_list: Vec<_> = sections.into_iter().collect();
-    section_list.sort_by(|a, b| b.1.cmp(&a.1));
+    section_list.sort_by_key(|a| std::cmp::Reverse(a.1));
     println!("blocks: {}", doc.blocks.len());
     println!("sections: {}", section_list.len());
     for (path, (blocks, chars)) in section_list.iter().take(25) {
@@ -50,7 +50,7 @@ fn main() {
         }
     }
     let mut top: Vec<_> = freq.into_iter().collect();
-    top.sort_by(|a, b| b.1.cmp(&a.1));
+    top.sort_by_key(|a| std::cmp::Reverse(a.1));
     println!("noun_signal_count: {total}");
     println!("top noun signals:");
     for (text, count) in top.iter().take(15) {

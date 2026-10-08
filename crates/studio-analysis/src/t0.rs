@@ -75,7 +75,7 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         }
     }
     let mut top_words: Vec<(String, u32)> = word_freq.into_iter().collect();
-    top_words.sort_by(|a, b| b.1.cmp(&a.1));
+    top_words.sort_by_key(|a| std::cmp::Reverse(a.1));
     top_words.truncate(50);
 
     let mut pos_dist: HashMap<String, u32> = HashMap::new();
@@ -85,7 +85,7 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         }
     }
     let mut pos_distribution: Vec<(String, u32)> = pos_dist.into_iter().collect();
-    pos_distribution.sort_by(|a, b| b.1.cmp(&a.1));
+    pos_distribution.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     let mut entity_counts_map: HashMap<EntityCategory, u32> = HashMap::new();
     for block in &doc.blocks {
@@ -99,7 +99,7 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         .into_iter()
         .map(|(cat, count)| (cat.as_str().to_string(), count))
         .collect();
-    entity_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    entity_counts.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     // Top entity texts by frequency (key characters / places / objects).
     let mut entity_text_freq: HashMap<String, u32> = HashMap::new();
@@ -109,7 +109,7 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         }
     }
     let mut top_entities: Vec<(String, u32)> = entity_text_freq.into_iter().collect();
-    top_entities.sort_by(|a, b| b.1.cmp(&a.1));
+    top_entities.sort_by_key(|a| std::cmp::Reverse(a.1));
     top_entities.truncate(50);
 
     // Top noun signals (domain terms) by frequency.
@@ -120,7 +120,7 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         }
     }
     let mut top_noun_signals: Vec<(String, u32)> = signal_freq.into_iter().collect();
-    top_noun_signals.sort_by(|a, b| b.1.cmp(&a.1));
+    top_noun_signals.sort_by_key(|a| std::cmp::Reverse(a.1));
     top_noun_signals.truncate(50);
 
     let noun_signal_count: u32 = doc.blocks.iter().map(|b| b.noun_signals.len() as u32).sum();

@@ -115,7 +115,7 @@ pub fn run_t1_analysis(doc: &DocumentData) -> Result<T1Stats> {
         .map(|s| s.path.clone());
 
     let mut block_type_distribution: Vec<(String, u32)> = block_type_dist.into_iter().collect();
-    block_type_distribution.sort_by(|a, b| b.1.cmp(&a.1));
+    block_type_distribution.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     let characters = analyze_characters(doc);
     let arc = analyze_arc(doc);
