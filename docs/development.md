@@ -379,8 +379,10 @@ Closes #42
 | `analyze_t0` / `analyze_t1` | `{ file_path }` | `T0Stats` / `T1Stats` | 直接分析 `semantic_result.json`，调试用，不走缓存 |
 | `list_documents` | `{ project_id }` | `Vec<(doc_id, title)>` | 项目下的文档 |
 | `load_document_cmd` | `{ doc_id }` | `DocumentData` | 按 ID 载入文档 |
+| `report_generate` | `{ project_id }` | `ReportMeta` | 生成 Markdown 报告并入库（复用分析缓存，见 §6.6） |
+| `report_export` | `{ report_id, path }` | `path` | 把已入库的报告写到指定路径并记录 |
 
-> 上表是**已实现**的命令面。设计稿中的异步任务合约（`analyze_cancel` / `analyze_status` / `report_generate` / `report_export` / `settings_get` / `settings_update`）尚未实现：当前分析命令同步返回结果（用 `async fn` + `spawn_blocking` 保证不阻塞 UI 线程），没有 `TaskId` + 事件流。
+> 上表是**已实现**的命令面。设计稿中的异步任务合约（`analyze_cancel` / `analyze_status` / `settings_get` / `settings_update`）尚未实现：当前分析命令同步返回结果（用 `async fn` + `spawn_blocking` 保证不阻塞 UI 线程），没有 `TaskId` + 事件流。
 
 ### 4.2 事件合约
 
@@ -755,6 +757,15 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 **写入约定**：`save_result` 先按缓存键删除旧行再插入（配合 v11 的唯一索引 `(project_id, dimension, input_hash)`），保证重复分析不堆积历史行、`concerns` 不重复挂接。评估的 `recommendations` 会落为 `concerns` 行，报告导出可直接查询。缓存**写入**失败只记日志、不报错——用户已经拿到结果，代价只是下次重算。
 
 **DuckDB 注意**：`ALTER TABLE ... ADD COLUMN` 不支持带约束的列（`NOT NULL DEFAULT` 会报 "Adding columns with constraints not yet supported"），所以 v11 新增的 `tier` / `input_hash` 是可空列，由读取侧对历史行兜底默认值。
+
+### 6.6 报告导出
+
+`studio_report::render_markdown(&ReportInput { .. })` 是纯函数：同一份分析结果 + 同一个时间戳 → 逐字节相同的 Markdown。时间戳是入参而不是内部读时钟，这样才能用 golden 测试钉死输出（见 `markdown.rs` 的 `test_golden_minimal_report`）。
+
+- **生成**：`report_generate` 复用 `analyze_project_inner`（缓存命中就不重算），渲染后写入 `reports` 表（v12），返回 `ReportMeta`（含 markdown 正文，前端据此建议文件名）。
+- **导出**：`report_export` 读取**已入库**的 markdown 写盘并记录 `exported_path`。分成两步是为了「导出的是已入库的那一份」：之后重新分析再导出，不会悄悄换一套数字。
+- **写文件在 Rust 侧**完成，前端只用 dialog `save()` 取路径，因此 webview 不需要 filesystem 权限。
+- **长列表截断**：词表 15 项、其余列表 20 项，并写明「另有 N 项未列出」；表格单元格转义 `|` 与换行，避免被分析的文本破坏表格。
 
 ---
 
