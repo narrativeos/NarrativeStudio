@@ -7,6 +7,7 @@
 //! - Pacing: how far the tension moves, and where it drags
 //! - Conflict: what the story fights over, and how hard
 //! - Theme: which terms the document keeps coming back to
+//! - Setting: where the story happens, and whether the reader is told
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
@@ -17,6 +18,7 @@ mod hash;
 mod pacing;
 mod plot;
 mod segment;
+mod setting;
 mod t0;
 mod t1;
 mod text;
@@ -29,6 +31,7 @@ pub use conflict::{
 pub use hash::{document_hash, ANALYSIS_VERSION};
 pub use pacing::{run_pacing_analysis, DragSection, FlatStretch, PacingPoint, PacingStats};
 pub use plot::{run_plot_analysis, PlotStats, Plotline, PlotlineStage, TurningPoint};
+pub use setting::{run_setting_analysis, Place, Scene, SettingIssue, SettingPoint, SettingStats};
 pub use t0::{run_t0_analysis, Readability, RepeatedPhrase, T0Stats};
 pub use t1::{run_t1_analysis, ArcPoint, CharacterProfile, NarrativeArc, SectionInfo, T1Stats};
 pub use theme::{run_theme_analysis, Theme, ThemeStats};
