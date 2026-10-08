@@ -11,6 +11,7 @@
 //! - Cliché: which stock phrases the text reaches for, and how often
 //! - Dialogue: how much of the text is spoken, and where it is spoken
 //! - Explicit: what a reader might want warned about, and how strong the words are
+//! - Structure: which classic shape the document's own landmarks fit
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
@@ -26,6 +27,7 @@ mod pacing;
 mod plot;
 mod segment;
 mod setting;
+mod structure;
 mod t0;
 mod t1;
 mod text;
@@ -48,6 +50,10 @@ pub use hash::{document_hash, ANALYSIS_VERSION};
 pub use pacing::{run_pacing_analysis, DragSection, FlatStretch, PacingPoint, PacingStats};
 pub use plot::{run_plot_analysis, PlotStats, Plotline, PlotlineStage, TurningPoint};
 pub use setting::{run_setting_analysis, Place, Scene, SettingIssue, SettingPoint, SettingStats};
+pub use structure::{
+    run_structure_analysis, StructureAct, StructureBeat, StructureIssue, StructureLandmark,
+    StructureModel, StructureStats,
+};
 pub use t0::{run_t0_analysis, Readability, RepeatedPhrase, T0Stats};
 pub use t1::{run_t1_analysis, ArcPoint, CharacterProfile, NarrativeArc, SectionInfo, T1Stats};
 pub use theme::{run_theme_analysis, Theme, ThemeStats};
