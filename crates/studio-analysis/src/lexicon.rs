@@ -30,6 +30,9 @@ pub struct Compiled {
     pub pattern: &'static str,
     /// What family the entry belongs to, as the owning dimension defines it.
     pub category: &'static str,
+    /// How strong the entry is, as the owning dimension defines it. Empty for a
+    /// library that names its entries rather than grading them, as 陈词滥调's does.
+    pub tier: &'static str,
     /// What the dimension advises about it.
     pub note: &'static str,
     /// The character sequences the pattern stands for, longest first.
@@ -110,12 +113,31 @@ pub fn expand(pattern: &str) -> Vec<Vec<char>> {
 
 /// Compile a library for scanning. Library order is preserved, so an index the
 /// matcher reports can be read straight back against the library.
+/// Compile a library that does not grade its entries: the tier slot stays empty.
 pub fn compile(library: &[(&'static str, &'static str, &'static str)]) -> Vec<Compiled> {
     library
         .iter()
         .map(|(pattern, category, note)| Compiled {
             pattern,
             category,
+            tier: "",
+            note,
+            variants: expand(pattern),
+        })
+        .collect()
+}
+
+/// Compile a library whose entries carry a strength tier, as 显式语言's does:
+/// `pattern, category, tier, note`.
+pub fn compile_graded(
+    library: &[(&'static str, &'static str, &'static str, &'static str)],
+) -> Vec<Compiled> {
+    library
+        .iter()
+        .map(|(pattern, category, tier, note)| Compiled {
+            pattern,
+            category,
+            tier,
             note,
             variants: expand(pattern),
         })

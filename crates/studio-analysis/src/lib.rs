@@ -10,6 +10,7 @@
 //! - Setting: where the story happens, and whether the reader is told
 //! - Cliché: which stock phrases the text reaches for, and how often
 //! - Dialogue: how much of the text is spoken, and where it is spoken
+//! - Explicit: what a reader might want warned about, and how strong the words are
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
@@ -18,6 +19,7 @@ mod assessment;
 mod cliche;
 mod conflict;
 mod dialogue;
+mod explicit;
 mod hash;
 mod lexicon;
 mod pacing;
@@ -38,6 +40,9 @@ pub use conflict::{
 };
 pub use dialogue::{
     run_dialogue_analysis, DialogueIssue, DialoguePoint, DialogueSample, DialogueStats,
+};
+pub use explicit::{
+    run_explicit_analysis, ExplicitHit, ExplicitIssue, ExplicitPoint, ExplicitStats, ExplicitTerm,
 };
 pub use hash::{document_hash, ANALYSIS_VERSION};
 pub use pacing::{run_pacing_analysis, DragSection, FlatStretch, PacingPoint, PacingStats};
