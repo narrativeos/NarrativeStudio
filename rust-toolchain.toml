@@ -1,0 +1,9 @@
+# Pinned so CI and every dev machine compile and lint with the exact same
+# compiler — `cargo clippy -D warnings` on a rolling `stable` otherwise fails in
+# CI for lints that were promoted after the local toolchain was last updated.
+#
+# To move forward: run `rustup update` locally, fix whatever the newer clippy
+# reports, then bump the channel here in the same commit.
+[toolchain]
+channel = "1.93.0"
+components = ["rustfmt", "clippy"]

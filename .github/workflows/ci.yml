@@ -26,9 +26,13 @@ jobs:
             libsoup-3.0-dev libssl-dev libxdo-dev librsvg2-dev \
             libayatana-appindicator3-dev
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # rust-toolchain.toml pins the exact compiler for CI and dev machines
+      # alike, so `clippy -D warnings` cannot drift between them (a rolling
+      # `stable` promotes new lints that local toolchains have never seen).
+      # `rustup show` installs that pinned toolchain plus the components listed
+      # in the file, and prints the resolved version for the log.
+      - name: Install pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo fmt --all --check
@@ -72,7 +76,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter studio-app exec tauri build

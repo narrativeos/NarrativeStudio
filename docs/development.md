@@ -806,6 +806,12 @@ cargo llvm-cov --workspace                # 覆盖率（尚未纳入 CI 门禁�
 | `pnpm build` | 构建成功 | ✅ 已启用 |
 | 覆盖率 studio-core ≥ 90% / studio-analysis ≥ 80% | — | ⏳ 待接入 `cargo llvm-cov` |
 
+CI 与本地编译使用**同一个**编译器：`rust-toolchain.toml` 钉住版本（当前 1.93.0），
+CI 通过 `rustup show` 安装它。原因是 clippy 会在小版本之间把 lint 从 nursery 提升
+为默认警告——本地工具链落后于 CI 的 rolling `stable` 时，会出现「本地全绿、CI 报
+新 lint」。升级方式：本地 `rustup update` → 修掉新版 clippy 报的问题 → 在同一个
+commit 里更新 `rust-toolchain.toml`。
+
 ---
 
 ## 8. 构建与发布
