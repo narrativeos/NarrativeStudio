@@ -12,6 +12,7 @@
 //! - Dialogue: how much of the text is spoken, and where it is spoken
 //! - Explicit: what a reader might want warned about, and how strong the words are
 //! - Structure: which classic shape the document's own landmarks fit
+//! - Timeline: where the text says when, and whether its dates agree
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
@@ -32,6 +33,7 @@ mod t0;
 mod t1;
 mod text;
 mod theme;
+mod timeline;
 
 pub use assessment::{run_assessment, Assessment, DimensionScore, Recommendation};
 pub use cliche::{
@@ -57,3 +59,7 @@ pub use structure::{
 pub use t0::{run_t0_analysis, Readability, RepeatedPhrase, T0Stats};
 pub use t1::{run_t1_analysis, ArcPoint, CharacterProfile, NarrativeArc, SectionInfo, T1Stats};
 pub use theme::{run_theme_analysis, Theme, ThemeStats};
+pub use timeline::{
+    run_timeline_analysis, TimelineIssue, TimelineMarker, TimelinePoint, TimelineStats,
+    TimelineStep,
+};
