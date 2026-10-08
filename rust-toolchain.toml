@@ -6,4 +6,4 @@
 # reports, then bump the channel here in the same commit.
 [toolchain]
 channel = "1.93.0"
-components = ["rustfmt", "clippy"]
+components = ["rustfmt", "clippy", "rust-analyzer"]
