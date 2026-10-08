@@ -28,7 +28,6 @@ fn test_file_path() -> String {
     })
 }
 
-
 #[test]
 fn test_full_import_and_analysis_flow() {
     let file_path = test_file_path();

@@ -22,8 +22,8 @@ fn main() {
     let t1 = Instant::now();
     run_migrations(&conn).expect("migrations");
     let t2 = Instant::now();
-    println!("open (incl WAL replay): {:.3}s", t1.elapsed().as_secs_f64());
+    println!("open (incl WAL replay): {:.3}s", (t1 - t0).as_secs_f64());
     println!("migrations:             {:.3}s", (t2 - t1).as_secs_f64());
-    println!("total:                  {:.3}s", t2.elapsed().as_secs_f64());
+    println!("total:                  {:.3}s", (t2 - t0).as_secs_f64());
     let _ = std::fs::remove_file(tmp);
 }

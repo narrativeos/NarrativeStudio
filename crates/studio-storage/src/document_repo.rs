@@ -526,7 +526,9 @@ mod tests {
             total_word_count: 0,
             total_char_count: 0,
         };
-        let mut calls = std::cell::Cell::new(0u64);
+        // `Cell` gives interior mutability, so the closure can mutate it without
+        // the binding itself being `mut`.
+        let calls = std::cell::Cell::new(0u64);
         save_document(
             &conn,
             project_id,
