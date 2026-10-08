@@ -11,13 +11,14 @@
 //! 8. Run pacing analysis
 //! 9. Run conflict analysis
 //! 10. Run theme analysis
+//! 11. Run setting analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
     document_hash, run_assessment, run_conflict_analysis, run_pacing_analysis, run_plot_analysis,
-    run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment, ConflictStats, PacingStats,
-    PlotStats, T0Stats, T1Stats, ThemeStats,
+    run_setting_analysis, run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment,
+    ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats, ThemeStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -204,6 +205,7 @@ fn test_analysis_cache_roundtrip() {
     let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
     let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
     let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
+    let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -265,6 +267,16 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&theme).unwrap(),
     )
     .expect("save theme");
+    save_result(
+        &conn,
+        project.project_id,
+        "setting",
+        "t1",
+        &hash,
+        setting.setting_score.map(|s| s as f32),
+        &serde_json::to_string(&setting).unwrap(),
+    )
+    .expect("save setting");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -378,17 +390,41 @@ fn test_analysis_cache_roundtrip() {
             "theme score must survive the cache"
         );
     }
+    let cached_setting = load_cached::<SettingStats>(&conn, project.project_id, "setting", &hash)
+        .unwrap()
+        .expect("setting cache hit");
+    assert_eq!(cached_setting.scene_count, setting.scene_count);
+    assert_eq!(cached_setting.place_count, setting.place_count);
+    assert_eq!(cached_setting.total_env_hits, setting.total_env_hits);
+    assert_eq!(cached_setting.places.len(), setting.places.len());
+    for (cached, fresh) in cached_setting.places.iter().zip(setting.places.iter()) {
+        assert_eq!(cached.name, fresh.name);
+        assert_eq!(cached.mentions, fresh.mentions);
+        assert_eq!(cached.curve, fresh.curve);
+    }
+    assert_eq!(
+        cached_setting.setting_score.is_some(),
+        setting.setting_score.is_some(),
+        "a document with nothing to grade must stay unscored in the cache"
+    );
+    if let (Some(cached), Some(fresh)) = (cached_setting.setting_score, setting.setting_score) {
+        assert!(
+            (cached - fresh).abs() < 1e-6,
+            "setting score must survive the cache"
+        );
+    }
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
         theme.themes.len(),
+        setting.scene_count,
         assessment.recommendations.len()
     );
 
@@ -404,8 +440,8 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: seven dimensions.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 7);
+    // "重新分析" clears everything for the project: eight dimensions.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 8);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -435,6 +471,7 @@ fn test_report_generation_and_export() {
     let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
     let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
     let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
+    let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -447,6 +484,7 @@ fn test_report_generation_and_export() {
         pacing: &pacing,
         conflict: &conflict,
         theme: &theme,
+        setting: &setting,
         assessment: &assessment,
     });
 
@@ -463,6 +501,7 @@ fn test_report_generation_and_export() {
         "## 节奏",
         "## 冲突",
         "## 主题",
+        "## 场景/设定",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -520,14 +559,32 @@ fn test_report_generation_and_export() {
         );
         assert!(markdown.contains("### 主题清单（"));
     }
+    // The setting section prints its scene list whenever there are scenes, and the
+    // limit of the method either way: a place named outside the entity model shows
+    // up only as description.
+    if !setting.scenes.is_empty() {
+        assert!(markdown.contains("### 场景清单（"));
+    }
+    assert!(
+        markdown.contains("是否真的换了场景需要人来核对") || markdown.contains("未识别到场景"),
+        "setting section missing its caveat"
+    );
+    if let Some(place) = setting.places.first() {
+        assert!(
+            markdown.contains(&place.name),
+            "busiest place {} missing from the report",
+            place.name
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
         theme.themes.len(),
+        setting.scene_count,
         assessment.recommendations.len()
     );
 

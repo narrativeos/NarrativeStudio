@@ -8,7 +8,7 @@
 use chrono::{DateTime, Utc};
 
 use studio_analysis::{
-    Assessment, ConflictStats, PacingStats, PlotStats, T0Stats, T1Stats, ThemeStats,
+    Assessment, ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats, ThemeStats,
     ANALYSIS_VERSION,
 };
 
@@ -23,6 +23,7 @@ pub struct ReportInput<'a> {
     pub pacing: &'a PacingStats,
     pub conflict: &'a ConflictStats,
     pub theme: &'a ThemeStats,
+    pub setting: &'a SettingStats,
     pub assessment: &'a Assessment,
 }
 
@@ -44,6 +45,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_pacing(&mut out, input.pacing);
     write_conflict(&mut out, input.conflict);
     write_theme(&mut out, input.theme);
+    write_setting(&mut out, input.setting);
     write_footer(&mut out);
     out
 }
@@ -576,6 +578,125 @@ fn write_theme(out: &mut String, theme: &ThemeStats) {
     ));
 }
 
+fn write_setting(out: &mut String, setting: &SettingStats) {
+    out.push_str("## 场景/设定\n\n");
+    match setting.setting_score {
+        Some(score) => out.push_str(&format!(
+            "场景评分：**{:.1} / 100** · {} 场 · {} 个地点 · 环境用词 {} 次（{:.1} 次/千字，判定：**{}**（`{}`））\n\n",
+            score,
+            setting.scene_count,
+            setting.place_count,
+            setting.total_env_hits,
+            setting.env_density,
+            setting_verdict_label(&setting.verdict),
+            setting.verdict
+        )),
+        // Neither a named place nor a described one: the text never says where it
+        // is, and there is nothing to grade.
+        None => out
+            .push_str("没有点名地点，也没有环境用词，因此**不给出评分**。\n\n"),
+    }
+
+    if setting.scenes.is_empty() {
+        out.push_str("未识别到场景：文档没有可切分的段落。\n\n");
+        return;
+    }
+
+    out.push_str(&format!(
+        "没有地点锚点的场景：{}/{}（{:.0}%）· 主导地点：{} · 环境峰值：{}（{:.0}）\n\n",
+        setting.unanchored_scenes,
+        setting.scene_count,
+        setting.unanchored_share * 100.0,
+        if setting.dominant_place.is_empty() {
+            "—".to_string()
+        } else {
+            esc(&setting.dominant_place)
+        },
+        if setting.peak_section.is_empty() {
+            "—".to_string()
+        } else {
+            esc(&setting.peak_section)
+        },
+        setting.peak_intensity
+    ));
+
+    out.push_str(&format!("### 地点（{} 个）\n\n", setting.places.len()));
+    if setting.places.is_empty() {
+        out.push_str("没有反复出现的地点：所有地名都只出现过一次。\n\n");
+    } else {
+        out.push_str(
+            "| 地点 | 类型 | 提及 | 覆盖 | 首次 | 末次 | 最长缺席 |\n| --- | --- | ---: | ---: | --- | --- | ---: |\n",
+        );
+        for p in setting.places.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} | {} | {:.0}% | {} | {} | {} |\n",
+                esc(&p.name),
+                place_kind_label(&p.kind),
+                p.mentions,
+                p.coverage * 100.0,
+                esc(&p.first_section),
+                esc(&p.last_section),
+                p.longest_absence
+            ));
+        }
+        out.push_str(&omitted(setting.places.len(), MAX_ROWS));
+        out.push('\n');
+    }
+
+    out.push_str(&format!("### 场景清单（{} 场）\n\n", setting.scenes.len()));
+    out.push_str(
+        "| # | 段落 | 地点 | 块 | 字数 | 环境/千字 | 对话 | 时间标记 |\n| --- | --- | --- | ---: | ---: | ---: | ---: | --- |\n",
+    );
+    for s in setting.scenes.iter().take(MAX_ROWS) {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {:.1} | {:.0}% | {} |\n",
+            s.index + 1,
+            esc(&s.section),
+            if s.anchor.is_empty() {
+                "（未点名）".to_string()
+            } else {
+                esc(&s.anchor)
+            },
+            s.blocks,
+            s.char_count,
+            s.env_density,
+            s.dialogue_share * 100.0,
+            if s.time_mark { "是" } else { "—" }
+        ));
+    }
+    out.push_str(&omitted(setting.scene_count as usize, MAX_ROWS));
+    out.push('\n');
+
+    if !setting.issues.is_empty() {
+        out.push_str("### 场景问题\n\n");
+        for i in setting.issues.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}**（{}）— {}\n",
+                setting_issue_label(&i.kind),
+                if i.section.is_empty() {
+                    "全文".to_string()
+                } else {
+                    esc(&i.section)
+                },
+                esc(&i.detail)
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !setting.top_env_terms.is_empty() {
+        let parts: Vec<String> = setting
+            .top_env_terms
+            .iter()
+            .take(8)
+            .map(|(term, count)| format!("{term}×{count}"))
+            .collect();
+        out.push_str(&format!("环境用词：{}\n\n", parts.join("、")));
+    }
+
+    out.push_str("_场景按地点实体与环境用词切分：地名之外的地点只能靠描写判断，是否真的换了场景需要人来核对。_\n\n");
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -720,13 +841,45 @@ fn theme_concentration_label(concentration: &str) -> &'static str {
     }
 }
 
+/// How much environment vocabulary the document carries. `none` says no setting
+/// *vocabulary*, not no setting.
+fn setting_verdict_label(verdict: &str) -> &'static str {
+    match verdict {
+        "none" => "未见用词",
+        "thin" => "偏少",
+        "present" => "适中",
+        "heavy" => "密集",
+        _ => "未知",
+    }
+}
+
+/// What kind of place the importer found.
+fn place_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "LOCATION" => "地点",
+        "FACILITY" => "场所",
+        _ => "未知",
+    }
+}
+
+/// What the setting did for the reader, or failed to do.
+fn setting_issue_label(kind: &str) -> &'static str {
+    match kind {
+        "unanchored" => "无地点锚点",
+        "crowded" => "地点过密",
+        "long_absence" => "长时间离开地点",
+        "thin_environment" => "环境描写偏少",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
         ArcPoint, ConflictAbsence, ConflictPoint, ConflictType, DimensionScore, DragSection,
-        FlatStretch, NarrativeArc, PacingPoint, Plotline, PlotlineStage, Readability,
-        Recommendation, RepeatedPhrase, SectionInfo, Theme, TurningPoint,
+        FlatStretch, NarrativeArc, PacingPoint, Place, Plotline, PlotlineStage, Readability,
+        Recommendation, RepeatedPhrase, Scene, SectionInfo, SettingIssue, Theme, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -856,6 +1009,33 @@ mod tests {
         }
     }
 
+    /// What `run_setting_analysis` returns for an empty document: no scene, no
+    /// place, no description, and therefore no score.
+    fn empty_setting() -> SettingStats {
+        SettingStats {
+            points: vec![],
+            segment_count: 0,
+            chunked: false,
+            scenes: vec![],
+            scene_count: 0,
+            unanchored_scenes: 0,
+            unanchored_share: 0.0,
+            places: vec![],
+            place_count: 0,
+            recurring_places: 0,
+            total_env_hits: 0,
+            env_density: 0.0,
+            top_env_terms: vec![],
+            verdict: "none".into(),
+            dominant_place: String::new(),
+            peak_section: String::new(),
+            peak_intensity: 0.0,
+            issues: vec![],
+            longest_absence: 0,
+            setting_score: None,
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -871,13 +1051,14 @@ mod tests {
 
     #[test]
     fn test_render_is_deterministic() {
-        let (t0, t1, plot, pacing, conflict, theme, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -889,6 +1070,7 @@ mod tests {
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -896,13 +1078,14 @@ mod tests {
 
     #[test]
     fn test_golden_minimal_report() {
-        let (t0, t1, plot, pacing, conflict, theme, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -914,6 +1097,7 @@ mod tests {
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let expected = "\
@@ -1025,6 +1209,12 @@ mod tests {
 
 未识别到主题：没有词达到 3 次提及且跨越 2 段以上。
 
+## 场景/设定
+
+没有点名地点，也没有环境用词，因此**不给出评分**。
+
+未识别到场景：文档没有可切分的段落。
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -1043,13 +1233,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 detail: "—".into(),
             });
         }
-        let (t0, t1, plot, pacing, conflict, theme) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
         );
         let input = ReportInput {
             project_name: "P",
@@ -1060,6 +1251,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1075,6 +1267,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 节奏",
             "## 冲突",
             "## 主题",
+            "## 场景/设定",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -1084,18 +1277,23 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 "missing dimension {i}"
             );
         }
-        assert_eq!(md.matches("\n## ").count(), 10, "exactly ten H2 sections");
+        assert_eq!(
+            md.matches("\n## ").count(),
+            11,
+            "exactly eleven H2 sections"
+        );
     }
 
     #[test]
     fn test_recommendations_grouped_and_counted() {
-        let (t0, t1, plot, pacing, conflict, theme) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
         );
         let mut a = clean_assessment();
         a.recommendations = vec![
@@ -1121,6 +1319,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1131,13 +1330,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_table_cells_are_escaped() {
-        let (mut t0, mut t1, plot, pacing, conflict, theme, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, theme, setting, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
             clean_assessment(),
         );
         t0.top_entities = vec![("A|B".into(), 3)];
@@ -1155,6 +1355,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1171,13 +1372,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_long_lists_are_capped_and_announced() {
-        let (mut t0, mut t1, plot, pacing, conflict, theme, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, theme, setting, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
             clean_assessment(),
         );
         t0.top_words = (0..25).map(|i| (format!("w{i}"), i)).collect();
@@ -1203,6 +1405,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1216,13 +1419,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_arc_renders_bar_and_shape() {
-        let (t0, mut t1, plot, pacing, conflict, theme, a) = (
+        let (t0, mut t1, plot, pacing, conflict, theme, setting, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
             clean_assessment(),
         );
         t1.arc.shape = "mountain".into();
@@ -1252,6 +1456,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1268,6 +1473,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let pacing = empty_pacing();
         let conflict = empty_conflict();
         let theme = empty_theme();
+        let setting = empty_setting();
         plot.coherence_score = 84.0;
         plot.thread_count = 3;
         plot.section_count = 5;
@@ -1325,6 +1531,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1344,6 +1551,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let mut pacing = empty_pacing();
         let conflict = empty_conflict();
         let theme = empty_theme();
+        let setting = empty_setting();
         pacing.pace_score = 62.0;
         pacing.verdict = "varied".into();
         pacing.segment_count = 4;
@@ -1393,6 +1601,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1414,6 +1623,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let pacing = empty_pacing();
         let mut conflict = empty_conflict();
         let theme = empty_theme();
+        let setting = empty_setting();
         conflict.conflict_score = Some(71.0);
         conflict.verdict = "present".into();
         conflict.total_hits = 9;
@@ -1477,6 +1687,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1498,13 +1709,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_conflict_without_vocabulary_says_so_instead_of_scoring() {
-        let (t0, t1, plot, pacing, conflict, theme, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -1516,6 +1728,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1536,6 +1749,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             clean_assessment(),
         );
         let mut theme = empty_theme();
+        let setting = empty_setting();
         theme.theme_score = Some(88.0);
         theme.source = "noun_signals".into();
         theme.candidate_count = 2;
@@ -1584,6 +1798,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1602,13 +1817,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_theme_without_vocabulary_says_so_instead_of_scoring() {
-        let (t0, t1, plot, pacing, conflict, theme, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
             empty_conflict(),
             empty_theme(),
+            empty_setting(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -1620,6 +1836,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             pacing: &pacing,
             conflict: &conflict,
             theme: &theme,
+            setting: &setting,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1627,5 +1844,116 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("没有可用于主题分析的词汇"));
         assert!(md.contains("未识别到主题：没有词达到 3 次提及且跨越 2 段以上"));
         assert!(!md.contains("主题评分："));
+    }
+
+    #[test]
+    fn test_setting_section_renders_places_scenes_and_issues() {
+        let (t0, t1, plot, pacing, conflict, theme, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            empty_theme(),
+            clean_assessment(),
+        );
+        let mut setting = empty_setting();
+        setting.setting_score = Some(75.0);
+        setting.scene_count = 3;
+        setting.scenes = vec![
+            Scene {
+                index: 0,
+                section: "第一章".into(),
+                anchor: "码头".into(),
+                anchor_kind: "FACILITY".into(),
+                blocks: 4,
+                char_count: 800,
+                env_hits: 6,
+                env_density: 7.5,
+                dialogue_share: 0.2,
+                time_mark: false,
+                persons: vec![("老陈".into(), 3)],
+            },
+            Scene {
+                index: 1,
+                section: "第二章".into(),
+                anchor: String::new(),
+                anchor_kind: String::new(),
+                blocks: 2,
+                char_count: 400,
+                env_hits: 0,
+                env_density: 0.0,
+                dialogue_share: 0.8,
+                time_mark: true,
+                persons: vec![],
+            },
+        ];
+        setting.unanchored_scenes = 1;
+        setting.unanchored_share = 0.5;
+        setting.places = vec![Place {
+            name: "码头".into(),
+            kind: "FACILITY".into(),
+            mentions: 5,
+            segments_touched: 3,
+            coverage: 0.6,
+            first_section: "第一章".into(),
+            last_section: "第三章".into(),
+            longest_absence: 3,
+            returns: 1,
+            curve: vec![2, 0, 0, 0, 2, 1],
+        }];
+        setting.place_count = 2;
+        setting.recurring_places = 1;
+        setting.total_env_hits = 20;
+        setting.env_density = 4.2;
+        setting.verdict = "present".into();
+        setting.dominant_place = "码头".into();
+        setting.peak_section = "第一章".into();
+        setting.peak_intensity = 62.5;
+        setting.longest_absence = 3;
+        setting.issues = vec![
+            SettingIssue {
+                kind: "unanchored".into(),
+                section: "第二章".into(),
+                detail: "第 2 场没有点名地点，环境用词也只有 0.0 次/千字".into(),
+            },
+            SettingIssue {
+                kind: "long_absence".into(),
+                section: "第一章".into(),
+                detail: "码头 最长缺席 3 段，之后又出现 1 次".into(),
+            },
+        ];
+        setting.top_env_terms = vec![("房间".into(), 6), ("夜色".into(), 4)];
+
+        let input = ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            assessment: &a,
+        };
+        let md = render_markdown(&input);
+
+        assert!(md.contains(
+            "场景评分：**75.0 / 100** · 3 场 · 2 个地点 · 环境用词 20 次（4.2 次/千字，判定：**适中**（`present`））"
+        ));
+        assert!(
+            md.contains("没有地点锚点的场景：1/3（50%）· 主导地点：码头 · 环境峰值：第一章（62）")
+        );
+        assert!(md.contains("### 地点（1 个）"));
+        assert!(md.contains("| 码头 | 场所 | 5 | 60% | 第一章 | 第三章 | 3 |"));
+        assert!(md.contains("### 场景清单（2 场）"));
+        assert!(md.contains("| 1 | 第一章 | 码头 | 4 | 800 | 7.5 | 20% | — |"));
+        // A scene the text never places is printed as such rather than dropped.
+        assert!(md.contains("| 2 | 第二章 | （未点名） | 2 | 400 | 0.0 | 80% | 是 |"));
+        assert!(md.contains("- **无地点锚点**（第二章）— 第 2 场没有点名地点"));
+        assert!(md.contains("- **长时间离开地点**（第一章）— 码头 最长缺席 3 段"));
+        assert!(md.contains("环境用词：房间×6、夜色×4"));
+        assert!(md.contains("是否真的换了场景需要人来核对"));
     }
 }
