@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
+import RadarChart from "../components/charts/RadarChart";
 import {
   arcShapeLabel,
   entityTotal,
@@ -176,21 +177,28 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
         <SectionTitle>总体评估</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
           <Panel title={`综合评分 ${formatScore(data.assessment.overall)} / 100`}>
-            <div className="space-y-2.5">
-              {data.assessment.dimensions.map((d) => (
-                <div key={d.key} className="flex items-center gap-2 text-xs">
-                  <span className="w-16 shrink-0 text-text">{d.label}</span>
-                  <div className="flex-1 h-4 bg-gray-800/60 rounded overflow-hidden">
-                    <div
-                      className={`h-full rounded ${scoreColor(d.score)}`}
-                      style={{ width: `${Math.max(2, d.score)}%` }}
-                    />
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              {/* The radar shows the shape of the portrait; the bars next to it
+                  give the exact numbers it is drawn from. */}
+              <div className="shrink-0 self-center sm:self-start">
+                <RadarChart dimensions={data.assessment.dimensions} />
+              </div>
+              <div className="flex-1 w-full space-y-2.5">
+                {data.assessment.dimensions.map((d) => (
+                  <div key={d.key} className="flex items-center gap-2 text-xs">
+                    <span className="w-16 shrink-0 text-text">{d.label}</span>
+                    <div className="flex-1 h-4 bg-gray-800/60 rounded overflow-hidden">
+                      <div
+                        className={`h-full rounded ${scoreColor(d.score)}`}
+                        style={{ width: `${Math.max(2, d.score)}%` }}
+                      />
+                    </div>
+                    <span className="w-8 shrink-0 text-right text-text-muted tabular-nums">
+                      {formatScore(d.score)}
+                    </span>
                   </div>
-                  <span className="w-8 shrink-0 text-right text-text-muted tabular-nums">
-                    {formatScore(d.score)}
-                  </span>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
             <div className="mt-3 space-y-1">
               {data.assessment.dimensions.map((d) => (
