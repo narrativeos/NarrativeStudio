@@ -9,9 +9,11 @@ use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
 use studio_core::project::{Project, ProjectSummary};
 use studio_import::{parse_semantic_result, parse_semantic_result_enriched};
+use studio_report::{render_markdown, ReportInput};
 use studio_storage::{
-    create, delete, get, invalidate_project, list, load_cached, load_document, run_migrations,
-    save_concerns, save_document, save_result,
+    create, delete, get, get_report, invalidate_project, list, load_cached, load_document,
+    mark_exported, run_migrations, save_concerns, save_document, save_report, save_result,
+    StoredReport,
 };
 use tauri::{Emitter, Manager, State};
 use uuid::Uuid;
@@ -629,6 +631,91 @@ fn load_document_cmd(
     load_document(&storage.conn, doc_uuid).map_err(|e| e.to_string())
 }
 
+/// A generated report: metadata plus the rendered Markdown, so the UI can name
+/// the file sensibly and show what it is about to save.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportMeta {
+    pub report_id: String,
+    pub project_id: String,
+    pub title: String,
+    pub created_at: String,
+    pub markdown: String,
+    pub exported_path: Option<String>,
+}
+
+/// Build the Markdown report for a project and store it.
+///
+/// The numbers come from [`analyze_project_inner`], i.e. from the cache when it is
+/// valid: a report always matches what the analysis page shows, and generating one
+/// never pays for a recompute the UI already triggered.
+#[tauri::command]
+async fn report_generate(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<ReportMeta, String> {
+    let pid = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
+    let analysis = analyze_project_inner(&state, &project_id, false)?;
+
+    let title = format!("{} 分析报告", analysis.name);
+    let created_at = chrono::Utc::now();
+    let markdown = render_markdown(&ReportInput {
+        project_name: &analysis.name,
+        generated_at: created_at,
+        t0: &analysis.t0,
+        t1: &analysis.t1,
+        assessment: &analysis.assessment,
+    });
+
+    let report = StoredReport {
+        report_id: Uuid::new_v4(),
+        project_id: pid,
+        title: Some(title.clone()),
+        markdown: markdown.clone(),
+        exported_path: None,
+        created_at,
+    };
+    // The connection is only taken after the analysis above released it, so
+    // generating a report cannot deadlock against the analysis path.
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    save_report(&storage.conn, &report).map_err(|e| e.to_string())?;
+
+    Ok(ReportMeta {
+        report_id: report.report_id.to_string(),
+        project_id: pid.to_string(),
+        title,
+        created_at: created_at.to_rfc3339(),
+        markdown,
+        exported_path: None,
+    })
+}
+
+/// Write a stored report to the path the user picked, then remember that path.
+///
+/// The file is written here rather than through the frontend FS plugin on purpose:
+/// the dialog only needs to hand back a path, and no filesystem scope has to be
+/// granted to the webview.
+#[tauri::command]
+async fn report_export(
+    state: State<'_, AppState>,
+    report_id: String,
+    path: String,
+) -> Result<String, String> {
+    let rid = Uuid::parse_str(&report_id).map_err(|e| e.to_string())?;
+    let markdown = {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        get_report(&storage.conn, rid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("报告不存在：{report_id}"))?
+            .markdown
+    };
+
+    std::fs::write(&path, markdown).map_err(|e| format!("写入报告失败：{e}"))?;
+
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    mark_exported(&storage.conn, rid, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -666,7 +753,9 @@ pub fn run() {
             analyze_project,
             analyze_projects,
             list_documents,
-            load_document_cmd
+            load_document_cmd,
+            report_generate,
+            report_export
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

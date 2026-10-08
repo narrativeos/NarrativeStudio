@@ -3696,6 +3696,7 @@ dependencies = [
 name = "studio-app"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "duckdb",
  "libc",
  "serde",
@@ -3703,6 +3704,7 @@ dependencies = [
  "studio-analysis",
  "studio-core",
  "studio-import",
+ "studio-report",
  "studio-storage",
  "tauri",
  "tauri-build",
@@ -3740,6 +3742,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "studio-analysis",
  "studio-core",
  "thiserror 2.0.20",
  "uuid",

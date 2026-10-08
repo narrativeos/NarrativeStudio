@@ -8,6 +8,7 @@
 //! 5. Run T0 analysis
 //! 6. Run T1 analysis
 
+use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
     document_hash, run_assessment, run_t0_analysis, run_t1_analysis, Assessment, T0Stats, T1Stats,
@@ -15,10 +16,13 @@ use studio_analysis::{
 use studio_core::concern::Severity;
 use studio_core::project::Project;
 use studio_import::parse_semantic_result;
+use studio_report::{render_markdown, ReportInput};
 use studio_storage::{
-    create, invalidate_project, list, list_concerns, load_cached, load_document, run_migrations,
-    save_concerns, save_document, save_result,
+    create, get_report, invalidate_project, list, list_concerns, load_cached, load_document,
+    mark_exported, run_migrations, save_concerns, save_document, save_report, save_result,
+    StoredReport,
 };
+use uuid::Uuid;
 
 /// Path to the semantic_result.json fixture used by these tests.
 ///
@@ -287,4 +291,94 @@ fn test_analysis_cache_roundtrip() {
     );
     assert!(list_concerns(&conn, project.project_id).unwrap().is_empty());
     println!("✓ invalidate_project clears results and concerns");
+}
+
+/// Report export end to end: analyse the fixture, render it to Markdown, persist
+/// it, and write it to disk — the same path `report_generate` + `report_export`
+/// take, minus the Tauri state wrapper.
+#[test]
+fn test_report_generation_and_export() {
+    let content = std::fs::read_to_string(test_file_path()).expect("Failed to read test file");
+    let doc = parse_semantic_result(&content).expect("Failed to parse semantic result");
+
+    let conn = Connection::open_in_memory().expect("Failed to open in-memory DuckDB");
+    run_migrations(&conn).expect("Failed to run migrations");
+    let project = create(&conn, &Project::new("Report Project")).expect("create project");
+    save_document(&conn, project.project_id, &doc, None).expect("save document");
+
+    let loaded = load_document(&conn, doc.doc_id).expect("load document");
+    let t0 = run_t0_analysis(&loaded).expect("T0 failed");
+    let t1 = run_t1_analysis(&loaded).expect("T1 failed");
+    let assessment = run_assessment(&t0, &t1);
+
+    let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let markdown = render_markdown(&ReportInput {
+        project_name: &project.name,
+        generated_at,
+        t0: &t0,
+        t1: &t1,
+        assessment: &assessment,
+    });
+
+    // A real document has to produce a real report: every section, the title, and
+    // the same numbers the analysis page shows.
+    for heading in [
+        "## 总体评估",
+        "## 关键建议",
+        "## 文本统计",
+        "## 文本诊断",
+        "## 章节结构",
+        "## 叙事分析",
+    ] {
+        assert!(markdown.contains(heading), "missing section: {heading}");
+    }
+    assert!(markdown.starts_with(&format!("# {} · 叙事分析报告", project.name)));
+    assert!(markdown.contains(&format!("**{:.1} / 100**", assessment.overall)));
+    assert!(markdown.contains(&format!("| 字数 | {} |", t0.char_count)));
+    assert!(
+        !markdown.contains("NaN") && !markdown.contains("Inf"),
+        "a non-finite number leaked into the report"
+    );
+    if let Some(section) = t1.sections.first() {
+        assert!(
+            markdown.contains(&section.path),
+            "first section {} missing",
+            section.path
+        );
+    }
+    println!(
+        "✓ report rendered: {} lines, {} bytes ({} recommendations)",
+        markdown.lines().count(),
+        markdown.len(),
+        assessment.recommendations.len()
+    );
+
+    // Persisted and read back: an export writes what was stored, not whatever a
+    // re-render at export time would produce.
+    let report = StoredReport {
+        report_id: Uuid::new_v4(),
+        project_id: project.project_id,
+        title: Some(format!("{} 分析报告", project.name)),
+        markdown: markdown.clone(),
+        exported_path: None,
+        created_at: generated_at,
+    };
+    save_report(&conn, &report).expect("save report");
+    let stored = get_report(&conn, report.report_id)
+        .unwrap()
+        .expect("stored report");
+    assert_eq!(stored.markdown, markdown);
+    assert_eq!(stored.created_at, generated_at);
+
+    // Export: write the stored Markdown to a file and record where it went.
+    let path = std::env::temp_dir().join(format!("narrativestudio_report_{}.md", report.report_id));
+    std::fs::write(&path, &stored.markdown).expect("write report file");
+    mark_exported(&conn, report.report_id, path.to_str().unwrap()).expect("mark exported");
+
+    let on_disk = std::fs::read_to_string(&path).expect("read report file");
+    assert_eq!(on_disk, markdown, "file must match the stored report");
+    let after = get_report(&conn, report.report_id).unwrap().unwrap();
+    assert_eq!(after.exported_path.as_deref(), path.to_str());
+    std::fs::remove_file(&path).ok();
+    println!("✓ report exported to {} and path recorded", path.display());
 }

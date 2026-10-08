@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
 import {
@@ -13,7 +14,7 @@ import {
   severityLabel,
   severityStyle,
 } from "../lib/format";
-import type { ProjectAnalysis } from "../types";
+import type { ProjectAnalysis, ReportMeta } from "../types";
 
 interface AnalysisProps {
   projectId: string;
@@ -34,6 +35,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
   // replace the persisted cache ("重新分析").
   const [reload, setReload] = useState(0);
   const [force, setForce] = useState(false);
+  // Report export: `exporting` guards the button, `exportNote` confirms the path.
+  const [exporting, setExporting] = useState(false);
+  const [exportNote, setExportNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +62,32 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       cancelled = true;
     };
   }, [projectId, reload, force]);
+
+  /**
+   * Generate the Markdown report, then ask where to save it.
+   *
+   * Generation and writing are separate commands because the backend stores the
+   * report first: the file the user picks is an export of a persisted report, so
+   * re-exporting later cannot silently produce different numbers.
+   */
+  async function exportReport() {
+    setExporting(true);
+    setExportNote(null);
+    try {
+      const report = await invoke<ReportMeta>("report_generate", { projectId });
+      const target = await save({
+        defaultPath: `${report.title}.md`,
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (!target) return; // user cancelled the dialog
+      await invoke("report_export", { reportId: report.report_id, path: target });
+      setExportNote(`已导出：${target}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (loading) {
     return <div className="text-text-muted">分析中…</div>;
@@ -105,6 +135,14 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             </span>
           )}
           <button
+            onClick={exportReport}
+            disabled={exporting}
+            className="px-3 py-1.5 text-sm rounded-md bg-accent/20 text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
+            title="生成 Markdown 报告并选择保存位置"
+          >
+            {exporting ? "生成中…" : "导出报告"}
+          </button>
+          <button
             onClick={() => {
               setForce(true);
               setReload((n) => n + 1);
@@ -116,6 +154,12 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           </button>
         </div>
       </div>
+
+      {exportNote && (
+        <p className="text-xs text-accent -mt-2 truncate" title={exportNote}>
+          {exportNote}
+        </p>
+      )}
 
       {/* Overview metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

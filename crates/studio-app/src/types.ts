@@ -105,6 +105,17 @@ export interface Assessment {
   recommendations: Recommendation[];
 }
 
+/** A generated Markdown report. The body comes back with the metadata so the UI
+ *  can suggest a filename and show what is about to be written. */
+export interface ReportMeta {
+  report_id: string;
+  project_id: string;
+  title: string;
+  created_at: string;
+  markdown: string;
+  exported_path: string | null;
+}
+
 export interface ProjectAnalysis {
   project_id: string;
   name: string;
