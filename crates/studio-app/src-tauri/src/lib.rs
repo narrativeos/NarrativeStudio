@@ -3,10 +3,10 @@ use std::sync::Mutex;
 use duckdb::Connection;
 use serde::Serialize;
 use studio_analysis::{
-    document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis, run_pacing_analysis,
-    run_plot_analysis, run_setting_analysis, run_t0_analysis, run_t1_analysis, run_theme_analysis,
-    Assessment, ClicheStats, ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats,
-    ThemeStats,
+    document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
+    run_dialogue_analysis, run_pacing_analysis, run_plot_analysis, run_setting_analysis,
+    run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment, ClicheStats, ConflictStats,
+    DialogueStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats, ThemeStats,
 };
 use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
@@ -386,7 +386,7 @@ fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
 }
 
 /// Analysis result for a single project (T0 + T1 + plot + pacing + conflict +
-/// theme + setting + cliché + rule-based assessment).
+/// theme + setting + cliché + dialogue + rule-based assessment).
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectAnalysis {
     pub project_id: String,
@@ -399,6 +399,7 @@ pub struct ProjectAnalysis {
     pub theme: ThemeStats,
     pub setting: SettingStats,
     pub cliche: ClicheStats,
+    pub dialogue: DialogueStats,
     pub assessment: Assessment,
     /// True when the numbers came from the persisted cache instead of being
     /// recomputed, so the UI can say where the result came from.
@@ -476,6 +477,8 @@ fn analyze_project_inner(
             .map_err(|e| e.to_string())?;
         let cliche = load_cached::<ClicheStats>(&storage.conn, pid, "cliche", &input_hash)
             .map_err(|e| e.to_string())?;
+        let dialogue = load_cached::<DialogueStats>(&storage.conn, pid, "dialogue", &input_hash)
+            .map_err(|e| e.to_string())?;
         let assessment = load_cached::<Assessment>(&storage.conn, pid, "assessment", &input_hash)
             .map_err(|e| e.to_string())?;
         if let (
@@ -487,9 +490,10 @@ fn analyze_project_inner(
             Some(theme),
             Some(setting),
             Some(cliche),
+            Some(dialogue),
             Some(assessment),
         ) = (
-            t0, t1, plot, pacing, conflict, theme, setting, cliche, assessment,
+            t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, assessment,
         ) {
             return Ok(ProjectAnalysis {
                 project_id: pid.to_string(),
@@ -502,6 +506,7 @@ fn analyze_project_inner(
                 theme,
                 setting,
                 cliche,
+                dialogue,
                 assessment,
                 cached: true,
             });
@@ -516,6 +521,7 @@ fn analyze_project_inner(
     let theme = run_theme_analysis(&doc).map_err(|e| e.to_string())?;
     let setting = run_setting_analysis(&doc).map_err(|e| e.to_string())?;
     let cliche = run_cliche_analysis(&doc).map_err(|e| e.to_string())?;
+    let dialogue = run_dialogue_analysis(&doc).map_err(|e| e.to_string())?;
     let assessment = run_assessment(&t0, &t1);
 
     let analysis = ProjectAnalysis {
@@ -529,6 +535,7 @@ fn analyze_project_inner(
         theme,
         setting,
         cliche,
+        dialogue,
         assessment,
         cached: false,
     };
@@ -542,7 +549,7 @@ fn analyze_project_inner(
     Ok(analysis)
 }
 
-/// Persist the nine computed dimensions under `input_hash`, plus the
+/// Persist the ten computed dimensions under `input_hash`, plus the
 /// assessment's recommendations as queryable concern rows.
 ///
 /// The recommendation rows are what let a later feature (report export) list a
@@ -553,11 +560,12 @@ fn persist_analysis(
     input_hash: &str,
     analysis: &ProjectAnalysis,
 ) -> Result<(), String> {
-    // Plot, pacing, conflict, theme, setting and cliché sit at the T1 tier: same
-    // input, same cost, purely structural. Their scores are stored so the analysis
-    // history can be compared without unpacking the payload; conflict, theme and
-    // setting have no score when the text offers nothing for them to measure, and
-    // the row keeps that absence instead of inventing a 0.
+    // Plot, pacing, conflict, theme, setting, cliché and dialogue sit at the T1 tier:
+    // same input, same cost, purely structural. Their scores are stored so the analysis
+    // history can be compared without unpacking the payload; conflict, theme, setting and
+    // cliché have no score when the text offers nothing for them to measure, dialogue
+    // never has one at all — 30% speech is neither better nor worse than 5% — and the row
+    // keeps that absence instead of inventing a 0.
     let dimensions: Vec<(&str, &str, Option<f32>, String)> = vec![
         (
             "t0",
@@ -606,6 +614,12 @@ fn persist_analysis(
             "t1",
             analysis.cliche.cliche_score.map(|s| s as f32),
             serde_json::to_string(&analysis.cliche).map_err(|e| e.to_string())?,
+        ),
+        (
+            "dialogue",
+            "t1",
+            None,
+            serde_json::to_string(&analysis.dialogue).map_err(|e| e.to_string())?,
         ),
     ];
     for (dimension, tier, score, data) in dimensions {
@@ -764,6 +778,7 @@ async fn report_generate(
         theme: &analysis.theme,
         setting: &analysis.setting,
         cliche: &analysis.cliche,
+        dialogue: &analysis.dialogue,
         assessment: &analysis.assessment,
     });
 

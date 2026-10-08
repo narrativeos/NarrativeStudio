@@ -13,14 +13,15 @@
 //! 10. Run theme analysis
 //! 11. Run setting analysis
 //! 12. Run cliché analysis
+//! 13. Run dialogue analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
-    document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis, run_pacing_analysis,
-    run_plot_analysis, run_setting_analysis, run_t0_analysis, run_t1_analysis, run_theme_analysis,
-    Assessment, ClicheStats, ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats,
-    ThemeStats,
+    document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
+    run_dialogue_analysis, run_pacing_analysis, run_plot_analysis, run_setting_analysis,
+    run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment, ClicheStats, ConflictStats,
+    DialogueStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats, ThemeStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -209,6 +210,7 @@ fn test_analysis_cache_roundtrip() {
     let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
     let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
     let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
+    let dialogue = run_dialogue_analysis(&loaded).expect("dialogue analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -290,6 +292,17 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&cliche).unwrap(),
     )
     .expect("save cliche");
+    // Dialogue carries no score: the row records the absence, not a 0.
+    save_result(
+        &conn,
+        project.project_id,
+        "dialogue",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&dialogue).unwrap(),
+    )
+    .expect("save dialogue");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -449,19 +462,33 @@ fn test_analysis_cache_roundtrip() {
             "cliche score must survive the cache"
         );
     }
+    let cached_dialogue =
+        load_cached::<DialogueStats>(&conn, project.project_id, "dialogue", &hash)
+            .unwrap()
+            .expect("dialogue cache hit");
+    assert_eq!(cached_dialogue.char_count, dialogue.char_count);
+    assert_eq!(cached_dialogue.dialogue_chars, dialogue.dialogue_chars);
+    assert_eq!(cached_dialogue.unit_count, dialogue.unit_count);
+    assert_eq!(cached_dialogue.points.len(), dialogue.points.len());
+    assert_eq!(cached_dialogue.samples.len(), dialogue.samples.len());
+    assert!(
+        (cached_dialogue.dialogue_share - dialogue.dialogue_share).abs() < 1e-9,
+        "dialogue share must survive the cache"
+    );
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
         theme.themes.len(),
         setting.scene_count,
         cliche.total_hits,
+        dialogue.unit_count,
         assessment.recommendations.len()
     );
 
@@ -478,7 +505,7 @@ fn test_analysis_cache_roundtrip() {
     );
 
     // "重新分析" clears everything for the project: nine dimensions.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 9);
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 10);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -510,6 +537,7 @@ fn test_report_generation_and_export() {
     let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
     let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
     let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
+    let dialogue = run_dialogue_analysis(&loaded).expect("dialogue analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -524,6 +552,7 @@ fn test_report_generation_and_export() {
         theme: &theme,
         setting: &setting,
         cliche: &cliche,
+        dialogue: &dialogue,
         assessment: &assessment,
     });
 
@@ -534,6 +563,7 @@ fn test_report_generation_and_export() {
         "## 关键建议",
         "## 文本统计",
         "## 文本诊断",
+        "## 对话与叙事",
         "## 章节结构",
         "## 叙事分析",
         "## 情节线",
@@ -635,8 +665,36 @@ fn test_report_generation_and_export() {
             "an empty cliché pass still has to say so"
         );
     }
+    // The dialogue section states the split and the limit of the method: what counts
+    // as speech is decided by quotation marks and the dash convention, not by reading.
+    assert!(
+        markdown.contains(&format!(
+            "对白占比：**{:.1}%**",
+            dialogue.dialogue_share * 100.0
+        )),
+        "dialogue share missing from the report"
+    );
+    assert!(
+        markdown.contains("比例只说明对白与叙述的多少"),
+        "dialogue section missing its caveat"
+    );
+    if let Some(sample) = dialogue.samples.first() {
+        assert!(
+            markdown.contains("### 最长的几处对白（"),
+            "dialogue sample list missing from the report"
+        );
+        assert!(
+            markdown.contains(&sample.excerpt),
+            "longest speech passage missing from the report"
+        );
+    } else {
+        assert!(
+            markdown.contains("未见对白"),
+            "text with no detected speech still has to say so"
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
@@ -645,6 +703,7 @@ fn test_report_generation_and_export() {
         theme.themes.len(),
         setting.scene_count,
         cliche.total_hits,
+        dialogue.unit_count,
         assessment.recommendations.len()
     );
 

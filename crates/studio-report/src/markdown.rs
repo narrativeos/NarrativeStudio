@@ -8,8 +8,8 @@
 use chrono::{DateTime, Utc};
 
 use studio_analysis::{
-    Assessment, ClicheStats, ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats,
-    ThemeStats, ANALYSIS_VERSION,
+    Assessment, ClicheStats, ConflictStats, DialogueStats, PacingStats, PlotStats, SettingStats,
+    T0Stats, T1Stats, ThemeStats, ANALYSIS_VERSION,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -25,6 +25,7 @@ pub struct ReportInput<'a> {
     pub theme: &'a ThemeStats,
     pub setting: &'a SettingStats,
     pub cliche: &'a ClicheStats,
+    pub dialogue: &'a DialogueStats,
     pub assessment: &'a Assessment,
 }
 
@@ -40,6 +41,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_recommendations(&mut out, input.assessment);
     write_text_stats(&mut out, input.t0);
     write_diagnostics(&mut out, input.t0);
+    write_dialogue(&mut out, input.dialogue);
     write_structure(&mut out, input.t1);
     write_narrative(&mut out, input.t1);
     write_plot(&mut out, input.plot);
@@ -177,6 +179,122 @@ fn write_diagnostics(out: &mut String, t0: &T0Stats) {
         out.push_str(&omitted(t0.top_repeated_phrases.len(), MAX_ROWS));
         out.push('\n');
     }
+}
+
+fn write_dialogue(out: &mut String, dialogue: &DialogueStats) {
+    out.push_str("## 对话与叙事\n\n");
+    out.push_str(&format!(
+        "对白占比：**{:.1}%** · 叙述 {:.1}% · 对白 {} 处（引号 {} · 破折号 {}）· 判定：**{}**（`{}`）\n\n",
+        dialogue.dialogue_share * 100.0,
+        dialogue.narrative_share * 100.0,
+        dialogue.unit_count,
+        dialogue.quoted_units,
+        dialogue.dash_units,
+        dialogue_verdict_label(&dialogue.verdict),
+        dialogue.verdict
+    ));
+    out.push_str(&format!(
+        "全文 {} 字：对白 {} 字 · 叙述 {} 字 · 平均每处 {:.1} 字 · 最长一处 {} 字 · 含对白的文本块 {} / {}\n\n",
+        dialogue.char_count,
+        dialogue.dialogue_chars,
+        dialogue.narrative_chars,
+        dialogue.avg_unit_chars,
+        dialogue.longest_unit,
+        dialogue.blocks_with_dialogue,
+        dialogue.blocks
+    ));
+
+    if dialogue.peak_section.is_empty() {
+        // No segment long enough to compare: a share computed over 40 characters is a
+        // rounding error, so the comparison is withheld rather than invented.
+        out.push_str("各段均不足 300 字，不比较段落间的对白差异。\n\n");
+    } else {
+        out.push_str(&format!(
+            "最密：{}（{:.0}%）· 最疏：{}（{:.0}%）· 相差 {:.0}% · 连续无对白最长 {} 块 / {} 字 · 连续对白最长 {} 块\n\n",
+            esc(&dialogue.peak_section),
+            dialogue.peak_share * 100.0,
+            esc(&dialogue.quietest_section),
+            dialogue.quietest_share * 100.0,
+            dialogue.spread * 100.0,
+            dialogue.longest_quiet_run,
+            dialogue.longest_quiet_chars,
+            dialogue.longest_dialogue_run
+        ));
+    }
+
+    out.push_str(&format!(
+        "### 对白占比曲线（{} 段）\n\n",
+        dialogue.segment_count
+    ));
+    if dialogue.points.is_empty() {
+        out.push_str("无数据。\n\n");
+    } else {
+        out.push_str(
+            "| 段落 | 占比 | 对白字数 | 总字数 | 处数 | 最长一处 |\n| --- | --- | ---: | ---: | ---: | ---: |\n",
+        );
+        for p in dialogue.points.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} {:.2} | {} | {} | {} | {} |\n",
+                esc(&p.section),
+                bar(p.share),
+                p.share,
+                p.dialogue_chars,
+                p.char_count,
+                p.units,
+                p.longest_unit
+            ));
+        }
+        out.push_str(&omitted(dialogue.points.len(), MAX_ROWS));
+        out.push('\n');
+        if dialogue.chunked {
+            out.push_str("_章节不足 3 个：曲线按等长块切分。_\n\n");
+        }
+    }
+
+    if !dialogue.unit_length_distribution.is_empty() {
+        out.push_str("### 对白长度分布\n\n");
+        out.push_str("| 每处字数 | 处数 |\n| --- | ---: |\n");
+        for (label, count) in &dialogue.unit_length_distribution {
+            out.push_str(&format!("| {} | {} |\n", esc(label), count));
+        }
+        out.push('\n');
+    }
+
+    if !dialogue.samples.is_empty() {
+        out.push_str(&format!(
+            "### 最长的几处对白（{} 处）\n\n",
+            dialogue.samples.len()
+        ));
+        for s in dialogue.samples.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{} 字** · {} · {} · 「{}」\n",
+                s.chars,
+                esc(&s.section),
+                dialogue_kind_label(&s.kind),
+                esc(&s.excerpt)
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !dialogue.issues.is_empty() {
+        out.push_str("### 对白问题\n\n");
+        for i in dialogue.issues.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}**（{}）— {}\n",
+                dialogue_issue_label(&i.kind),
+                if i.section.is_empty() {
+                    "全文".to_string()
+                } else {
+                    esc(&i.section)
+                },
+                esc(&i.detail)
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("_对白按引号与破折号识别：原文不用引号时会漏判，引号本身计入叙述一侧。比例只说明对白与叙述的多少，不说明好坏。_\n\n");
 }
 
 fn write_structure(out: &mut String, t1: &T1Stats) {
@@ -1037,14 +1155,50 @@ fn cliche_issue_label(kind: &str) -> &'static str {
     }
 }
 
+/// How much of the text is spoken. `none` says no speech was *detected*: a text whose
+/// source carries no quotation marks reads the same way as one where nobody speaks.
+fn dialogue_verdict_label(verdict: &str) -> &'static str {
+    match verdict {
+        "none" => "未见对白",
+        "sparse" => "对白偏少",
+        "balanced" => "对白与叙述混合",
+        "heavy" => "以对白为主",
+        _ => "未知",
+    }
+}
+
+/// How one piece of speech was recognised.
+fn dialogue_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "quote" => "引号",
+        "dash" => "破折号",
+        _ => "未知",
+    }
+}
+
+/// What the mix does to the reading.
+fn dialogue_issue_label(kind: &str) -> &'static str {
+    match kind {
+        "no_dialogue" => "没有对白",
+        "silent_segment" => "长时间无对白",
+        "flooded_segment" => "局部对白过密",
+        "monologue" => "长独白",
+        "telegraphic" => "对白过短",
+        "unquoted" => "对白未加引号",
+        "uneven" => "各段比例不均",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
         ArcPoint, ClicheHit, ClicheIssue, ClichePhrase, ClichePoint, ConflictAbsence,
-        ConflictPoint, ConflictType, DimensionScore, DragSection, FlatStretch, NarrativeArc,
-        PacingPoint, Place, Plotline, PlotlineStage, Readability, Recommendation, RepeatedPhrase,
-        Scene, SectionInfo, SettingIssue, Theme, TurningPoint,
+        ConflictPoint, ConflictType, DialogueIssue, DialoguePoint, DialogueSample, DimensionScore,
+        DragSection, FlatStretch, NarrativeArc, PacingPoint, Place, Plotline, PlotlineStage,
+        Readability, Recommendation, RepeatedPhrase, Scene, SectionInfo, SettingIssue, Theme,
+        TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -1229,6 +1383,42 @@ mod tests {
         }
     }
 
+    /// No speech detected: the section still reports the split (all of it narrative) and
+    /// leaves out everything that only exists once something is spoken.
+    fn empty_dialogue() -> DialogueStats {
+        DialogueStats {
+            points: vec![],
+            segment_count: 0,
+            chunked: false,
+            char_count: 0,
+            dialogue_chars: 0,
+            narrative_chars: 0,
+            dialogue_share: 0.0,
+            narrative_share: 1.0,
+            unit_count: 0,
+            quoted_units: 0,
+            dash_units: 0,
+            avg_unit_chars: 0.0,
+            longest_unit: 0,
+            unit_length_distribution: vec![],
+            blocks: 0,
+            blocks_with_dialogue: 0,
+            longest_dialogue_run: 0,
+            longest_quiet_run: 0,
+            longest_quiet_chars: 0,
+            silent_segments: 0,
+            flooded_segments: 0,
+            verdict: "none".into(),
+            spread: 0.0,
+            peak_section: String::new(),
+            peak_share: 0.0,
+            quietest_section: String::new(),
+            quietest_share: 0.0,
+            samples: vec![],
+            issues: vec![],
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -1255,6 +1445,7 @@ mod tests {
             empty_cliche(),
             clean_assessment(),
         );
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1266,6 +1457,7 @@ mod tests {
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -1284,6 +1476,7 @@ mod tests {
             empty_cliche(),
             clean_assessment(),
         );
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1295,6 +1488,7 @@ mod tests {
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let expected = "\
@@ -1352,7 +1546,19 @@ mod tests {
 
 ### 重复短语（0 项）
 
-未发现高频重复短语。
+未发现高频重复短语。\n\n## 对话与叙事
+
+对白占比：**0.0%** · 叙述 100.0% · 对白 0 处（引号 0 · 破折号 0）· 判定：**未见对白**（`none`）
+
+全文 0 字：对白 0 字 · 叙述 0 字 · 平均每处 0.0 字 · 最长一处 0 字 · 含对白的文本块 0 / 0
+
+各段均不足 300 字，不比较段落间的对白差异。
+
+### 对白占比曲线（0 段）
+
+无数据。
+
+_对白按引号与破折号识别：原文不用引号时会漏判，引号本身计入叙述一侧。比例只说明对白与叙述的多少，不说明好坏。_
 
 ## 章节结构
 
@@ -1452,6 +1658,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_setting(),
             empty_cliche(),
         );
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1463,6 +1670,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1472,6 +1680,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 关键建议",
             "## 文本统计",
             "## 文本诊断",
+            "## 对话与叙事",
             "## 章节结构",
             "## 叙事分析",
             "## 情节线",
@@ -1491,8 +1700,8 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }
         assert_eq!(
             md.matches("\n## ").count(),
-            12,
-            "exactly twelve H2 sections"
+            13,
+            "exactly thirteen H2 sections"
         );
     }
 
@@ -1523,6 +1732,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 detail: "「出版单位」出现 12 次".into(),
             },
         ];
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1534,6 +1744,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1561,6 +1772,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             block_count: 2,
             char_count: 100,
         }];
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1572,6 +1784,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1613,6 +1826,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 char_count: 10,
             })
             .collect();
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1624,6 +1838,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1666,6 +1881,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 char_count: 150,
             },
         ];
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1677,6 +1893,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1743,6 +1960,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         plot.unresolved_threads = vec!["Chase".into()];
         plot.late_arrivals = vec!["Tobey".into()];
 
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1754,6 +1972,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1815,6 +2034,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             length_ratio: 2.4,
         }];
 
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1826,6 +2046,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1903,6 +2124,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             char_count: 3000,
         }];
 
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1914,6 +2136,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1946,6 +2169,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_cliche(),
             clean_assessment(),
         );
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1957,6 +2181,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2018,6 +2243,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             },
         ];
 
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2029,6 +2255,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2058,6 +2285,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_cliche(),
             clean_assessment(),
         );
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2069,6 +2297,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2158,6 +2387,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         ];
         setting.top_env_terms = vec![("房间".into(), 6), ("夜色".into(), 4)];
 
+        let dialogue = empty_dialogue();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2169,6 +2399,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2288,6 +2519,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             },
         ];
 
+        let dialogue = empty_dialogue();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2299,6 +2531,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         });
 
@@ -2324,6 +2557,111 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("- **反复使用**（第一章）— 「微微一笑」出现 7 次"));
         assert!(md.contains("- **依赖同一句**（全文）— 最常用的一句占了全部命中 58%"));
         assert!(md.contains("由人来判断"));
+    }
+
+    #[test]
+    fn test_dialogue_section_renders_split_curve_and_issues() {
+        let mut dialogue = empty_dialogue();
+        dialogue.char_count = 2000;
+        dialogue.dialogue_chars = 600;
+        dialogue.narrative_chars = 1400;
+        dialogue.dialogue_share = 0.3;
+        dialogue.narrative_share = 0.7;
+        dialogue.unit_count = 24;
+        dialogue.quoted_units = 20;
+        dialogue.dash_units = 4;
+        dialogue.avg_unit_chars = 25.0;
+        dialogue.longest_unit = 320;
+        dialogue.unit_length_distribution = vec![
+            ("1-9".into(), 6),
+            ("10-29".into(), 14),
+            ("30-99".into(), 3),
+            ("100-299".into(), 0),
+            ("300+".into(), 1),
+        ];
+        dialogue.blocks = 40;
+        dialogue.blocks_with_dialogue = 18;
+        dialogue.longest_dialogue_run = 5;
+        dialogue.longest_quiet_run = 9;
+        dialogue.longest_quiet_chars = 1200;
+        dialogue.silent_segments = 1;
+        dialogue.flooded_segments = 1;
+        dialogue.verdict = "balanced".into();
+        dialogue.segment_count = 3;
+        dialogue.spread = 0.6;
+        dialogue.peak_section = "Ch1".into();
+        dialogue.peak_share = 0.62;
+        dialogue.quietest_section = "Ch3".into();
+        dialogue.quietest_share = 0.02;
+        dialogue.points = vec![
+            DialoguePoint {
+                section: "Ch1".into(),
+                char_count: 700,
+                dialogue_chars: 434,
+                share: 0.62,
+                intensity: 62.0,
+                units: 12,
+                longest_unit: 320,
+                blocks: 14,
+                blocks_with_dialogue: 11,
+            },
+            DialoguePoint {
+                section: "Ch3".into(),
+                char_count: 600,
+                dialogue_chars: 12,
+                share: 0.02,
+                intensity: 2.0,
+                units: 1,
+                longest_unit: 12,
+                blocks: 9,
+                blocks_with_dialogue: 1,
+            },
+        ];
+        dialogue.samples = vec![DialogueSample {
+            section: "Ch1".into(),
+            chars: 320,
+            kind: "quote".into(),
+            excerpt: "他站在门口，说了很久。".into(),
+        }];
+        dialogue.issues = vec![DialogueIssue {
+            kind: "silent_segment".into(),
+            section: "Ch3".into(),
+            detail: "连续 9 个文本块、1200 字没有对白".into(),
+        }];
+
+        let t0 = empty_t0();
+        let t1 = empty_t1();
+        let plot = empty_plot();
+        let pacing = empty_pacing();
+        let conflict = empty_conflict();
+        let theme = empty_theme();
+        let setting = empty_setting();
+        let cliche = empty_cliche();
+        let assessment = clean_assessment();
+        let md = render_markdown(&ReportInput {
+            project_name: "测试项目",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            dialogue: &dialogue,
+            assessment: &assessment,
+        });
+        // The all-narrative wording is only for text where no speech was detected.
+        assert!(!md.contains("对白占比：**0.0%** · 叙述 100.0%"));
+        assert!(md.contains("对白占比：**30.0%** · 叙述 70.0% · 对白 24 处（引号 20 · 破折号 4）"));
+        assert!(md.contains("判定：**对白与叙述混合**（`balanced`）"));
+        assert!(md.contains("| Ch1 | ██"));
+        assert!(md.contains("| 1-9 | 6 |"));
+        assert!(md.contains("| 300+ | 1 |"));
+        assert!(md.contains("- **320 字** · Ch1 · 引号 · 「他站在门口，说了很久。」"));
+        assert!(md.contains("连续无对白最长 9 块 / 1200 字 · 连续对白最长 5 块"));
+        assert!(md.contains("- **长时间无对白**（Ch3）— 连续 9 个文本块、1200 字没有对白"));
     }
 
     #[test]
@@ -2355,6 +2693,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             note: "紧张或平静的通用动作".into(),
         }];
 
+        let dialogue = empty_dialogue();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2366,6 +2705,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             theme: &theme,
             setting: &setting,
             cliche: &cliche,
+            dialogue: &dialogue,
             assessment: &a,
         });
 
