@@ -70,6 +70,11 @@ pub struct T1Stats {
 pub fn run_t1_analysis(doc: &DocumentData) -> Result<T1Stats> {
     // Group blocks by section_path
     let mut sections_map: HashMap<String, (u32, u64)> = HashMap::new();
+    // Sections are reported in reading order (first appearance), not HashMap
+    // order: the UI table, the exported report and the plot analysis all assume the
+    // document reads top to bottom, and HashMap iteration order changes per
+    // process.
+    let mut section_order: Vec<String> = Vec::new();
     let mut block_type_dist: HashMap<String, u32> = HashMap::new();
 
     let mut title_blocks = 0u32;
@@ -77,6 +82,9 @@ pub fn run_t1_analysis(doc: &DocumentData) -> Result<T1Stats> {
     let mut list_blocks = 0u32;
 
     for block in &doc.blocks {
+        if !sections_map.contains_key(&block.section_path) {
+            section_order.push(block.section_path.clone());
+        }
         let entry = sections_map
             .entry(block.section_path.clone())
             .or_insert((0, 0));
@@ -94,12 +102,17 @@ pub fn run_t1_analysis(doc: &DocumentData) -> Result<T1Stats> {
         }
     }
 
-    let sections: Vec<SectionInfo> = sections_map
+    let sections: Vec<SectionInfo> = section_order
         .into_iter()
-        .map(|(path, (block_count, char_count))| SectionInfo {
-            path,
-            block_count,
-            char_count,
+        .map(|path| {
+            let (block_count, char_count) = sections_map
+                .remove(&path)
+                .expect("section was registered while scanning blocks");
+            SectionInfo {
+                path,
+                block_count,
+                char_count,
+            }
         })
         .collect();
 
@@ -462,6 +475,27 @@ mod tests {
         let doc = sample_doc();
         let stats = run_t1_analysis(&doc).unwrap();
         assert_eq!(stats.section_count, 2);
+    }
+
+    #[test]
+    fn test_t1_sections_follow_reading_order() {
+        // A HashMap would hand these back in an order that changes per process,
+        // which would shuffle the UI table and the exported report.
+        let doc = DocumentData {
+            doc_id: uuid::Uuid::new_v4(),
+            title: "Order".into(),
+            blocks: vec![
+                block("Ch3", "title", "three"),
+                block("Ch1", "title", "one"),
+                block("Ch3", "paragraph", "still three"),
+                block("Ch2", "title", "two"),
+            ],
+            total_word_count: 0,
+            total_char_count: 0,
+        };
+        let stats = run_t1_analysis(&doc).unwrap();
+        let paths: Vec<&str> = stats.sections.iter().map(|s| s.path.as_str()).collect();
+        assert_eq!(paths, ["Ch3", "Ch1", "Ch2"]);
     }
 
     #[test]
