@@ -2,31 +2,23 @@ import { useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
+import {
+  arcShapeLabel,
+  entityTotal,
+  formatInt,
+  formatPercent,
+  formatScore,
+  scoreColor,
+  scoreTextColor,
+  severityLabel,
+  severityStyle,
+} from "../lib/format";
 import type { ProjectAnalysis } from "../types";
 
 interface AnalysisProps {
   projectId: string;
   onBack: () => void;
 }
-
-const ARC_SHAPE_LABELS: Record<string, string> = {
-  mountain: "先扬后抑",
-  rising: "渐强",
-  falling: "渐弱",
-  steady: "平稳",
-};
-
-const SEVERITY_STYLES: Record<string, string> = {
-  high: "bg-red-500/15 text-red-400 border-red-500/30",
-  medium: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  low: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-};
-
-const SEVERITY_LABELS: Record<string, string> = {
-  high: "高",
-  medium: "中",
-  low: "低",
-};
 
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural)
@@ -76,7 +68,6 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
   if (!data) return null;
 
   const { t0, t1 } = data;
-  const entityTotal = t0.entity_counts.reduce((sum, [, c]) => sum + c, 0);
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
 
   return (
@@ -93,45 +84,39 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
         <div className="min-w-0">
           <h2 className="text-xl font-semibold truncate">{data.name}</h2>
           <p className="text-xs text-text-muted mt-0.5">
-            {t0.block_count.toLocaleString()} 块 · {t1.section_count.toLocaleString()} 章节 ·{" "}
-            {t0.char_count.toLocaleString()} 字
+            {formatInt(t0.block_count)} 块 · {formatInt(t1.section_count)} 章节 ·{" "}
+            {formatInt(t0.char_count)} 字
           </p>
         </div>
       </div>
 
       {/* Overview metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard label="字数" value={t0.word_count.toLocaleString()} />
-        <StatCard label="文本块" value={t0.block_count.toLocaleString()} />
-        <StatCard label="章节" value={t1.section_count.toLocaleString()} />
-        <StatCard label="句子" value={t0.sentence_count.toLocaleString()} />
-        <StatCard label="实体" value={entityTotal.toLocaleString()} />
-        <StatCard label="名词信号" value={t0.noun_signal_count.toLocaleString()} />
+        <StatCard label="字数" value={formatInt(t0.word_count)} />
+        <StatCard label="文本块" value={formatInt(t0.block_count)} />
+        <StatCard label="章节" value={formatInt(t1.section_count)} />
+        <StatCard label="句子" value={formatInt(t0.sentence_count)} />
+        <StatCard label="实体" value={formatInt(entityTotal(t0))} />
+        <StatCard label="名词信号" value={formatInt(t0.noun_signal_count)} />
       </div>
 
       {/* Overall assessment */}
       <section>
         <SectionTitle>总体评估</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
-          <Panel title={`综合评分 ${data.assessment.overall.toFixed(0)} / 100`}>
+          <Panel title={`综合评分 ${formatScore(data.assessment.overall)} / 100`}>
             <div className="space-y-2.5">
               {data.assessment.dimensions.map((d) => (
                 <div key={d.key} className="flex items-center gap-2 text-xs">
                   <span className="w-16 shrink-0 text-text">{d.label}</span>
                   <div className="flex-1 h-4 bg-gray-800/60 rounded overflow-hidden">
                     <div
-                      className={`h-full rounded ${
-                        d.score >= 80
-                          ? "bg-emerald-400"
-                          : d.score >= 60
-                            ? "bg-amber-400"
-                            : "bg-red-400"
-                      }`}
+                      className={`h-full rounded ${scoreColor(d.score)}`}
                       style={{ width: `${Math.max(2, d.score)}%` }}
                     />
                   </div>
                   <span className="w-8 shrink-0 text-right text-text-muted tabular-nums">
-                    {d.score.toFixed(0)}
+                    {formatScore(d.score)}
                   </span>
                 </div>
               ))}
@@ -153,12 +138,8 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <ul className="space-y-2">
                 {data.assessment.recommendations.map((r, i) => (
                   <li key={i} className="text-xs flex items-start gap-2">
-                    <span
-                      className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded border text-[10px] ${
-                        SEVERITY_STYLES[r.severity] ?? SEVERITY_STYLES.low
-                      }`}
-                    >
-                      {SEVERITY_LABELS[r.severity] ?? r.severity}
+                    <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded border text-[10px] ${severityStyle(r.severity)}`}>
+                      {severityLabel(r.severity)}
                     </span>
                     <span>
                       <span className="text-text">{r.title}</span>
@@ -222,15 +203,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           <Panel title="可读性">
             <div className="flex items-center gap-4">
               <div
-                className={`text-3xl font-semibold tabular-nums ${
-                  t0.readability.score >= 80
-                    ? "text-emerald-400"
-                    : t0.readability.score >= 60
-                      ? "text-amber-400"
-                      : "text-red-400"
-                }`}
+                className={`text-3xl font-semibold tabular-nums ${scoreTextColor(t0.readability.score)}`}
               >
-                {t0.readability.score.toFixed(0)}
+                {formatScore(t0.readability.score)}
               </div>
               <div className="text-xs text-text-muted">
                 <p>等级：{t0.readability.level}</p>
@@ -327,9 +302,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       <section>
         <SectionTitle>叙事分析</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
-          <Panel
-            title={`叙事弧线（${ARC_SHAPE_LABELS[t1.arc.shape] ?? t1.arc.shape}）`}
-          >
+          <Panel title={`叙事弧线（${arcShapeLabel(t1.arc.shape)}）`}>
             {t1.arc.points.length === 0 ? (
               <p className="text-xs text-text-muted">暂无数据</p>
             ) : (
@@ -376,7 +349,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                           {c.mentions}
                         </td>
                         <td className="py-1.5 text-right text-text-muted tabular-nums">
-                          {(c.span_ratio * 100).toFixed(0)}%
+                          {formatPercent(c.span_ratio)}
                         </td>
                         <td className="py-1.5 pl-4 truncate max-w-[160px]" title={c.first_section}>
                           {c.first_section || "(root)"}

@@ -1,57 +1,56 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectAnalysis, T0Stats } from "../types";
+import { entityTotal, formatFixed, formatInt } from "../lib/format";
+import type { ProjectAnalysis } from "../types";
 
 interface CompareProps {
   selection: Set<string>;
 }
 
-function entityTotal(t0: T0Stats): number {
-  return t0.entity_counts.reduce((s, [, c]) => s + c, 0);
-}
-
 function Compare({ selection }: CompareProps) {
-  const [data, setData] = useState<ProjectAnalysis[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Results and errors are tagged with the selection signature they belong to.
+  // That removes the need for a synchronous reset inside the effect (which
+  // caused cascading renders) and makes it impossible for a stale response
+  // from a previous selection to render under the current one.
+  const [result, setResult] = useState<{ key: string; data: ProjectAnalysis[] } | null>(
+    null,
+  );
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
 
   const selectedIds = useMemo(() => Array.from(selection), [selection]);
   const depKey = selectedIds.join(",");
+  const enoughSelected = selectedIds.length >= 2;
 
   useEffect(() => {
-    if (selectedIds.length < 2) {
-      setData(null);
-      return;
-    }
+    if (!enoughSelected) return;
+    const projectIds = depKey.split(",");
     let cancelled = false;
     async function run() {
-      setLoading(true);
-      setError(null);
       try {
-        const result = await invoke<ProjectAnalysis[]>("analyze_projects", {
-          projectIds: selectedIds,
-        });
-        if (!cancelled) setData(result);
+        const data = await invoke<ProjectAnalysis[]>("analyze_projects", { projectIds });
+        if (!cancelled) setResult({ key: depKey, data });
       } catch (e) {
-        if (!cancelled) setError(String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setFailure({ key: depKey, message: String(e) });
       }
     }
     run();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depKey]);
+  }, [depKey, enoughSelected]);
+
+  const data = result?.key === depKey ? result.data : null;
+  const error = failure?.key === depKey ? failure.message : null;
+  const loading =
+    enoughSelected && result?.key !== depKey && failure?.key !== depKey;
 
   const metrics: { label: string; value: (a: ProjectAnalysis) => string }[] = [
-    { label: "Words", value: (a) => a.t0.word_count.toLocaleString() },
-    { label: "Blocks", value: (a) => a.t0.block_count.toString() },
-    { label: "Sections", value: (a) => a.t1.section_count.toString() },
-    { label: "Entities", value: (a) => entityTotal(a.t0).toString() },
-    { label: "Noun signals", value: (a) => a.t0.noun_signal_count.toString() },
-    { label: "Avg sentence", value: (a) => a.t0.avg_sentence_length.toFixed(1) },
+    { label: "Words", value: (a) => formatInt(a.t0.word_count) },
+    { label: "Blocks", value: (a) => formatInt(a.t0.block_count) },
+    { label: "Sections", value: (a) => formatInt(a.t1.section_count) },
+    { label: "Entities", value: (a) => formatInt(entityTotal(a.t0)) },
+    { label: "Noun signals", value: (a) => formatInt(a.t0.noun_signal_count) },
+    { label: "Avg sentence", value: (a) => formatFixed(a.t0.avg_sentence_length) },
   ];
 
   const topWords = useMemo(() => {
