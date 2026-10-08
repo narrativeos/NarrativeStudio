@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 
 use studio_analysis::{
     Assessment, ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats,
-    SettingStats, T0Stats, T1Stats, ThemeStats, ANALYSIS_VERSION,
+    SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats, ANALYSIS_VERSION,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -27,6 +27,7 @@ pub struct ReportInput<'a> {
     pub cliche: &'a ClicheStats,
     pub dialogue: &'a DialogueStats,
     pub explicit: &'a ExplicitStats,
+    pub structure: &'a StructureStats,
     pub assessment: &'a Assessment,
 }
 
@@ -52,6 +53,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_setting(&mut out, input.setting);
     write_cliche(&mut out, input.cliche);
     write_explicit(&mut out, input.explicit);
+    write_story_structure(&mut out, input.structure);
     write_footer(&mut out);
     out
 }
@@ -1079,6 +1081,153 @@ fn write_explicit(out: &mut String, explicit: &ExplicitStats) {
     out.push_str("_本维度不给出评分：一部战争题材并不比田园题材更差，露骨与否是内容属性而不是质量。命中只说明词面撞上词库，不等于剧情如此；分级只反映用词强度，不反映事件本身，是否需要读者提示由人决定。_\n\n");
 }
 
+/// The document's own landmarks and how the classic shapes fit them.
+///
+/// No score line: the section describes where things sit. Every judgement word (吻合,
+/// 未见) is defined by the counts next to it, and the closing note says what the method
+/// cannot see, so a reader cannot take 未见 for 缺少.
+fn write_story_structure(out: &mut String, structure: &StructureStats) {
+    out.push_str("## 故事结构\n\n");
+    let cut = if structure.chunked {
+        "按字数等分，非作者章节"
+    } else {
+        "按作者章节"
+    };
+    out.push_str(&format!(
+        "地标 {} 个 · 转折点 {} 个 · 曲线段落 {} 段（{}）· 可见正文 {} 字\n\n",
+        structure.landmarks.len(),
+        structure.turn_count,
+        structure.segment_count,
+        cut,
+        structure.char_count
+    ));
+
+    if !structure.readable {
+        out.push_str(&format!("{}本次不做模型对照。\n\n", esc(&structure.note)));
+        out.push_str(&structure_limits(structure));
+        return;
+    }
+
+    out.push_str(&format!("### 地标（{} 个）\n\n", structure.landmarks.len()));
+    if structure.landmarks.is_empty() {
+        out.push_str("线程变化与张力曲线都没有指出任何地标。\n\n");
+    } else {
+        out.push_str("| 位置 | 段落 | 类型 | 依据 |\n| ---: | --- | --- | --- |\n");
+        for l in structure.landmarks.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {:.0}% | {} | {} | {} |\n",
+                l.position * 100.0,
+                esc(&l.section),
+                structure_landmark_label(&l.kind),
+                esc(&l.detail)
+            ));
+        }
+        out.push_str(&omitted(structure.landmarks.len(), MAX_ROWS));
+        out.push('\n');
+    }
+
+    out.push_str("### 幕的切分（按本文自己的转折点）\n\n");
+    if structure.acts.is_empty() {
+        out.push_str("可辨的转折点不足两个，本文没有可切的三幕。\n\n");
+    } else {
+        out.push_str(
+            "| 幕 | 起 | 止 | 字数 | 占比 | 张力（低/均/高） |\n| --- | --- | --- | ---: | ---: | --- | --- |\n",
+        );
+        for a in &structure.acts {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} | {:.0}% | {:.0} / {:.0} / {:.0} |\n",
+                structure_act_label(&a.name),
+                esc(&a.from_section),
+                esc(&a.to_section),
+                a.char_count,
+                a.share * 100.0,
+                a.min_tension,
+                a.mean_tension,
+                a.max_tension
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("### 经典模型对照\n\n");
+    for m in &structure.models {
+        out.push_str(&format!(
+            "- **{}**：{}（命中 {} · 错位 {} · 未见 {}）\n",
+            structure_model_label(&m.model),
+            structure_fit_label(&m.fit),
+            m.found,
+            m.displaced,
+            m.missing
+        ));
+    }
+    out.push('\n');
+
+    for m in &structure.models {
+        out.push_str(&format!(
+            "#### {}：节拍落点\n\n| 节拍 | 期望区间 | 判定 | 落点 | 偏差 | 依据 |\n| --- | ---: | --- | --- | ---: | --- |\n",
+            structure_model_label(&m.model)
+        ));
+        for b in &m.beats {
+            out.push_str(&format!(
+                "| {} | {:.0}%–{:.0}% | {} | {} | {} | {} |\n",
+                structure_beat_label(&b.beat),
+                b.window.0 * 100.0,
+                b.window.1 * 100.0,
+                structure_status_label(&b.status),
+                if b.section.is_empty() {
+                    "—".to_string()
+                } else {
+                    format!("{}（{:.0}%）", esc(&b.section), b.position * 100.0)
+                },
+                if b.offset > 0.0 {
+                    format!("{:.0}%", b.offset * 100.0)
+                } else {
+                    "—".to_string()
+                },
+                if b.evidence.is_empty() {
+                    "—".to_string()
+                } else {
+                    esc(&b.evidence)
+                }
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !structure.issues.is_empty() {
+        out.push_str("### 结构提示\n\n");
+        for i in structure.issues.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}**（{}）— {}\n",
+                structure_issue_label(&i.kind),
+                if i.section.is_empty() {
+                    "全文".to_string()
+                } else {
+                    esc(&i.section)
+                },
+                esc(&i.detail)
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str(&structure_limits(structure));
+}
+
+/// What the shape match cannot claim. Always printed, because the limits are the
+/// difference between a description and a grade.
+fn structure_limits(structure: &StructureStats) -> String {
+    let mut note = String::from(
+        "_本维度不给出评分：契合三幕不是优点，有意拒绝这个形状也不是缺点。地标来自线程变化与张力曲线，两者都是代理信号；「未见」只说明这些信号没有显示这一环，不等于故事缺少它。节拍区间（如 25%/50%/25%）是写作手册里的约定，不是测量。_\n\n",
+    );
+    if structure.chunked {
+        note.push_str(
+            "本文的章节少于三段，曲线落在按字数等分的块上，所以位置是算术结果，不是作者自己的分段。\n\n",
+        );
+    }
+    note
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -1378,6 +1527,99 @@ fn explicit_issue_label(kind: &str) -> &'static str {
     }
 }
 
+/// The classic shapes tried against the document.
+fn structure_model_label(model: &str) -> &'static str {
+    match model {
+        "three_act" => "三幕结构",
+        "kisho_tenketsu" => "起承转合",
+        "hero_journey" => "英雄之旅",
+        _ => "未知",
+    }
+}
+
+/// One beat of a model.
+fn structure_beat_label(beat: &str) -> &'static str {
+    match beat {
+        // 三幕结构
+        "setup" => "铺垫",
+        "first_turn" => "第一转折点",
+        "midpoint" => "中点",
+        "second_turn" => "第二转折点",
+        "climax" => "高潮",
+        "resolution" => "收束",
+        // 起承转合
+        "kisho" => "起",
+        "sho" => "承",
+        "ten" => "转",
+        "ketsu" => "合",
+        // 英雄之旅
+        "ordinary_world" => "日常世界",
+        "call" => "冒险的召唤",
+        "threshold" => "跨越门槛",
+        "tests" => "试炼与伙伴",
+        "inmost_cave" => "最深洞穴",
+        "resurrection" => "复活",
+        "return" => "携宝归来",
+        _ => "未知",
+    }
+}
+
+/// Where a beat was answered. `missing` says the signals showed nothing there, which
+/// is not the same as the story lacking the beat — the closing note says so.
+fn structure_status_label(status: &str) -> &'static str {
+    match status {
+        "found" => "命中",
+        "displaced" => "错位",
+        "missing" => "未见",
+        _ => "未知",
+    }
+}
+
+/// How many beats landed where the model expects them.
+fn structure_fit_label(fit: &str) -> &'static str {
+    match fit {
+        "matched" => "吻合",
+        "partial" => "部分吻合",
+        "unclear" => "信号不足",
+        _ => "未知",
+    }
+}
+
+/// What kind of signal made a landmark.
+fn structure_landmark_label(kind: &str) -> &'static str {
+    match kind {
+        "opening" => "开篇",
+        "turn" => "线程转折",
+        "peak" => "张力高点",
+        "trough" => "张力低点",
+        "climax" => "张力最高点",
+        _ => "未知",
+    }
+}
+
+/// Which part of the document's own three-way split.
+fn structure_act_label(name: &str) -> &'static str {
+    match name {
+        "act_one" => "第一幕",
+        "act_two" => "第二幕",
+        "act_three" => "第三幕",
+        _ => "未知",
+    }
+}
+
+/// What the shape does that a writer may want to look at again.
+fn structure_issue_label(kind: &str) -> &'static str {
+    match kind {
+        "no_early_turn" => "开头无变化",
+        "missing_midpoint" => "中段空白",
+        "climax_early" => "张力最高点偏早",
+        "no_descent" => "结尾未回落",
+        "act_imbalance" => "幕长失衡",
+        "too_few_landmarks" => "地标太少",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1386,7 +1628,8 @@ mod tests {
         ConflictPoint, ConflictType, DialogueIssue, DialoguePoint, DialogueSample, DimensionScore,
         DragSection, ExplicitHit, ExplicitIssue, ExplicitTerm, FlatStretch, NarrativeArc,
         PacingPoint, Place, Plotline, PlotlineStage, Readability, Recommendation, RepeatedPhrase,
-        Scene, SectionInfo, SettingIssue, Theme, TurningPoint,
+        Scene, SectionInfo, SettingIssue, StructureAct, StructureBeat, StructureIssue,
+        StructureLandmark, StructureModel, Theme, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -1637,6 +1880,23 @@ mod tests {
         }
     }
 
+    /// What `run_structure_analysis` returns for an empty document: nothing read, and
+    /// the reason why stated. There is no score to be absent.
+    fn empty_structure() -> StructureStats {
+        StructureStats {
+            landmarks: vec![],
+            acts: vec![],
+            models: vec![],
+            issues: vec![],
+            segment_count: 0,
+            chunked: false,
+            char_count: 0,
+            turn_count: 0,
+            readable: false,
+            note: "文档没有可切分的正文。".into(),
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -1665,6 +1925,7 @@ mod tests {
         );
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1678,6 +1939,7 @@ mod tests {
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -1698,6 +1960,7 @@ mod tests {
         );
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1711,6 +1974,7 @@ mod tests {
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let expected = "\
@@ -1866,6 +2130,14 @@ _命中只说明字面撞上词库里的说法，不等于写得差；是否真�
 
 _本维度不给出评分：一部战争题材并不比田园题材更差，露骨与否是内容属性而不是质量。命中只说明词面撞上词库，不等于剧情如此；分级只反映用词强度，不反映事件本身，是否需要读者提示由人决定。_
 
+## 故事结构
+
+地标 0 个 · 转折点 0 个 · 曲线段落 0 段（按作者章节）· 可见正文 0 字
+
+文档没有可切分的正文。本次不做模型对照。
+
+_本维度不给出评分：契合三幕不是优点，有意拒绝这个形状也不是缺点。地标来自线程变化与张力曲线，两者都是代理信号；「未见」只说明这些信号没有显示这一环，不等于故事缺少它。节拍区间（如 25%/50%/25%）是写作手册里的约定，不是测量。_
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -1896,6 +2168,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         );
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1909,6 +2182,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1928,6 +2202,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 场景/设定",
             "## 陈词滥调",
             "## 显式语言",
+            "## 故事结构",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -1939,8 +2214,8 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }
         assert_eq!(
             md.matches("\n## ").count(),
-            14,
-            "exactly fourteen H2 sections"
+            15,
+            "exactly fifteen H2 sections"
         );
     }
 
@@ -1973,6 +2248,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         ];
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -1986,6 +2262,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2015,6 +2292,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }];
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2028,6 +2306,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2071,6 +2350,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             .collect();
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2084,6 +2364,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2128,6 +2409,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         ];
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2141,6 +2423,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2209,6 +2492,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2222,6 +2506,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2285,6 +2570,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2298,6 +2584,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2377,6 +2664,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2390,6 +2678,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2424,6 +2713,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         );
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2437,6 +2727,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2500,6 +2791,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2513,6 +2805,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2544,6 +2837,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         );
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2557,6 +2851,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2648,6 +2943,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2661,6 +2957,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2782,6 +3079,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2795,6 +3093,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         });
 
@@ -2826,6 +3125,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
     fn test_dialogue_section_renders_split_curve_and_issues() {
         let mut dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         dialogue.char_count = 2000;
         dialogue.dialogue_chars = 600;
         dialogue.narrative_chars = 1400;
@@ -2915,6 +3215,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &assessment,
         });
         // The all-narrative wording is only for text where no speech was detected.
@@ -2960,6 +3261,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2973,6 +3275,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         });
 
@@ -2998,6 +3301,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
 
         let mut explicit = empty_explicit();
+        let structure = empty_structure();
         explicit.total_hits = 4;
         explicit.distinct_terms = 2;
         explicit.per_10k = 12.0;
@@ -3092,6 +3396,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         });
 
@@ -3126,6 +3431,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         );
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
+        let structure = empty_structure();
 
         let md = render_markdown(&ReportInput {
             project_name: "P",
@@ -3140,6 +3446,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             cliche: &cliche,
             dialogue: &dialogue,
             explicit: &explicit,
+            structure: &structure,
             assessment: &a,
         });
 
@@ -3149,5 +3456,188 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(!md.contains("需要读者提示的内容："));
         // The library size is printed only next to hits, where it means something.
         assert!(!md.contains("词库 35 项"));
+    }
+
+    /// A shape the signals can place: two landmarks, the document's own acts, and one
+    /// model with a beat in place, one out of place and one not shown.
+    fn shaped_structure() -> StructureStats {
+        StructureStats {
+            landmarks: vec![
+                StructureLandmark {
+                    kind: "opening".into(),
+                    section: "第一章".into(),
+                    position: 0.08,
+                    strength: 0.0,
+                    detail: "开篇于 第一章，张力 0".into(),
+                },
+                StructureLandmark {
+                    kind: "climax".into(),
+                    section: "第五章".into(),
+                    position: 0.8,
+                    strength: 85.0,
+                    detail: "全文张力最高点 85（均值 25）".into(),
+                },
+            ],
+            acts: vec![
+                StructureAct {
+                    name: "act_one".into(),
+                    from_section: "第一章".into(),
+                    to_section: "第一章".into(),
+                    char_count: 600,
+                    share: 0.16,
+                    mean_tension: 0.0,
+                    min_tension: 0.0,
+                    max_tension: 0.0,
+                },
+                StructureAct {
+                    name: "act_two".into(),
+                    from_section: "第二章".into(),
+                    to_section: "第四章".into(),
+                    char_count: 2200,
+                    share: 0.54,
+                    mean_tension: 20.0,
+                    min_tension: 0.0,
+                    max_tension: 67.0,
+                },
+                StructureAct {
+                    name: "act_three".into(),
+                    from_section: "第五章".into(),
+                    to_section: "第六章".into(),
+                    char_count: 1250,
+                    share: 0.3,
+                    mean_tension: 42.0,
+                    min_tension: 0.0,
+                    max_tension: 85.0,
+                },
+            ],
+            models: vec![StructureModel {
+                model: "three_act".into(),
+                fit: "partial".into(),
+                beats: vec![
+                    StructureBeat {
+                        beat: "climax".into(),
+                        window: (0.76, 0.96),
+                        status: "found".into(),
+                        section: "第五章".into(),
+                        position: 0.8,
+                        offset: 0.0,
+                        evidence: "全文张力最高点 85（均值 25）".into(),
+                    },
+                    StructureBeat {
+                        beat: "midpoint".into(),
+                        window: (0.42, 0.62),
+                        status: "displaced".into(),
+                        section: "第二章".into(),
+                        position: 0.21,
+                        offset: 0.21,
+                        evidence: "线程变化 33%：新出现：沈墨".into(),
+                    },
+                    StructureBeat {
+                        beat: "resolution".into(),
+                        window: (0.9, 1.0),
+                        status: "missing".into(),
+                        section: String::new(),
+                        position: 0.0,
+                        offset: 0.0,
+                        evidence: String::new(),
+                    },
+                ],
+                found: 1,
+                displaced: 1,
+                missing: 1,
+            }],
+            issues: vec![StructureIssue {
+                kind: "climax_early".into(),
+                section: "第一章".into(),
+                detail: "张力最高点落在 8%（第一章），其后还有 92% 的正文".into(),
+            }],
+            segment_count: 6,
+            chunked: false,
+            char_count: 4050,
+            turn_count: 3,
+            readable: true,
+            note: String::new(),
+        }
+    }
+
+    /// A report built only to look at one dimension's section.
+    fn render_with(structure: &StructureStats) -> String {
+        let t0 = empty_t0();
+        let t1 = empty_t1();
+        let plot = empty_plot();
+        let pacing = empty_pacing();
+        let conflict = empty_conflict();
+        let theme = empty_theme();
+        let setting = empty_setting();
+        let cliche = empty_cliche();
+        let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
+        let a = clean_assessment();
+        render_markdown(&ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            dialogue: &dialogue,
+            explicit: &explicit,
+            structure,
+            assessment: &a,
+        })
+    }
+
+    #[test]
+    fn test_story_structure_section_describes_the_shape() {
+        let md = render_with(&shaped_structure());
+        assert!(md.contains("## 故事结构"));
+        assert!(
+            md.contains("地标 2 个 · 转折点 3 个 · 曲线段落 6 段（按作者章节）· 可见正文 4050 字")
+        );
+        assert!(md.contains("| 80% | 第五章 | 张力最高点 | 全文张力最高点 85（均值 25） |"));
+        assert!(md.contains("| 第一幕 | 第一章 | 第一章 | 600 | 16% | 0 / 0 / 0 |"));
+        assert!(md.contains("- **三幕结构**：部分吻合（命中 1 · 错位 1 · 未见 1）"));
+        assert!(md.contains("#### 三幕结构：节拍落点"));
+        assert!(md.contains("| 高潮 | 76%–96% | 命中 | 第五章（80%） | — |"));
+        assert!(md.contains("| 中点 | 42%–62% | 错位 | 第二章（21%） | 21% |"));
+        // 未见 keeps its row with nothing filled in: the absence is the finding.
+        assert!(md.contains("| 收束 | 90%–100% | 未见 | — | — | — |"));
+        assert!(md.contains("- **张力最高点偏早**（第一章）— 张力最高点落在 8%"));
+    }
+
+    #[test]
+    fn test_story_structure_never_grades_the_shape() {
+        let md = render_with(&shaped_structure());
+        // No score line anywhere, and the note says what 未见 does not mean.
+        assert!(!md.contains("结构评分"));
+        assert!(md.contains("_本维度不给出评分：契合三幕不是优点"));
+        assert!(md.contains("「未见」只说明这些信号没有显示这一环，不等于故事缺少它"));
+    }
+
+    #[test]
+    fn test_story_structure_says_when_it_could_not_read_the_document() {
+        let mut structure = empty_structure();
+        structure.char_count = 800;
+        structure.note = "全文可见正文 800 字，不足以按位置匹配经典结构（需 1500 字以上）".into();
+        let md = render_with(&structure);
+        assert!(md.contains(
+            "全文可见正文 800 字，不足以按位置匹配经典结构（需 1500 字以上）本次不做模型对照。"
+        ));
+        assert!(!md.contains("#### 三幕结构：节拍落点"));
+        assert!(!md.contains("### 地标（0 个）"));
+    }
+
+    #[test]
+    fn test_story_structure_flags_arithmetic_positions() {
+        let mut structure = shaped_structure();
+        structure.chunked = true;
+        structure.segment_count = 10;
+        let md = render_with(&structure);
+        assert!(md.contains("曲线段落 10 段（按字数等分，非作者章节）"));
+        assert!(md.contains("位置是算术结果，不是作者自己的分段"));
     }
 }
