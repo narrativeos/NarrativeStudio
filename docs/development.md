@@ -754,18 +754,26 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 
 ### 7.2 测试数据
 
-使用 Hardwired 项目的**脱敏子集**作为测试 fixture：
+集成测试使用**脱敏后的 TraceView 子集**作为 fixture，已提交进仓库，因此
+`cargo test --workspace` 在任意机器与 CI 上都能运行（不再依赖本机 `~/.TraceView/`）：
 
 ```
-crates/studio-analysis/tests/fixtures/
-├── hardwired_semantic_sample.json    # 前 10 个 blocks
-├── hardwired_popo_sample.json        # 前 5 个章节
-├── hardwired_enriched_sample.json    # 前 10 个 blocks
-└── expected/
-    ├── word_frequency.json
-    ├── entity_aggregation.json
-    └── readability.json
+crates/studio-app/src-tauri/tests/fixtures/
+├── traceview_semantic_sample.json   # 12 blocks / 886 tokens / 108 entities
+└── README.md                        # 来源、脱敏方式与再生成方法
 ```
+
+脱敏采用**等长 CJK 字符一对一替换**：`span` 偏移、token 数、实体数、实体类别、
+POS 与置信度全部与原文档一致，只有文字内容失去语义。生成脚本：
+
+```bash
+python3 scripts/gen_fixture.py            # 自动挑选信息量最大的 12 块窗口
+```
+
+`NARRATIVE_TEST_FILE` 环境变量可覆盖 fixture 路径，用于对完整真实数据做冒烟。
+
+后续新增 fixture（popo / enriched / expected 快照）时，放在同一 `fixtures/`
+目录下，并在 README 中登记来源与脱敏方式。
 
 ### 7.3 测试命令
 
@@ -773,20 +781,30 @@ crates/studio-analysis/tests/fixtures/
 cargo test --workspace                    # 全部
 cargo test -p studio-analysis             # 单 crate
 cargo test -p studio-analysis tasks::t0_stats  # 单模块
-cd crates/studio-app && pnpm test         # 前端
-cargo llvm-cov --workspace                # 覆盖率
+cargo test -p studio-app --test integration    # 集成测试（读仓库内 fixture）
+
+pnpm test                                 # 前端单测（仓库根，转发到 studio-app）
+pnpm lint                                 # 前端 lint
+pnpm typecheck                            # 前端类型检查
+cd crates/studio-app && pnpm test:watch   # 前端 watch 模式
+
+cargo llvm-cov --workspace                # 覆盖率（尚未纳入 CI 门禁）
 ```
 
 ### 7.4 CI 测试门禁
 
-| 检查 | 通过标准 |
-|------|---------|
-| `cargo clippy` | 零警告 |
-| `cargo fmt --check` | 无差异 |
-| `cargo test` | 全部通过 |
-| 覆盖率 | studio-core ≥ 90%, studio-analysis ≥ 80% |
-| `pnpm lint` | 零错误 |
-| `pnpm build` | 构建成功 |
+下表已在 `.github/workflows/ci.yml` 中生效：
+
+| 检查 | 通过标准 | 状态 |
+|------|---------|------|
+| `cargo fmt --all --check` | 无差异 | ✅ 已启用 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 零警告 | ✅ 已启用 |
+| `cargo test --workspace` | 全部通过 | ✅ 已启用 |
+| `pnpm typecheck` | 零错误 | ✅ 已启用 |
+| `pnpm lint` | 零错误 | ✅ 已启用 |
+| `pnpm test` | 全部通过 | ✅ 已启用 |
+| `pnpm build` | 构建成功 | ✅ 已启用 |
+| 覆盖率 studio-core ≥ 90% / studio-analysis ≥ 80% | — | ⏳ 待接入 `cargo llvm-cov` |
 
 ---
 
@@ -801,41 +819,24 @@ pnpm --filter studio-app tauri build           # 发布
 
 ### 8.2 CI/CD (GitHub Actions)
 
-```yaml
-# .github/workflows/ci.yml
-name: CI
-on: [push, pull_request]
-jobs:
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy --workspace -- -D warnings
-      - run: cargo test --workspace
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter studio-app lint && pnpm --filter studio-app test
-  tauri-build:
-    runs-on: macos-latest
-    needs: [rust, frontend]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: pnpm/action-setup@v3
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter studio-app tauri build
-```
+实际配置见 `.github/workflows/ci.yml`（另有 `pr-rule-check.yml`、
+`issue-template-check.yml` 做模板与规则校验）。三个 job：
+
+| Job | 触发 | 内容 |
+|-----|------|------|
+| `rust` | push / PR | 安装 Tauri Linux 系统库与 C++ 工具链 → `cargo fmt --all --check` → `cargo clippy --workspace --all-targets -- -D warnings` → `cargo test --workspace` |
+| `frontend` | push / PR | `pnpm install --frozen-lockfile` → `typecheck` → `lint` → `test` → `build`（工作目录 `crates/studio-app`） |
+| `package` | 仅 `workflow_dispatch` | macOS 上 `pnpm --filter studio-app exec tauri build` |
+
+两处与早期设计稿不同的地方，是实测后的有意取舍：
+
+1. **rust job 必须装系统依赖**。`studio-app` 是 workspace 成员，`cargo test
+   --workspace` 会编译它，缺 `libwebkit2gtk-4.1-dev` 等库直接失败；DuckDB 走
+   `bundled` 特性从源码编译，还需要 `clang` / `cmake`。
+2. **打包不进 PR 门禁**。release 模式编译 DuckDB 约 20 分钟，而 rust job 已经
+   证明过同样的代码能编译与通过测试，因此打包改为手动触发，发版前执行。
+
+`Cargo.lock` 已纳入版本控制（应用项目而非库），CI 与发布构建因此使用固定的依赖版本。
 
 ### 8.3 版本管理
 
