@@ -3,8 +3,9 @@ use std::sync::Mutex;
 use duckdb::Connection;
 use serde::Serialize;
 use studio_analysis::{
-    document_hash, run_assessment, run_pacing_analysis, run_plot_analysis, run_t0_analysis,
-    run_t1_analysis, Assessment, PacingStats, PlotStats, T0Stats, T1Stats,
+    document_hash, run_assessment, run_conflict_analysis, run_pacing_analysis, run_plot_analysis,
+    run_t0_analysis, run_t1_analysis, Assessment, ConflictStats, PacingStats, PlotStats, T0Stats,
+    T1Stats,
 };
 use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
@@ -383,8 +384,8 @@ fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
     run_t1_analysis(&doc).map_err(|e| e.to_string())
 }
 
-/// Analysis result for a single project (T0 + T1 + plot + pacing + rule-based
-/// assessment).
+/// Analysis result for a single project (T0 + T1 + plot + pacing + conflict +
+/// rule-based assessment).
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectAnalysis {
     pub project_id: String,
@@ -393,6 +394,7 @@ pub struct ProjectAnalysis {
     pub t1: T1Stats,
     pub plot: PlotStats,
     pub pacing: PacingStats,
+    pub conflict: ConflictStats,
     pub assessment: Assessment,
     /// True when the numbers came from the persisted cache instead of being
     /// recomputed, so the UI can say where the result came from.
@@ -462,10 +464,12 @@ fn analyze_project_inner(
             .map_err(|e| e.to_string())?;
         let pacing = load_cached::<PacingStats>(&storage.conn, pid, "pacing", &input_hash)
             .map_err(|e| e.to_string())?;
+        let conflict = load_cached::<ConflictStats>(&storage.conn, pid, "conflict", &input_hash)
+            .map_err(|e| e.to_string())?;
         let assessment = load_cached::<Assessment>(&storage.conn, pid, "assessment", &input_hash)
             .map_err(|e| e.to_string())?;
-        if let (Some(t0), Some(t1), Some(plot), Some(pacing), Some(assessment)) =
-            (t0, t1, plot, pacing, assessment)
+        if let (Some(t0), Some(t1), Some(plot), Some(pacing), Some(conflict), Some(assessment)) =
+            (t0, t1, plot, pacing, conflict, assessment)
         {
             return Ok(ProjectAnalysis {
                 project_id: pid.to_string(),
@@ -474,6 +478,7 @@ fn analyze_project_inner(
                 t1,
                 plot,
                 pacing,
+                conflict,
                 assessment,
                 cached: true,
             });
@@ -484,6 +489,7 @@ fn analyze_project_inner(
     let t1 = run_t1_analysis(&doc).map_err(|e| e.to_string())?;
     let plot = run_plot_analysis(&doc).map_err(|e| e.to_string())?;
     let pacing = run_pacing_analysis(&doc).map_err(|e| e.to_string())?;
+    let conflict = run_conflict_analysis(&doc).map_err(|e| e.to_string())?;
     let assessment = run_assessment(&t0, &t1);
 
     let analysis = ProjectAnalysis {
@@ -493,6 +499,7 @@ fn analyze_project_inner(
         t1,
         plot,
         pacing,
+        conflict,
         assessment,
         cached: false,
     };
@@ -506,7 +513,7 @@ fn analyze_project_inner(
     Ok(analysis)
 }
 
-/// Persist the five computed dimensions under `input_hash`, plus the
+/// Persist the six computed dimensions under `input_hash`, plus the
 /// assessment's recommendations as queryable concern rows.
 ///
 /// The recommendation rows are what let a later feature (report export) list a
@@ -517,9 +524,10 @@ fn persist_analysis(
     input_hash: &str,
     analysis: &ProjectAnalysis,
 ) -> Result<(), String> {
-    // Plot and pacing sit at the T1 tier: same input, same cost, purely
+    // Plot, pacing and conflict sit at the T1 tier: same input, same cost, purely
     // structural. Their scores are stored so the analysis history can be compared
-    // without unpacking the payload.
+    // without unpacking the payload; conflict has no score when the text carries no
+    // conflict vocabulary, and the row keeps that absence instead of inventing a 0.
     let dimensions: Vec<(&str, &str, Option<f32>, String)> = vec![
         (
             "t0",
@@ -544,6 +552,12 @@ fn persist_analysis(
             "t1",
             Some(analysis.pacing.pace_score as f32),
             serde_json::to_string(&analysis.pacing).map_err(|e| e.to_string())?,
+        ),
+        (
+            "conflict",
+            "t1",
+            analysis.conflict.conflict_score.map(|s| s as f32),
+            serde_json::to_string(&analysis.conflict).map_err(|e| e.to_string())?,
         ),
     ];
     for (dimension, tier, score, data) in dimensions {
@@ -698,6 +712,7 @@ async fn report_generate(
         t1: &analysis.t1,
         plot: &analysis.plot,
         pacing: &analysis.pacing,
+        conflict: &analysis.conflict,
         assessment: &analysis.assessment,
     });
 

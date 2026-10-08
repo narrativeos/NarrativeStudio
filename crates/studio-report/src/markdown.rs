@@ -7,7 +7,9 @@
 
 use chrono::{DateTime, Utc};
 
-use studio_analysis::{Assessment, PacingStats, PlotStats, T0Stats, T1Stats, ANALYSIS_VERSION};
+use studio_analysis::{
+    Assessment, ConflictStats, PacingStats, PlotStats, T0Stats, T1Stats, ANALYSIS_VERSION,
+};
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
 /// analysis, so a report can be produced straight from cached rows.
@@ -18,6 +20,7 @@ pub struct ReportInput<'a> {
     pub t1: &'a T1Stats,
     pub plot: &'a PlotStats,
     pub pacing: &'a PacingStats,
+    pub conflict: &'a ConflictStats,
     pub assessment: &'a Assessment,
 }
 
@@ -37,6 +40,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_narrative(&mut out, input.t1);
     write_plot(&mut out, input.plot);
     write_pacing(&mut out, input.pacing);
+    write_conflict(&mut out, input.conflict);
     write_footer(&mut out);
     out
 }
@@ -392,6 +396,106 @@ fn write_pacing(out: &mut String, pacing: &PacingStats) {
     }
 }
 
+fn write_conflict(out: &mut String, conflict: &ConflictStats) {
+    out.push_str("## 冲突\n\n");
+    match conflict.conflict_score {
+        Some(score) => out.push_str(&format!(
+            "冲突评分：**{:.1} / 100** · 判定：**{}**（`{}`）· 命中 {} 处 · {:.1} 处/千字 · 主类型：{}\n\n",
+            score,
+            conflict_verdict_label(&conflict.verdict),
+            conflict.verdict,
+            conflict.total_hits,
+            conflict.density,
+            conflict_type_label(&conflict.dominant_type)
+        )),
+        // Absence is reported as absence: the score would be a guess about whether
+        // the text is non-narrative or the lexicon is simply missing its words.
+        None => out.push_str(
+            "未检测到冲突用词，因此**不给出评分**：文本可能不是叙事文本，也可能是词库尚未覆盖。\n\n",
+        ),
+    }
+
+    out.push_str(&format!("### 冲突类型（{} 类）\n\n", conflict.types.len()));
+    if conflict.types.is_empty() {
+        out.push_str("无数据。\n\n");
+    } else {
+        out.push_str(
+            "| 类型 | 命中 | 占比 | 千字密度 | 高频词 |\n| --- | ---: | ---: | ---: | --- |\n",
+        );
+        for t in conflict.types.iter().take(MAX_ROWS) {
+            let terms: Vec<String> = t
+                .top_terms
+                .iter()
+                .take(6)
+                .map(|(term, hits)| format!("{term}×{hits}"))
+                .collect();
+            out.push_str(&format!(
+                "| {} | {} | {:.0}% | {:.1} | {} |\n",
+                conflict_type_label(&t.kind),
+                t.hits,
+                t.share * 100.0,
+                t.density,
+                esc(&terms.join("、"))
+            ));
+        }
+        out.push_str(&omitted(conflict.types.len(), MAX_ROWS));
+        out.push('\n');
+    }
+
+    if conflict.points.is_empty() {
+        out.push_str("未识别到冲突曲线：文档没有可切分的段落。\n\n");
+        return;
+    }
+    out.push_str(&format!(
+        "峰值：{}（{:.0}，位于全文 {:.0}%）· 结尾三分之一平均 {:.0} · 最长无冲突区间 {} 段\n\n",
+        esc(&conflict.peak_section),
+        conflict.peak_intensity,
+        conflict.peak_position * 100.0,
+        conflict.tail_intensity,
+        conflict.longest_absent_run
+    ));
+    out.push_str("| 章节 | 强度 | 命中 | 千字密度 | 主类型 |\n| --- | --- | ---: | ---: | --- |\n");
+    for p in conflict.points.iter().take(MAX_ROWS) {
+        out.push_str(&format!(
+            "| {} | {} {:.0} | {} | {:.1} | {} |\n",
+            esc(&p.section),
+            bar(p.intensity / 100.0),
+            p.intensity,
+            p.hits,
+            p.density,
+            conflict_type_label(&p.dominant)
+        ));
+    }
+    out.push_str(&omitted(conflict.points.len(), MAX_ROWS));
+    out.push('\n');
+
+    if !conflict.absent_runs.is_empty() {
+        out.push_str(&format!(
+            "### 无冲突区间（{} 处）\n\n",
+            conflict.absent_runs.len()
+        ));
+        out.push_str("| 起 | 止 | 段数 | 字数 |\n| --- | --- | ---: | ---: |\n");
+        for r in conflict.absent_runs.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} |\n",
+                esc(&r.from_section),
+                esc(&r.to_section),
+                r.sections,
+                r.char_count
+            ));
+        }
+        out.push('\n');
+    }
+
+    if conflict.chunked {
+        out.push_str(&format!(
+            "文档章节不足，曲线按 {} 个等长块切分。\n\n",
+            conflict.segment_count
+        ));
+    }
+    out.push_str("_冲突用词按词面计数：每个词权重相同，词库未覆盖的写法不计入。\n\n");
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -478,12 +582,38 @@ fn pacing_verdict_label(verdict: &str) -> &'static str {
     }
 }
 
+/// Conflict families. `""` is the no-conflict case, which the curve uses for
+/// segments with no vocabulary at all.
+fn conflict_type_label(kind: &str) -> &'static str {
+    match kind {
+        "interpersonal" => "人际",
+        "internal" => "内心",
+        "societal" => "社会",
+        "survival" => "生存",
+        "" => "无",
+        _ => "未知",
+    }
+}
+
+/// How much conflict vocabulary the document carries. `none` deliberately does not
+/// say "no conflict": it says no conflict *vocabulary*.
+fn conflict_verdict_label(verdict: &str) -> &'static str {
+    match verdict {
+        "none" => "未见用词",
+        "thin" => "偏少",
+        "present" => "适中",
+        "heavy" => "密集",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
-        ArcPoint, DimensionScore, DragSection, FlatStretch, NarrativeArc, PacingPoint, Plotline,
-        PlotlineStage, Readability, Recommendation, RepeatedPhrase, SectionInfo, TurningPoint,
+        ArcPoint, ConflictAbsence, ConflictPoint, ConflictType, DimensionScore, DragSection,
+        FlatStretch, NarrativeArc, PacingPoint, Plotline, PlotlineStage, Readability,
+        Recommendation, RepeatedPhrase, SectionInfo, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -573,6 +703,29 @@ mod tests {
         }
     }
 
+    /// What `run_conflict_analysis` returns for an empty document: no vocabulary,
+    /// and therefore no score.
+    fn empty_conflict() -> ConflictStats {
+        ConflictStats {
+            points: vec![],
+            segment_count: 0,
+            chunked: false,
+            total_hits: 0,
+            density: 0.0,
+            types: vec![],
+            dominant_type: String::new(),
+            verdict: "none".into(),
+            peak_section: String::new(),
+            peak_intensity: 0.0,
+            peak_position: 0.0,
+            tail_intensity: 0.0,
+            concentration: 0.0,
+            absent_runs: vec![],
+            longest_absent_run: 0,
+            conflict_score: None,
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -588,11 +741,12 @@ mod tests {
 
     #[test]
     fn test_render_is_deterministic() {
-        let (t0, t1, plot, pacing, a) = (
+        let (t0, t1, plot, pacing, conflict, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
+            empty_conflict(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -602,6 +756,7 @@ mod tests {
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -609,11 +764,12 @@ mod tests {
 
     #[test]
     fn test_golden_minimal_report() {
-        let (t0, t1, plot, pacing, a) = (
+        let (t0, t1, plot, pacing, conflict, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
+            empty_conflict(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -623,6 +779,7 @@ mod tests {
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let expected = "\
@@ -718,6 +875,16 @@ mod tests {
 
 未识别到节奏曲线：文档没有可切分的段落。
 
+## 冲突
+
+未检测到冲突用词，因此**不给出评分**：文本可能不是叙事文本，也可能是词库尚未覆盖。
+
+### 冲突类型（0 类）
+
+无数据。
+
+未识别到冲突曲线：文档没有可切分的段落。
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -736,7 +903,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 detail: "—".into(),
             });
         }
-        let (t0, t1, plot, pacing) = (empty_t0(), empty_t1(), empty_plot(), empty_pacing());
+        let (t0, t1, plot, pacing, conflict) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+        );
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -744,6 +917,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -757,6 +931,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 叙事分析",
             "## 情节线",
             "## 节奏",
+            "## 冲突",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -766,12 +941,18 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 "missing dimension {i}"
             );
         }
-        assert_eq!(md.matches("\n## ").count(), 8, "exactly eight H2 sections");
+        assert_eq!(md.matches("\n## ").count(), 9, "exactly nine H2 sections");
     }
 
     #[test]
     fn test_recommendations_grouped_and_counted() {
-        let (t0, t1, plot, pacing) = (empty_t0(), empty_t1(), empty_plot(), empty_pacing());
+        let (t0, t1, plot, pacing, conflict) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+        );
         let mut a = clean_assessment();
         a.recommendations = vec![
             Recommendation {
@@ -794,6 +975,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -804,11 +986,12 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_table_cells_are_escaped() {
-        let (mut t0, mut t1, plot, pacing, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
+            empty_conflict(),
             clean_assessment(),
         );
         t0.top_entities = vec![("A|B".into(), 3)];
@@ -824,6 +1007,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -840,11 +1024,12 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_long_lists_are_capped_and_announced() {
-        let (mut t0, mut t1, plot, pacing, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
+            empty_conflict(),
             clean_assessment(),
         );
         t0.top_words = (0..25).map(|i| (format!("w{i}"), i)).collect();
@@ -868,6 +1053,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -881,11 +1067,12 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_arc_renders_bar_and_shape() {
-        let (t0, mut t1, plot, pacing, a) = (
+        let (t0, mut t1, plot, pacing, conflict, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
             empty_pacing(),
+            empty_conflict(),
             clean_assessment(),
         );
         t1.arc.shape = "mountain".into();
@@ -913,6 +1100,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -927,6 +1115,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let (t0, t1, a) = (empty_t0(), empty_t1(), clean_assessment());
         let mut plot = empty_plot();
         let pacing = empty_pacing();
+        let conflict = empty_conflict();
         plot.coherence_score = 84.0;
         plot.thread_count = 3;
         plot.section_count = 5;
@@ -982,6 +1171,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -999,6 +1189,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
     fn test_pacing_section_renders_curve_stretches_and_drag() {
         let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
         let mut pacing = empty_pacing();
+        let conflict = empty_conflict();
         pacing.pace_score = 62.0;
         pacing.verdict = "varied".into();
         pacing.segment_count = 4;
@@ -1046,6 +1237,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t1: &t1,
             plot: &plot,
             pacing: &pacing,
+            conflict: &conflict,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1059,5 +1251,118 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("| 第一章 | 第二章 | 4 | 14 | 4200 |"));
         assert!(md.contains("### 拖沓章节（1 处）"));
         assert!(md.contains("| 第一章 | 2100 | 2.4× | 12 |"));
+    }
+
+    #[test]
+    fn test_conflict_section_renders_types_curve_and_absence() {
+        let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
+        let pacing = empty_pacing();
+        let mut conflict = empty_conflict();
+        conflict.conflict_score = Some(71.0);
+        conflict.verdict = "present".into();
+        conflict.total_hits = 9;
+        conflict.density = 4.2;
+        conflict.dominant_type = "interpersonal".into();
+        conflict.segment_count = 4;
+        conflict.types = vec![
+            ConflictType {
+                kind: "interpersonal".into(),
+                hits: 6,
+                share: 0.667,
+                density: 2.8,
+                top_terms: vec![("战斗".into(), 3), ("威胁".into(), 2)],
+            },
+            ConflictType {
+                kind: "internal".into(),
+                hits: 3,
+                share: 0.333,
+                density: 1.4,
+                top_terms: vec![("恐惧".into(), 3)],
+            },
+        ];
+        conflict.points = vec![
+            ConflictPoint {
+                section: "第一章".into(),
+                char_count: 1000,
+                hits: 0,
+                density: 0.0,
+                intensity: 0.0,
+                dominant: String::new(),
+                by_type: vec![],
+            },
+            ConflictPoint {
+                section: "第二章".into(),
+                char_count: 800,
+                hits: 6,
+                density: 7.5,
+                intensity: 93.75,
+                dominant: "interpersonal".into(),
+                by_type: vec![("interpersonal".into(), 6)],
+            },
+        ];
+        conflict.peak_section = "第二章".into();
+        conflict.peak_intensity = 93.75;
+        conflict.peak_position = 1.0;
+        conflict.tail_intensity = 46.9;
+        conflict.longest_absent_run = 3;
+        conflict.absent_runs = vec![ConflictAbsence {
+            from_section: "第一章".into(),
+            to_section: "第一章".into(),
+            sections: 3,
+            char_count: 3000,
+        }];
+
+        let input = ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            assessment: &a,
+        };
+        let md = render_markdown(&input);
+
+        assert!(md.contains(
+            "冲突评分：**71.0 / 100** · 判定：**适中**（`present`）· 命中 9 处 · 4.2 处/千字 · 主类型：人际"
+        ));
+        assert!(md.contains("| 人际 | 6 | 67% | 2.8 | 战斗×3、威胁×2 |"));
+        assert!(md.contains("| 内心 | 3 | 33% | 1.4 | 恐惧×3 |"));
+        assert!(md.contains(
+            "峰值：第二章（94，位于全文 100%）· 结尾三分之一平均 47 · 最长无冲突区间 3 段"
+        ));
+        // The same 0-100 bar the pacing curve uses, so the two sections read alike.
+        assert!(md.contains("| 第一章 | ░░░░░░░░░░ 0 | 0 | 0.0 | 无 |"));
+        assert!(md.contains("| 第二章 | █████████░ 94 | 6 | 7.5 | 人际 |"));
+        assert!(md.contains("### 无冲突区间（1 处）"));
+        assert!(md.contains("| 第一章 | 第一章 | 3 | 3000 |"));
+    }
+
+    #[test]
+    fn test_conflict_without_vocabulary_says_so_instead_of_scoring() {
+        let (t0, t1, plot, pacing, conflict, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            clean_assessment(),
+        );
+        let input = ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            assessment: &a,
+        };
+        let md = render_markdown(&input);
+
+        assert!(md.contains("未检测到冲突用词，因此**不给出评分**"));
+        assert!(md.contains("### 冲突类型（0 类）"));
+        assert!(!md.contains("冲突评分："));
     }
 }

@@ -9,12 +9,14 @@
 //! 6. Run T1 analysis
 //! 7. Run plot analysis
 //! 8. Run pacing analysis
+//! 9. Run conflict analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
-    document_hash, run_assessment, run_pacing_analysis, run_plot_analysis, run_t0_analysis,
-    run_t1_analysis, Assessment, PacingStats, PlotStats, T0Stats, T1Stats,
+    document_hash, run_assessment, run_conflict_analysis, run_pacing_analysis, run_plot_analysis,
+    run_t0_analysis, run_t1_analysis, Assessment, ConflictStats, PacingStats, PlotStats, T0Stats,
+    T1Stats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -199,6 +201,7 @@ fn test_analysis_cache_roundtrip() {
     let t1 = run_t1_analysis(&loaded).expect("T1 failed");
     let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
     let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
+    let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -240,6 +243,16 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&pacing).unwrap(),
     )
     .expect("save pacing");
+    save_result(
+        &conn,
+        project.project_id,
+        "conflict",
+        "t1",
+        &hash,
+        conflict.conflict_score.map(|s| s as f32),
+        &serde_json::to_string(&conflict).unwrap(),
+    )
+    .expect("save conflict");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -311,15 +324,35 @@ fn test_analysis_cache_roundtrip() {
         (cached_pacing.pace_score - pacing.pace_score).abs() < 1e-6,
         "pace score must survive the cache"
     );
+    let cached_conflict =
+        load_cached::<ConflictStats>(&conn, project.project_id, "conflict", &hash)
+            .unwrap()
+            .expect("conflict cache hit");
+    assert_eq!(cached_conflict.segment_count, conflict.segment_count);
+    assert_eq!(cached_conflict.verdict, conflict.verdict);
+    assert_eq!(cached_conflict.total_hits, conflict.total_hits);
+    assert_eq!(cached_conflict.types.len(), conflict.types.len());
+    assert_eq!(
+        cached_conflict.conflict_score.is_some(),
+        conflict.conflict_score.is_some(),
+        "an unscored conflict must stay unscored in the cache"
+    );
+    if let (Some(cached), Some(fresh)) = (cached_conflict.conflict_score, conflict.conflict_score) {
+        assert!(
+            (cached - fresh).abs() < 1e-6,
+            "conflict score must survive the cache"
+        );
+    }
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/assessment ({} threads, {} segments, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/assessment ({} threads, {} segments, {} conflict hits, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
+        conflict.total_hits,
         assessment.recommendations.len()
     );
 
@@ -335,8 +368,8 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: five dimensions.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 5);
+    // "重新分析" clears everything for the project: six dimensions.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 6);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -364,6 +397,7 @@ fn test_report_generation_and_export() {
     let t1 = run_t1_analysis(&loaded).expect("T1 failed");
     let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
     let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
+    let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -374,6 +408,7 @@ fn test_report_generation_and_export() {
         t1: &t1,
         plot: &plot,
         pacing: &pacing,
+        conflict: &conflict,
         assessment: &assessment,
     });
 
@@ -388,6 +423,7 @@ fn test_report_generation_and_export() {
         "## 叙事分析",
         "## 情节线",
         "## 节奏",
+        "## 冲突",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -424,12 +460,23 @@ fn test_report_generation_and_export() {
             point.section
         );
     }
+    // The conflict section always renders its type table, scored or not: an
+    // unscored document still has to say what was looked for.
+    assert!(markdown.contains("### 冲突类型（"));
+    assert!(markdown.contains("冲突用词按词面计数"));
+    if !conflict.points.is_empty() {
+        assert!(
+            markdown.contains("| 章节 | 强度 | 命中 | 千字密度 | 主类型 |"),
+            "conflict curve table missing from the report"
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
         pacing.segment_count,
+        conflict.total_hits,
         assessment.recommendations.len()
     );
 
