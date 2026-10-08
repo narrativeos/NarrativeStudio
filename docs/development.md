@@ -562,8 +562,10 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
 ### 5.4 图表组件规范
 
 - 所有图表使用 **SVG 渲染**（非 Canvas），支持响应式
-- 使用 D3.js 做数据绑定和比例尺，手动管理 SVG 元素
-- 每个图表组件接收 `data` + `width` + `height` props
+- **不引入图表库**（D3 / Chart.js 等）：组件直接手写 SVG 元素；极坐标、比例尺等
+  几何计算放在 `src/lib/`（如 `radar.ts`），与 JSX 分离以便用 Vitest 单测
+- 每个图表组件接收数据 + 可选的 `size` / `color` props，数据为空时返回
+  「暂无数据」占位而不是渲染空坐标系
 - 颜色方案：项目 A=#3B82F6(蓝), B=#F97316(橙), C=#22C55E(绿), D=#A855F7(紫), E=#EF4444(红)
 - 暗色模式：通过 CSS 变量切换，图表颜色适配
 
