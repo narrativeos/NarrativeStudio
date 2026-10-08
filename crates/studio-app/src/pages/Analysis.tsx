@@ -12,6 +12,7 @@ import ThemeSection from "../components/analysis/ThemeSection";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
 import RadarChart from "../components/charts/RadarChart";
+import RelationshipGraph from "../components/charts/RelationshipGraph";
 import {
   arcShapeLabel,
   entityTotal,
@@ -431,6 +432,11 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               limit={15}
               colorClass="bg-cyan-400"
             />
+          </Panel>
+        </div>
+        <div className="mt-4">
+          <Panel title={`角色关系图（${t1.characters.length} 个角色）`}>
+            <RelationshipGraph characters={t1.characters} />
           </Panel>
         </div>
         <div className="mt-4">
