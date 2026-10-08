@@ -5,13 +5,13 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::t0::T0Stats;
 use crate::t1::{SectionInfo, T1Stats};
 
 /// Score for a single assessment dimension (0-100, higher = better).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DimensionScore {
     pub key: String,
     pub label: String,
@@ -20,7 +20,7 @@ pub struct DimensionScore {
 }
 
 /// An actionable recommendation produced by the rule engine.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recommendation {
     /// "high" | "medium" | "low"
     pub severity: String,
@@ -31,7 +31,7 @@ pub struct Recommendation {
 }
 
 /// Overall assessment for a project.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assessment {
     /// Equal-weight mean of dimension scores, 0-100.
     pub overall: f64,

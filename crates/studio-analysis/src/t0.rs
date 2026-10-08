@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use studio_core::document::{DocumentData, Token};
 use studio_core::entity::EntityCategory;
 
@@ -10,14 +10,14 @@ use crate::text::{is_cjk, split_sentences, visible_char_count};
 use crate::Result;
 
 /// A frequently repeated phrase (consecutive token n-gram).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepeatedPhrase {
     pub text: String,
     pub count: u32,
 }
 
 /// Readability assessment for a document.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Readability {
     /// 0-100, higher = easier to read.
     pub score: f64,
@@ -28,7 +28,7 @@ pub struct Readability {
 }
 
 /// Complete T0 statistics output.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct T0Stats {
     pub word_count: u64,
     pub char_count: u64,

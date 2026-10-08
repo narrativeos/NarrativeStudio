@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use studio_core::document::DocumentData;
 use studio_core::entity::EntityCategory;
 
@@ -10,7 +10,7 @@ use crate::text::{count_quoted_chars, split_sentences, visible_char_count};
 use crate::Result;
 
 /// Section structure info.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionInfo {
     pub path: String,
     pub block_count: u32,
@@ -18,7 +18,7 @@ pub struct SectionInfo {
 }
 
 /// A character (PERSON entity) profile.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterProfile {
     pub name: String,
     pub mentions: u32,
@@ -31,7 +31,7 @@ pub struct CharacterProfile {
 }
 
 /// One point on the narrative arc curve.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArcPoint {
     pub section: String,
     /// Normalized intensity 0-1.
@@ -40,7 +40,7 @@ pub struct ArcPoint {
 }
 
 /// Narrative arc: per-section intensity curve plus a coarse shape label.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NarrativeArc {
     pub points: Vec<ArcPoint>,
     /// "mountain" | "rising" | "falling" | "steady"
@@ -48,7 +48,7 @@ pub struct NarrativeArc {
 }
 
 /// T1 structural statistics.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct T1Stats {
     pub sections: Vec<SectionInfo>,
     pub section_count: u32,
