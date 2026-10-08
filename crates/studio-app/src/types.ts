@@ -582,6 +582,110 @@ export interface DialogueStats {
   issues: DialogueIssue[];
 }
 
+/** One segment of the explicit-language curve. */
+export interface ExplicitPoint {
+  section: string;
+  char_count: number;
+  /** Library hits in the segment. */
+  hits: number;
+  /** Hits per 10 000 visible characters in this segment. */
+  per_10k: number;
+  /** 0-100 on the absolute scale, so two projects' curves can be compared. */
+  intensity: number;
+  /** The term used most here; empty when the segment has none. */
+  top_term: string;
+}
+
+/** One library pattern that matched at least once, with how often and where. */
+export interface ExplicitTerm {
+  /** The library pattern, e.g. `强奸|性侵|轮奸`. */
+  term: string;
+  /** `profanity` | `sexual` | `sexual_violence` | `violence` | `self_harm` | `hate` | `substance`. */
+  category: string;
+  /** `mild` | `moderate` | `strong` — the strength of the wording, not of the event. */
+  tier: string;
+  count: number;
+  /** Share of all hits this term accounts for (0-1). */
+  share: number;
+  /** The forms actually found, busiest first. */
+  variants: [string, number][];
+  /** Curve segments that contain at least one hit. */
+  segments_touched: number;
+  /** Share of the curve's segments this term reaches (0-1). */
+  coverage: number;
+  first_section: string;
+  last_section: string;
+  /** What the library advises about it. */
+  note: string;
+}
+
+/** One place in the text where a library term was found. */
+export interface ExplicitHit {
+  /** The curve segment the hit sits in. */
+  section: string;
+  /** The text actually matched. */
+  term: string;
+  /** The library pattern it came from. */
+  pattern: string;
+  category: string;
+  tier: string;
+  /** Character offset inside the block. */
+  offset: number;
+  /** The surrounding characters, so the hit can be judged in context. */
+  excerpt: string;
+  /** The hit is inside quotation marks: a character says it rather than narrates it. */
+  in_dialogue: boolean;
+  note: string;
+}
+
+/** A family the text carries enough of to name in a reader notice. */
+export interface ExplicitIssue {
+  /** `self_harm` | `sexual_violence` | `sexual_content` | `gore` | `hate_slur` |
+   *  `substance` | `dense_segment`. */
+  kind: string;
+  section: string;
+  detail: string;
+}
+
+export interface ExplicitStats {
+  points: ExplicitPoint[];
+  segment_count: number;
+  /** True when the segments are block chunks rather than sections. */
+  chunked: boolean;
+  /** Visible characters the rate is measured over. */
+  char_count: number;
+  total_hits: number;
+  /** Library patterns found at least once. */
+  distinct_terms: number;
+  /** Hits per 10 000 visible characters across the document. */
+  per_10k: number;
+  /** `none` | `mild` | `moderate` | `strong` — the strength of the words found,
+   *  not a judgment on the text. */
+  advisory: "none" | "mild" | "moderate" | "strong";
+  /** Hit counts per tier, always all three tiers in this order. */
+  tiers: [string, number][];
+  /** Categories present, most hits first. */
+  categories: [string, number][];
+  /** Categories that carry at least one `strong` hit: what an advisory would name. */
+  advisory_categories: string[];
+  /** Reported terms, most used first. */
+  terms: ExplicitTerm[];
+  /** Reported hits, document order. */
+  hits: ExplicitHit[];
+  /** Hits inside quotation marks. */
+  dialogue_hits: number;
+  /** Share of all hits held by the single most used term (0-1). */
+  top_share: number;
+  top_term: string;
+  peak_section: string;
+  peak_intensity: number;
+  issues: ExplicitIssue[];
+  /** How many patterns the library carries — coverage the reader can weigh. */
+  lexicon_size: number;
+  /** How many surface forms those patterns expand to. */
+  lexicon_variants: number;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -625,6 +729,7 @@ export interface ProjectAnalysis {
   setting: SettingStats;
   cliche: ClicheStats;
   dialogue: DialogueStats;
+  explicit: ExplicitStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

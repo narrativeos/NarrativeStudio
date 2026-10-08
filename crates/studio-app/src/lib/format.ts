@@ -513,3 +513,122 @@ const DIALOGUE_ISSUE_STYLES: Record<string, string> = {
 export function dialogueIssueStyle(kind: string): string {
   return DIALOGUE_ISSUE_STYLES[kind] ?? DIALOGUE_ISSUE_STYLES.silent_segment;
 }
+
+/**
+ * Localized label for the strongest wording the pass found.
+ *
+ * This is a content notice, not a mark against the manuscript: `strong` says the
+ * text contains strong wording, not that the text is weak. `none` says the library
+ * found nothing — a net with a known mesh size, not a clean bill of health. Mirrors
+ * `explicit_advisory_label` in `studio-report::markdown`.
+ */
+const EXPLICIT_ADVISORY_LABELS: Record<string, string> = {
+  none: "词库未见",
+  mild: "轻微",
+  moderate: "中等",
+  strong: "强烈",
+};
+
+export function explicitAdvisoryLabel(advisory: string): string {
+  return EXPLICIT_ADVISORY_LABELS[advisory] ?? advisory;
+}
+
+/**
+ * Badge classes for an advisory level. The heat scale is the strength of the
+ * wording, not a verdict on the manuscript — which is why the card carries the
+ * "不评分" note next to the badge rather than a score where the other dimensions
+ * put one. Mirrors the tier colors below.
+ */
+const EXPLICIT_ADVISORY_STYLES: Record<string, string> = {
+  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  mild: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  moderate: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  strong: "bg-red-500/15 text-red-400 border-red-500/30",
+};
+
+export function explicitAdvisoryStyle(advisory: string): string {
+  return EXPLICIT_ADVISORY_STYLES[advisory] ?? EXPLICIT_ADVISORY_STYLES.none;
+}
+
+/**
+ * Localized label for how strong one term's wording is. The report keeps these to a
+ * single character so the term table stays narrow. Mirrors `explicit_tier_label` in
+ * `studio-report::markdown`.
+ */
+const EXPLICIT_TIER_LABELS: Record<string, string> = {
+  mild: "轻",
+  moderate: "中",
+  strong: "重",
+};
+
+export function explicitTierLabel(tier: string): string {
+  return EXPLICIT_TIER_LABELS[tier] ?? tier;
+}
+
+/** Badge classes for a tier; the same heat scale as the advisory level. */
+const EXPLICIT_TIER_STYLES: Record<string, string> = {
+  mild: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  moderate: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  strong: "bg-red-500/15 text-red-400 border-red-500/30",
+};
+
+export function explicitTierStyle(tier: string): string {
+  return EXPLICIT_TIER_STYLES[tier] ?? EXPLICIT_TIER_STYLES.mild;
+}
+
+/**
+ * Localized label for the family of content a hit belongs to. Mirrors
+ * `explicit_category_label` in `studio-report::markdown`.
+ */
+const EXPLICIT_CATEGORY_LABELS: Record<string, string> = {
+  profanity: "粗口辱骂",
+  sexual: "性描写",
+  sexual_violence: "性暴力",
+  violence: "暴力血腥",
+  self_harm: "自伤",
+  hate: "贬损歧视",
+  substance: "毒品",
+};
+
+export function explicitCategoryLabel(category: string): string {
+  return EXPLICIT_CATEGORY_LABELS[category] ?? category;
+}
+
+/**
+ * Localized label for why a family is being surfaced. Mirrors `explicit_issue_label`
+ * in `studio-report::markdown`.
+ */
+const EXPLICIT_ISSUE_LABELS: Record<string, string> = {
+  self_harm: "自伤描写",
+  sexual_violence: "性暴力",
+  sexual_content: "露骨性描写",
+  gore: "血腥细节",
+  hate_slur: "贬损歧视用语",
+  substance: "毒品描写",
+  dense_segment: "局部密集",
+};
+
+export function explicitIssueLabel(kind: string): string {
+  return EXPLICIT_ISSUE_LABELS[kind] ?? kind;
+}
+
+/**
+ * Badge classes for a content notice. Red marks the two families the library surfaces
+ * from few hits — self-harm, where one mention matters more than the rate, and sexual
+ * violence; amber marks the families that need a threshold of strong wording before
+ * they say anything; sky marks `dense_segment`, which is a property of how the hits are
+ * spread rather than of what they are.
+ */
+const EXPLICIT_ISSUE_STYLES: Record<string, string> = {
+  self_harm: "bg-red-500/15 text-red-400 border-red-500/30",
+  sexual_violence: "bg-red-500/15 text-red-400 border-red-500/30",
+  sexual_content: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  gore: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  hate_slur: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  substance: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  dense_segment: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+};
+
+export function explicitIssueStyle(kind: string): string {
+  return EXPLICIT_ISSUE_STYLES[kind] ?? EXPLICIT_ISSUE_STYLES.dense_segment;
+}

@@ -5,6 +5,7 @@ import { Panel, SectionTitle, StatCard } from "../components/Cards";
 import ClicheSection from "../components/analysis/ClicheSection";
 import ConflictSection from "../components/analysis/ConflictSection";
 import DialogueSection from "../components/analysis/DialogueSection";
+import ExplicitSection from "../components/analysis/ExplicitSection";
 import SettingSection from "../components/analysis/SettingSection";
 import ThemeSection from "../components/analysis/ThemeSection";
 import BarList from "../components/charts/BarList";
@@ -35,11 +36,11 @@ interface AnalysisProps {
 
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
- * + pacing + conflict + theme + setting + cliché + dialogue analysis plus a
- * rule-based assessment for the selected project, and presents the full portrait
- * grouped by dimension: overview, assessment, statistics, text diagnostics,
- * structure, narrative, plot, pacing, conflict, theme, setting, cliché and
- * dialogue.
+ * + pacing + conflict + theme + setting + cliché + dialogue + explicit language
+ * analysis plus a rule-based assessment for the selected project, and presents the
+ * full portrait grouped by dimension: overview, assessment, statistics, text
+ * diagnostics, structure, narrative, plot, pacing, conflict, theme, setting, cliché,
+ * dialogue and explicit language.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -118,7 +119,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (!data) return null;
 
-  const { t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue } = data;
+  const { t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
   // Pacing, conflict and theme all segment the document the same way, so one list
   // of section names labels every curve's X axis.
@@ -770,6 +771,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
       {/* Dialogue/narrative ratio */}
       <DialogueSection dialogue={dialogue} />
+
+      {/* Explicit language: presence and strength, never a score */}
+      <ExplicitSection explicit={explicit} />
     </div>
   );
 }

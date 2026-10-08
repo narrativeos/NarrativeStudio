@@ -17,6 +17,13 @@ import {
   dialogueVerdictLabel,
   dialogueVerdictStyle,
   entityTotal,
+  explicitAdvisoryLabel,
+  explicitAdvisoryStyle,
+  explicitCategoryLabel,
+  explicitIssueLabel,
+  explicitIssueStyle,
+  explicitTierLabel,
+  explicitTierStyle,
   formatFixed,
   formatInt,
   formatOptionalScore,
@@ -381,5 +388,71 @@ describe("dialogue labels", () => {
 
   it("falls back to the quiet-segment style for an unknown issue kind", () => {
     expect(dialogueIssueStyle("whispered")).toBe(dialogueIssueStyle("silent_segment"));
+  });
+});
+
+describe("explicit language labels", () => {
+  it("localizes every advisory level the analysis can emit", () => {
+    expect(explicitAdvisoryLabel("none")).toBe("词库未见");
+    expect(explicitAdvisoryLabel("mild")).toBe("轻微");
+    expect(explicitAdvisoryLabel("moderate")).toBe("中等");
+    expect(explicitAdvisoryLabel("strong")).toBe("强烈");
+  });
+
+  it("says the library found nothing rather than that the text is clean", () => {
+    // "无敏感内容" would claim more than a 35-pattern net can know, so the label
+    // names what was silent: the library.
+    expect(explicitAdvisoryLabel("none")).toContain("词库");
+    expect(explicitAdvisoryStyle("none")).toContain("text-text-muted");
+  });
+
+  it("keeps the tier scale and the advisory level on the same heat", () => {
+    // The advisory level is the strongest tier found, so the two must color alike
+    // even though the report abbreviates the tier to one character.
+    for (const tier of ["mild", "moderate", "strong"]) {
+      expect(explicitAdvisoryStyle(tier)).toBe(explicitTierStyle(tier));
+    }
+    expect(explicitTierLabel("mild")).toBe("轻");
+    expect(explicitTierLabel("strong")).toBe("重");
+  });
+
+  it("falls back to the neutral style for an unknown advisory level", () => {
+    expect(explicitAdvisoryStyle("extreme")).toBe(explicitAdvisoryStyle("none"));
+    expect(explicitAdvisoryLabel("extreme")).toBe("extreme");
+    expect(explicitTierStyle("explicit")).toBe(explicitTierStyle("mild"));
+  });
+
+  it("names every content family the library carries", () => {
+    expect(explicitCategoryLabel("profanity")).toBe("粗口辱骂");
+    expect(explicitCategoryLabel("sexual")).toBe("性描写");
+    expect(explicitCategoryLabel("sexual_violence")).toBe("性暴力");
+    expect(explicitCategoryLabel("violence")).toBe("暴力血腥");
+    expect(explicitCategoryLabel("self_harm")).toBe("自伤");
+    expect(explicitCategoryLabel("hate")).toBe("贬损歧视");
+    expect(explicitCategoryLabel("substance")).toBe("毒品");
+  });
+
+  it("localizes every content notice the analysis can emit", () => {
+    expect(explicitIssueLabel("self_harm")).toBe("自伤描写");
+    expect(explicitIssueLabel("sexual_violence")).toBe("性暴力");
+    expect(explicitIssueLabel("sexual_content")).toBe("露骨性描写");
+    expect(explicitIssueLabel("gore")).toBe("血腥细节");
+    expect(explicitIssueLabel("hate_slur")).toBe("贬损歧视用语");
+    expect(explicitIssueLabel("substance")).toBe("毒品描写");
+    expect(explicitIssueLabel("dense_segment")).toBe("局部密集");
+  });
+
+  it("colors the few-hits families hottest and leaves spread separate from content", () => {
+    // Self-harm surfaces from one moderate mention and sexual violence from one strong
+    // one, so neither may be dimmed next to a page of mild profanity; a dense segment
+    // says where hits cluster, not what they are, and stays off the content scale.
+    expect(explicitIssueStyle("self_harm")).toContain("text-red-400");
+    expect(explicitIssueStyle("sexual_violence")).toContain("text-red-400");
+    expect(explicitIssueStyle("gore")).toContain("text-amber-400");
+    expect(explicitIssueStyle("dense_segment")).toContain("text-sky-400");
+  });
+
+  it("falls back to the density style for an unknown notice kind", () => {
+    expect(explicitIssueStyle("smuggling")).toBe(explicitIssueStyle("dense_segment"));
   });
 });
