@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Panel, SectionTitle, StatCard } from "../components/Cards";
+import ClicheSection from "../components/analysis/ClicheSection";
 import ConflictSection from "../components/analysis/ConflictSection";
 import SettingSection from "../components/analysis/SettingSection";
 import ThemeSection from "../components/analysis/ThemeSection";
@@ -33,10 +34,10 @@ interface AnalysisProps {
 
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
- * + pacing + conflict + theme + setting analysis plus a rule-based assessment for
- * the selected project, and presents the full portrait grouped by dimension:
- * overview, assessment, statistics, text diagnostics, structure, narrative, plot,
- * pacing, conflict, theme, and setting.
+ * + pacing + conflict + theme + setting + cliché analysis plus a rule-based
+ * assessment for the selected project, and presents the full portrait grouped by
+ * dimension: overview, assessment, statistics, text diagnostics, structure,
+ * narrative, plot, pacing, conflict, theme, setting, and cliché.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -115,7 +116,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (!data) return null;
 
-  const { t0, t1, plot, pacing, conflict, theme, setting } = data;
+  const { t0, t1, plot, pacing, conflict, theme, setting, cliche } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
   // Pacing, conflict and theme all segment the document the same way, so one list
   // of section names labels every curve's X axis.
@@ -761,6 +762,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
       {/* Setting analysis */}
       <SettingSection setting={setting} />
+
+      {/* Cliché analysis */}
+      <ClicheSection cliche={cliche} />
     </div>
   );
 }

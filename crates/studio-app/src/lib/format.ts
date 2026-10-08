@@ -345,3 +345,86 @@ const SETTING_ISSUE_STYLES: Record<string, string> = {
 export function settingIssueStyle(kind: string): string {
   return SETTING_ISSUE_STYLES[kind] ?? SETTING_ISSUE_STYLES.long_absence;
 }
+
+/**
+ * Localized label for how much stock phrasing a document carries.
+ *
+ * `none` says the library found nothing, not that the prose is fresh: the pass only
+ * knows the phrases it carries. Mirrors `cliche_verdict_label` in
+ * `studio-report::markdown`.
+ */
+const CLICHE_VERDICT_LABELS: Record<string, string> = {
+  none: "未见用词",
+  light: "偏少",
+  moderate: "中等",
+  heavy: "密集",
+};
+
+export function clicheVerdictLabel(verdict: string): string {
+  return CLICHE_VERDICT_LABELS[verdict] ?? verdict;
+}
+
+/**
+ * Badge classes for a cliché verdict. A heavy rate is the case worth opening the
+ * list for; "no vocabulary found" is neutral, because the library is a net with a
+ * known mesh size rather than a judge.
+ */
+const CLICHE_VERDICT_STYLES: Record<string, string> = {
+  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  light: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  moderate: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  heavy: "bg-red-500/15 text-red-400 border-red-500/30",
+};
+
+export function clicheVerdictStyle(verdict: string): string {
+  return CLICHE_VERDICT_STYLES[verdict] ?? CLICHE_VERDICT_STYLES.none;
+}
+
+/**
+ * Localized label for the kind of stock phrase that was found. Mirrors
+ * `cliche_category_label` in `studio-report::markdown`.
+ */
+const CLICHE_CATEGORY_LABELS: Record<string, string> = {
+  expression: "表情动作",
+  body: "身体反应",
+  emotion: "情绪直陈",
+  simile: "套路比喻",
+  atmosphere: "场面套话",
+  speech_tag: "说话套话",
+  transition: "时间过渡",
+  look: "外貌套话",
+};
+
+export function clicheCategoryLabel(category: string): string {
+  return CLICHE_CATEGORY_LABELS[category] ?? category;
+}
+
+/**
+ * Localized label for what the phrase use does to the prose. Mirrors
+ * `cliche_issue_label` in `studio-report::markdown`.
+ */
+const CLICHE_ISSUE_LABELS: Record<string, string> = {
+  repeated: "反复使用",
+  dense_segment: "局部密集",
+  one_note: "依赖同一句",
+  speech_tags: "对白标签过多",
+};
+
+export function clicheIssueLabel(kind: string): string {
+  return CLICHE_ISSUE_LABELS[kind] ?? kind;
+}
+
+/**
+ * Badge classes for a phrase issue: repeating one phrase is the habit readers
+ * notice first, a single dense segment is usually one paragraph to redo.
+ */
+const CLICHE_ISSUE_STYLES: Record<string, string> = {
+  repeated: "bg-red-500/15 text-red-400 border-red-500/30",
+  dense_segment: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  one_note: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  speech_tags: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+};
+
+export function clicheIssueStyle(kind: string): string {
+  return CLICHE_ISSUE_STYLES[kind] ?? CLICHE_ISSUE_STYLES.dense_segment;
+}

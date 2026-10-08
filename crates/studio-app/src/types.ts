@@ -402,6 +402,105 @@ export interface SettingStats {
   setting_score: number | null;
 }
 
+/** One segment of the cliché curve. */
+export interface ClichePoint {
+  section: string;
+  char_count: number;
+  /** Library hits in the segment. */
+  hits: number;
+  /** Hits per 10 000 visible characters. */
+  per_10k: number;
+  /** 0-100 on the absolute scale, so two projects' curves can be compared. */
+  intensity: number;
+  /** The phrase used most here; empty when the segment has none. */
+  top_phrase: string;
+}
+
+/** One library phrase and how hard the document leans on it. */
+export interface ClichePhrase {
+  /** The library pattern, e.g. `(淡淡|浅浅)一笑`. */
+  phrase: string;
+  /** `expression` | `body` | `emotion` | `simile` | `atmosphere` | `speech_tag` | `transition` | `look`. */
+  category: string;
+  count: number;
+  /** Share of all hits this phrase accounts for (0-1). */
+  share: number;
+  /** The forms actually found, busiest first. */
+  variants: [string, number][];
+  /** Curve segments that contain at least one hit. */
+  segments_touched: number;
+  /** Share of the curve's segments this phrase reaches (0-1). */
+  coverage: number;
+  first_section: string;
+  last_section: string;
+  /** What shape the replacement should take. */
+  note: string;
+}
+
+/** One place in the text where a library phrase was found. */
+export interface ClicheHit {
+  /** The curve segment the hit sits in. */
+  section: string;
+  /** The text actually matched. */
+  phrase: string;
+  /** The library pattern it came from. */
+  pattern: string;
+  category: string;
+  /** Character offset inside the block. */
+  offset: number;
+  /** The surrounding characters, so the phrase can be judged in context. */
+  excerpt: string;
+  /** The hit is inside quotation marks: someone says it rather than narrates it. */
+  in_dialogue: boolean;
+  note: string;
+}
+
+/** A phrase habit worth fixing. */
+export interface ClicheIssue {
+  /** `repeated` | `dense_segment` | `one_note` | `speech_tags`. */
+  kind: string;
+  section: string;
+  detail: string;
+}
+
+export interface ClicheStats {
+  points: ClichePoint[];
+  segment_count: number;
+  /** True when the segments are block chunks rather than sections. */
+  chunked: boolean;
+  total_hits: number;
+  /** Library patterns found at least once. */
+  distinct_phrases: number;
+  /** Visible characters the rate is measured over. */
+  char_count: number;
+  /** Hits per 10 000 visible characters across the document. */
+  per_10k: number;
+  /** `none` | `light` | `moderate` | `heavy` — library coverage, not quality. */
+  verdict: "none" | "light" | "moderate" | "heavy";
+  /** Categories present, most hits first. */
+  categories: [string, number][];
+  /** Reported phrases, most used first. */
+  phrases: ClichePhrase[];
+  /** Reported hits, document order. */
+  hits: ClicheHit[];
+  /** Hits inside quotation marks. */
+  dialogue_hits: number;
+  /** Phrases used three times or more. */
+  repeated_phrases: number;
+  /** Hits belonging to those repeated phrases. */
+  repeat_hits: number;
+  /** Share of all hits held by the single most used phrase (0-1). */
+  top_share: number;
+  top_phrase: string;
+  peak_section: string;
+  peak_intensity: number;
+  issues: ClicheIssue[];
+  /** How many patterns the library carries — coverage the reader can weigh. */
+  lexicon_size: number;
+  /** 0-100, or null when the text is too short for a per-10 000 rate to mean anything. */
+  cliche_score: number | null;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -443,6 +542,7 @@ export interface ProjectAnalysis {
   conflict: ConflictStats;
   theme: ThemeStats;
   setting: SettingStats;
+  cliche: ClicheStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

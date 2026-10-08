@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { T0Stats } from "../types";
 import {
   arcShapeLabel,
+  clicheCategoryLabel,
+  clicheIssueLabel,
+  clicheIssueStyle,
+  clicheVerdictLabel,
+  clicheVerdictStyle,
   conflictTypeLabel,
   conflictVerdictLabel,
   conflictVerdictStyle,
@@ -278,5 +283,52 @@ describe("setting labels", () => {
 
   it("falls back to the neutral issue style for an unknown kind", () => {
     expect(settingIssueStyle("drifting")).toBe(settingIssueStyle("long_absence"));
+  });
+});
+
+describe("cliché labels", () => {
+  it("localizes every phrase verdict the analysis can emit", () => {
+    expect(clicheVerdictLabel("none")).toBe("未见用词");
+    expect(clicheVerdictLabel("light")).toBe("偏少");
+    expect(clicheVerdictLabel("moderate")).toBe("中等");
+    expect(clicheVerdictLabel("heavy")).toBe("密集");
+  });
+
+  it("keeps 未见用词 neutral: an empty library hit is not a clean bill of health", () => {
+    expect(clicheVerdictStyle("none")).toContain("text-text-muted");
+    expect(clicheVerdictStyle("light")).toContain("text-emerald-400");
+    expect(clicheVerdictStyle("heavy")).toContain("text-red-400");
+  });
+
+  it("falls back to the neutral style for an unknown verdict", () => {
+    expect(clicheVerdictStyle("sparse")).toBe(clicheVerdictStyle("none"));
+  });
+
+  it("names every phrase family the library carries", () => {
+    expect(clicheCategoryLabel("expression")).toBe("表情动作");
+    expect(clicheCategoryLabel("body")).toBe("身体反应");
+    expect(clicheCategoryLabel("emotion")).toBe("情绪直陈");
+    expect(clicheCategoryLabel("simile")).toBe("套路比喻");
+    expect(clicheCategoryLabel("atmosphere")).toBe("场面套话");
+    expect(clicheCategoryLabel("speech_tag")).toBe("说话套话");
+    expect(clicheCategoryLabel("transition")).toBe("时间过渡");
+    expect(clicheCategoryLabel("look")).toBe("外貌套话");
+    expect(clicheCategoryLabel("gesture")).toBe("gesture");
+  });
+
+  it("localizes every phrase issue the analysis can emit", () => {
+    expect(clicheIssueLabel("repeated")).toBe("反复使用");
+    expect(clicheIssueLabel("dense_segment")).toBe("局部密集");
+    expect(clicheIssueLabel("one_note")).toBe("依赖同一句");
+    expect(clicheIssueLabel("speech_tags")).toBe("对白标签过多");
+  });
+
+  it("reads repeating one phrase as the habit to fix first", () => {
+    expect(clicheIssueStyle("repeated")).toContain("text-red-400");
+    expect(clicheIssueStyle("speech_tags")).toContain("text-sky-400");
+  });
+
+  it("falls back to the segment style for an unknown issue kind", () => {
+    expect(clicheIssueStyle("stale")).toBe(clicheIssueStyle("dense_segment"));
   });
 });
