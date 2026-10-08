@@ -12,13 +12,15 @@
 //! 9. Run conflict analysis
 //! 10. Run theme analysis
 //! 11. Run setting analysis
+//! 12. Run cliché analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
-    document_hash, run_assessment, run_conflict_analysis, run_pacing_analysis, run_plot_analysis,
-    run_setting_analysis, run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment,
-    ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats, ThemeStats,
+    document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis, run_pacing_analysis,
+    run_plot_analysis, run_setting_analysis, run_t0_analysis, run_t1_analysis, run_theme_analysis,
+    Assessment, ClicheStats, ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats,
+    ThemeStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -206,6 +208,7 @@ fn test_analysis_cache_roundtrip() {
     let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
     let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
     let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
+    let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -277,6 +280,16 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&setting).unwrap(),
     )
     .expect("save setting");
+    save_result(
+        &conn,
+        project.project_id,
+        "cliche",
+        "t1",
+        &hash,
+        cliche.cliche_score.map(|s| s as f32),
+        &serde_json::to_string(&cliche).unwrap(),
+    )
+    .expect("save cliche");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -413,18 +426,42 @@ fn test_analysis_cache_roundtrip() {
             "setting score must survive the cache"
         );
     }
+    let cached_cliche = load_cached::<ClicheStats>(&conn, project.project_id, "cliche", &hash)
+        .unwrap()
+        .expect("cliche cache hit");
+    assert_eq!(cached_cliche.total_hits, cliche.total_hits);
+    assert_eq!(cached_cliche.distinct_phrases, cliche.distinct_phrases);
+    assert_eq!(cached_cliche.phrases.len(), cliche.phrases.len());
+    assert_eq!(cached_cliche.hits.len(), cliche.hits.len());
+    for (cached, fresh) in cached_cliche.phrases.iter().zip(cliche.phrases.iter()) {
+        assert_eq!(cached.phrase, fresh.phrase);
+        assert_eq!(cached.count, fresh.count);
+        assert_eq!(cached.variants, fresh.variants);
+    }
+    assert_eq!(
+        cached_cliche.cliche_score.is_some(),
+        cliche.cliche_score.is_some(),
+        "a document too short to rate must stay unscored in the cache"
+    );
+    if let (Some(cached), Some(fresh)) = (cached_cliche.cliche_score, cliche.cliche_score) {
+        assert!(
+            (cached - fresh).abs() < 1e-6,
+            "cliche score must survive the cache"
+        );
+    }
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
         theme.themes.len(),
         setting.scene_count,
+        cliche.total_hits,
         assessment.recommendations.len()
     );
 
@@ -440,8 +477,8 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: eight dimensions.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 8);
+    // "重新分析" clears everything for the project: nine dimensions.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 9);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -472,6 +509,7 @@ fn test_report_generation_and_export() {
     let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
     let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
     let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
+    let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -485,6 +523,7 @@ fn test_report_generation_and_export() {
         conflict: &conflict,
         theme: &theme,
         setting: &setting,
+        cliche: &cliche,
         assessment: &assessment,
     });
 
@@ -502,6 +541,7 @@ fn test_report_generation_and_export() {
         "## 冲突",
         "## 主题",
         "## 场景/设定",
+        "## 陈词滥调",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -576,8 +616,27 @@ fn test_report_generation_and_export() {
             place.name
         );
     }
+    // The cliché section always states the limit of the method: a miss means the
+    // library found nothing, not that the prose is fresh.
+    assert!(markdown.contains("由人来判断"));
+    if let Some(phrase) = cliche.phrases.first() {
+        assert!(
+            markdown.contains("### 高频套话（"),
+            "cliche phrase list missing from the report"
+        );
+        assert!(
+            markdown.contains(&phrase.note),
+            "replacement note for {} missing",
+            phrase.phrase
+        );
+    } else {
+        assert!(
+            markdown.contains("没有命中词库里的表达"),
+            "an empty cliché pass still has to say so"
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
@@ -585,6 +644,7 @@ fn test_report_generation_and_export() {
         conflict.total_hits,
         theme.themes.len(),
         setting.scene_count,
+        cliche.total_hits,
         assessment.recommendations.len()
     );
 

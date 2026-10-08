@@ -8,8 +8,8 @@
 use chrono::{DateTime, Utc};
 
 use studio_analysis::{
-    Assessment, ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats, ThemeStats,
-    ANALYSIS_VERSION,
+    Assessment, ClicheStats, ConflictStats, PacingStats, PlotStats, SettingStats, T0Stats, T1Stats,
+    ThemeStats, ANALYSIS_VERSION,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -24,6 +24,7 @@ pub struct ReportInput<'a> {
     pub conflict: &'a ConflictStats,
     pub theme: &'a ThemeStats,
     pub setting: &'a SettingStats,
+    pub cliche: &'a ClicheStats,
     pub assessment: &'a Assessment,
 }
 
@@ -46,6 +47,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_conflict(&mut out, input.conflict);
     write_theme(&mut out, input.theme);
     write_setting(&mut out, input.setting);
+    write_cliche(&mut out, input.cliche);
     write_footer(&mut out);
     out
 }
@@ -697,6 +699,130 @@ fn write_setting(out: &mut String, setting: &SettingStats) {
     out.push_str("_场景按地点实体与环境用词切分：地名之外的地点只能靠描写判断，是否真的换了场景需要人来核对。_\n\n");
 }
 
+fn write_cliche(out: &mut String, cliche: &ClicheStats) {
+    out.push_str("## 陈词滥调\n\n");
+    match cliche.cliche_score {
+        Some(score) => {
+            // The library size is printed only when it found something: "150 项"
+            // means nothing next to a document with no hits, and keeping it out of
+            // that case also keeps the empty report stable as the library grows.
+            let library = if cliche.total_hits > 0 {
+                format!(" · 词库 {} 项", cliche.lexicon_size)
+            } else {
+                String::new()
+            };
+            out.push_str(&format!(
+                "用词评分：**{:.1} / 100** · 命中 {} 处（{:.1} 处/万字，判定：**{}**（`{}`））· 涉及 {} 个短语 · 对白内 {} 处{library}\n\n",
+                score,
+                cliche.total_hits,
+                cliche.per_10k,
+                cliche_verdict_label(&cliche.verdict),
+                cliche.verdict,
+                cliche.distinct_phrases,
+                cliche.dialogue_hits
+            ))
+        }
+        // Too little text for a rate per 10 000 characters to mean anything. The
+        // hits are still listed below; only the grade is withheld.
+        None => out.push_str(&format!(
+            "全文 {} 字，不足 1000 字，按万字密度评分没有意义，因此**不给出评分**。\n\n",
+            cliche.char_count
+        )),
+    }
+
+    out.push_str(&format!(
+        "最常用：{}（占命中 {:.0}%）· 峰值段落：{}（{:.0}）· 反复使用的短语 {} 个\n\n",
+        if cliche.top_phrase.is_empty() {
+            "—".to_string()
+        } else {
+            format!("「{}」", esc(&cliche.top_phrase))
+        },
+        cliche.top_share * 100.0,
+        if cliche.peak_section.is_empty() {
+            "—".to_string()
+        } else {
+            esc(&cliche.peak_section)
+        },
+        cliche.peak_intensity,
+        cliche.repeated_phrases
+    ));
+
+    if !cliche.categories.is_empty() {
+        let parts: Vec<String> = cliche
+            .categories
+            .iter()
+            .map(|(k, v)| format!("{}×{}", cliche_category_label(k), v))
+            .collect();
+        out.push_str(&format!("类型分布：{}\n\n", parts.join("、")));
+    }
+
+    out.push_str(&format!("### 高频套话（{} 个）\n\n", cliche.phrases.len()));
+    if cliche.phrases.is_empty() {
+        out.push_str("没有命中词库里的表达。\n\n");
+    } else {
+        out.push_str(
+            "| 短语 | 类型 | 次数 | 占比 | 覆盖 | 首次 | 末次 |\n| --- | --- | ---: | ---: | ---: | --- | --- |\n",
+        );
+        for p in cliche.phrases.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} | {} | {:.0}% | {:.0}% | {} | {} |\n",
+                esc(&p.phrase),
+                cliche_category_label(&p.category),
+                p.count,
+                p.share * 100.0,
+                p.coverage * 100.0,
+                esc(&p.first_section),
+                esc(&p.last_section)
+            ));
+        }
+        out.push_str(&omitted(cliche.distinct_phrases as usize, MAX_ROWS));
+        out.push('\n');
+
+        out.push_str("### 怎么改\n\n");
+        for p in cliche.phrases.iter().take(6) {
+            out.push_str(&format!("- **{}** — {}\n", esc(&p.phrase), esc(&p.note)));
+        }
+        out.push('\n');
+    }
+
+    if !cliche.hits.is_empty() {
+        out.push_str(&format!(
+            "### 命中位置（前 {} 处）\n\n",
+            cliche.hits.len().min(MAX_ROWS)
+        ));
+        for h in cliche.hits.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}** · {} · {}（第 {} 字）{}\n",
+                esc(&h.section),
+                esc(&h.phrase),
+                esc(&h.excerpt),
+                h.offset,
+                if h.in_dialogue { "· 对白内" } else { "" }
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !cliche.issues.is_empty() {
+        out.push_str("### 用词问题\n\n");
+        for i in cliche.issues.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}**（{}）— {}\n",
+                cliche_issue_label(&i.kind),
+                if i.section.is_empty() {
+                    "全文".to_string()
+                } else {
+                    esc(&i.section)
+                },
+                esc(&i.detail)
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("_命中只说明字面撞上词库里的说法，不等于写得差；是否真的是陈词滥调、要不要改，由人来判断。_\n\n");
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -873,13 +999,52 @@ fn setting_issue_label(kind: &str) -> &'static str {
     }
 }
 
+/// How much stock phrasing the document carries. `none` says the library found
+/// nothing, not that the prose is fresh.
+fn cliche_verdict_label(verdict: &str) -> &'static str {
+    match verdict {
+        "none" => "未见用词",
+        "light" => "偏少",
+        "moderate" => "中等",
+        "heavy" => "密集",
+        _ => "未知",
+    }
+}
+
+/// Which kind of stock phrase was found.
+fn cliche_category_label(category: &str) -> &'static str {
+    match category {
+        "expression" => "表情动作",
+        "body" => "身体反应",
+        "emotion" => "情绪直陈",
+        "simile" => "套路比喻",
+        "atmosphere" => "场面套话",
+        "speech_tag" => "说话套话",
+        "transition" => "时间过渡",
+        "look" => "外貌套话",
+        _ => "未知",
+    }
+}
+
+/// What the phrase use does to the prose.
+fn cliche_issue_label(kind: &str) -> &'static str {
+    match kind {
+        "repeated" => "反复使用",
+        "dense_segment" => "局部密集",
+        "one_note" => "依赖同一句",
+        "speech_tags" => "对白标签过多",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
-        ArcPoint, ConflictAbsence, ConflictPoint, ConflictType, DimensionScore, DragSection,
-        FlatStretch, NarrativeArc, PacingPoint, Place, Plotline, PlotlineStage, Readability,
-        Recommendation, RepeatedPhrase, Scene, SectionInfo, SettingIssue, Theme, TurningPoint,
+        ArcPoint, ClicheHit, ClicheIssue, ClichePhrase, ClichePoint, ConflictAbsence,
+        ConflictPoint, ConflictType, DimensionScore, DragSection, FlatStretch, NarrativeArc,
+        PacingPoint, Place, Plotline, PlotlineStage, Readability, Recommendation, RepeatedPhrase,
+        Scene, SectionInfo, SettingIssue, Theme, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -1036,6 +1201,34 @@ mod tests {
         }
     }
 
+    /// What `run_cliche_analysis` returns for an empty document: no text long enough
+    /// to carry a rate, and therefore no score.
+    fn empty_cliche() -> ClicheStats {
+        ClicheStats {
+            points: vec![],
+            segment_count: 0,
+            chunked: false,
+            total_hits: 0,
+            distinct_phrases: 0,
+            char_count: 0,
+            per_10k: 0.0,
+            verdict: "none".into(),
+            categories: vec![],
+            phrases: vec![],
+            hits: vec![],
+            dialogue_hits: 0,
+            repeated_phrases: 0,
+            repeat_hits: 0,
+            top_share: 0.0,
+            top_phrase: String::new(),
+            peak_section: String::new(),
+            peak_intensity: 0.0,
+            issues: vec![],
+            lexicon_size: 150,
+            cliche_score: None,
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -1051,7 +1244,7 @@ mod tests {
 
     #[test]
     fn test_render_is_deterministic() {
-        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, cliche, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1059,6 +1252,7 @@ mod tests {
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -1071,6 +1265,7 @@ mod tests {
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -1078,7 +1273,7 @@ mod tests {
 
     #[test]
     fn test_golden_minimal_report() {
-        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, cliche, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1086,6 +1281,7 @@ mod tests {
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -1098,6 +1294,7 @@ mod tests {
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let expected = "\
@@ -1215,6 +1412,18 @@ mod tests {
 
 未识别到场景：文档没有可切分的段落。
 
+## 陈词滥调
+
+全文 0 字，不足 1000 字，按万字密度评分没有意义，因此**不给出评分**。
+
+最常用：—（占命中 0%）· 峰值段落：—（0）· 反复使用的短语 0 个
+
+### 高频套话（0 个）
+
+没有命中词库里的表达。
+
+_命中只说明字面撞上词库里的说法，不等于写得差；是否真的是陈词滥调、要不要改，由人来判断。_
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -1233,7 +1442,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 detail: "—".into(),
             });
         }
-        let (t0, t1, plot, pacing, conflict, theme, setting) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, cliche) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1241,6 +1450,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
         );
         let input = ReportInput {
             project_name: "P",
@@ -1252,6 +1462,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1268,6 +1479,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 冲突",
             "## 主题",
             "## 场景/设定",
+            "## 陈词滥调",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -1279,14 +1491,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }
         assert_eq!(
             md.matches("\n## ").count(),
-            11,
-            "exactly eleven H2 sections"
+            12,
+            "exactly twelve H2 sections"
         );
     }
 
     #[test]
     fn test_recommendations_grouped_and_counted() {
-        let (t0, t1, plot, pacing, conflict, theme, setting) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, cliche) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1294,6 +1506,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
         );
         let mut a = clean_assessment();
         a.recommendations = vec![
@@ -1320,6 +1533,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1330,7 +1544,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_table_cells_are_escaped() {
-        let (mut t0, mut t1, plot, pacing, conflict, theme, setting, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, theme, setting, cliche, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1338,6 +1552,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
             clean_assessment(),
         );
         t0.top_entities = vec![("A|B".into(), 3)];
@@ -1356,6 +1571,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1372,7 +1588,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_long_lists_are_capped_and_announced() {
-        let (mut t0, mut t1, plot, pacing, conflict, theme, setting, a) = (
+        let (mut t0, mut t1, plot, pacing, conflict, theme, setting, cliche, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1380,6 +1596,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
             clean_assessment(),
         );
         t0.top_words = (0..25).map(|i| (format!("w{i}"), i)).collect();
@@ -1406,6 +1623,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1419,7 +1637,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_arc_renders_bar_and_shape() {
-        let (t0, mut t1, plot, pacing, conflict, theme, setting, a) = (
+        let (t0, mut t1, plot, pacing, conflict, theme, setting, cliche, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1427,6 +1645,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
             clean_assessment(),
         );
         t1.arc.shape = "mountain".into();
@@ -1457,6 +1676,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1474,6 +1694,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let conflict = empty_conflict();
         let theme = empty_theme();
         let setting = empty_setting();
+        let cliche = empty_cliche();
         plot.coherence_score = 84.0;
         plot.thread_count = 3;
         plot.section_count = 5;
@@ -1532,6 +1753,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1552,6 +1774,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let conflict = empty_conflict();
         let theme = empty_theme();
         let setting = empty_setting();
+        let cliche = empty_cliche();
         pacing.pace_score = 62.0;
         pacing.verdict = "varied".into();
         pacing.segment_count = 4;
@@ -1602,6 +1825,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1624,6 +1848,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let mut conflict = empty_conflict();
         let theme = empty_theme();
         let setting = empty_setting();
+        let cliche = empty_cliche();
         conflict.conflict_score = Some(71.0);
         conflict.verdict = "present".into();
         conflict.total_hits = 9;
@@ -1688,6 +1913,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1709,7 +1935,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_conflict_without_vocabulary_says_so_instead_of_scoring() {
-        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, cliche, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1717,6 +1943,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -1729,6 +1956,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1750,6 +1978,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         );
         let mut theme = empty_theme();
         let setting = empty_setting();
+        let cliche = empty_cliche();
         theme.theme_score = Some(88.0);
         theme.source = "noun_signals".into();
         theme.candidate_count = 2;
@@ -1799,6 +2028,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1817,7 +2047,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_theme_without_vocabulary_says_so_instead_of_scoring() {
-        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
+        let (t0, t1, plot, pacing, conflict, theme, setting, cliche, a) = (
             empty_t0(),
             empty_t1(),
             empty_plot(),
@@ -1825,6 +2055,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             empty_conflict(),
             empty_theme(),
             empty_setting(),
+            empty_cliche(),
             clean_assessment(),
         );
         let input = ReportInput {
@@ -1837,6 +2068,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1858,6 +2090,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             clean_assessment(),
         );
         let mut setting = empty_setting();
+        let cliche = empty_cliche();
         setting.setting_score = Some(75.0);
         setting.scene_count = 3;
         setting.scenes = vec![
@@ -1935,6 +2168,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             conflict: &conflict,
             theme: &theme,
             setting: &setting,
+            cliche: &cliche,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -1955,5 +2189,189 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("- **长时间离开地点**（第一章）— 码头 最长缺席 3 段"));
         assert!(md.contains("环境用词：房间×6、夜色×4"));
         assert!(md.contains("是否真的换了场景需要人来核对"));
+    }
+
+    #[test]
+    fn test_cliche_section_prints_phrases_hits_and_issues() {
+        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            empty_theme(),
+            empty_setting(),
+            clean_assessment(),
+        );
+        let mut cliche = empty_cliche();
+        cliche.cliche_score = Some(72.5);
+        cliche.total_hits = 12;
+        cliche.distinct_phrases = 2;
+        cliche.char_count = 8000;
+        cliche.per_10k = 15.0;
+        cliche.verdict = "moderate".into();
+        cliche.categories = vec![("expression".into(), 7), ("body".into(), 5)];
+        cliche.top_share = 0.583;
+        cliche.top_phrase = "微微一笑".into();
+        cliche.peak_section = "第二章".into();
+        cliche.peak_intensity = 62.0;
+        cliche.repeated_phrases = 1;
+        cliche.repeat_hits = 7;
+        cliche.dialogue_hits = 2;
+        cliche.segment_count = 4;
+        cliche.points = vec![ClichePoint {
+            section: "第二章".into(),
+            char_count: 2000,
+            hits: 5,
+            per_10k: 25.0,
+            intensity: 62.5,
+            top_phrase: "微微一笑".into(),
+        }];
+        cliche.phrases = vec![
+            ClichePhrase {
+                phrase: "微微一笑".into(),
+                category: "expression".into(),
+                count: 7,
+                share: 0.583,
+                variants: vec![("微微一笑".into(), 7)],
+                segments_touched: 3,
+                coverage: 0.75,
+                first_section: "第一章".into(),
+                last_section: "第四章".into(),
+                note: "万能表情，换成这个人物特有的面部反应".into(),
+            },
+            ClichePhrase {
+                phrase: "(淡淡|浅浅)一笑".into(),
+                category: "expression".into(),
+                count: 5,
+                share: 0.417,
+                variants: vec![("淡淡一笑".into(), 3), ("浅浅一笑".into(), 2)],
+                segments_touched: 2,
+                coverage: 0.5,
+                first_section: "第二章".into(),
+                last_section: "第三章".into(),
+                note: "「一笑」能接在任何一句对白后，改写成说话时的具体动作".into(),
+            },
+        ];
+        cliche.hits = vec![
+            ClicheHit {
+                section: "第一章".into(),
+                phrase: "微微一笑".into(),
+                pattern: "微微一笑".into(),
+                category: "expression".into(),
+                offset: 12,
+                excerpt: "她微微一笑，把杯子放下".into(),
+                in_dialogue: false,
+                note: "万能表情".into(),
+            },
+            ClicheHit {
+                section: "第二章".into(),
+                phrase: "淡淡一笑".into(),
+                pattern: "(淡淡|浅浅)一笑".into(),
+                category: "expression".into(),
+                offset: 4,
+                excerpt: "“淡淡一笑。”他先开口".into(),
+                in_dialogue: true,
+                note: "「一笑」能接在任何一句对白后".into(),
+            },
+        ];
+        cliche.issues = vec![
+            ClicheIssue {
+                kind: "repeated".into(),
+                section: "第一章".into(),
+                detail: "「微微一笑」出现 7 次（微微一笑×7）".into(),
+            },
+            ClicheIssue {
+                kind: "one_note".into(),
+                section: String::new(),
+                detail: "最常用的一句占了全部命中 58%".into(),
+            },
+        ];
+
+        let md = render_markdown(&ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            assessment: &a,
+        });
+
+        assert!(md.contains(
+            "用词评分：**72.5 / 100** · 命中 12 处（15.0 处/万字，判定：**中等**（`moderate`））· 涉及 2 个短语 · 对白内 2 处"
+        ));
+        // The library size rides along only when it found something, so the reader
+        // knows how wide the net was.
+        assert!(md.contains("词库 150 项"));
+        assert!(md.contains(
+            "最常用：「微微一笑」（占命中 58%）· 峰值段落：第二章（62）· 反复使用的短语 1 个"
+        ));
+        assert!(md.contains("类型分布：表情动作×7、身体反应×5"));
+        assert!(md.contains("### 高频套话（2 个）"));
+        assert!(md.contains("| 微微一笑 | 表情动作 | 7 | 58% | 75% | 第一章 | 第四章 |"));
+        // A pattern's `|` is escaped, so it cannot end the table cell.
+        assert!(md.contains("| (淡淡\\|浅浅)一笑 | 表情动作 | 5 | 42% | 50% | 第二章 | 第三章 |"));
+        assert!(md.contains("### 怎么改"));
+        assert!(md.contains("- **微微一笑** — 万能表情，换成这个人物特有的面部反应"));
+        assert!(md.contains("### 命中位置（前 2 处）"));
+        assert!(md.contains("- **第一章** · 微微一笑 · 她微微一笑，把杯子放下（第 12 字）"));
+        assert!(md.contains("- **第二章** · 淡淡一笑 · “淡淡一笑。”他先开口（第 4 字）· 对白内"));
+        assert!(md.contains("- **反复使用**（第一章）— 「微微一笑」出现 7 次"));
+        assert!(md.contains("- **依赖同一句**（全文）— 最常用的一句占了全部命中 58%"));
+        assert!(md.contains("由人来判断"));
+    }
+
+    #[test]
+    fn test_short_text_reports_hits_without_a_score() {
+        let (t0, t1, plot, pacing, conflict, theme, setting, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            empty_conflict(),
+            empty_theme(),
+            empty_setting(),
+            clean_assessment(),
+        );
+        let mut cliche = empty_cliche();
+        cliche.char_count = 300;
+        cliche.total_hits = 2;
+        cliche.distinct_phrases = 1;
+        cliche.phrases = vec![ClichePhrase {
+            phrase: "深吸一口气".into(),
+            category: "body".into(),
+            count: 2,
+            share: 1.0,
+            variants: vec![("深吸一口气".into(), 2)],
+            segments_touched: 1,
+            coverage: 1.0,
+            first_section: "1/10".into(),
+            last_section: "3/10".into(),
+            note: "紧张或平静的通用动作".into(),
+        }];
+
+        let md = render_markdown(&ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            assessment: &a,
+        });
+
+        assert!(md.contains("全文 300 字，不足 1000 字"));
+        assert!(!md.contains("用词评分："));
+        // The hits survive the missing grade: the reader still sees what was found.
+        assert!(md.contains("| 深吸一口气 | 身体反应 | 2 | 100% | 100% | 1/10 | 3/10 |"));
     }
 }
