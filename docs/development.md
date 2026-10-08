@@ -374,7 +374,7 @@ Closes #42
 | `create_project` | `{ name }` | `Project` | 创建项目 |
 | `delete_project` | `{ project_id }` | - | 删除项目及其级联数据 |
 | `import_project` | `{ project_path }` | `Project` | 导入 TraceView 项目目录（`spawn_blocking` + `import-progress` 事件） |
-| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
+| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
 | `analyze_projects` | `{ project_ids }` | `Vec<ProjectAnalysis>` | 多项目对比，始终读缓存 |
 | `analyze_t0` / `analyze_t1` | `{ file_path }` | `T0Stats` / `T1Stats` | 直接分析 `semantic_result.json`，调试用，不走缓存 |
 | `list_documents` | `{ project_id }` | `Vec<(doc_id, title)>` | 项目下的文档 |
@@ -745,7 +745,7 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 
 分析是纯函数（同一文档 → 同一结果），所以结果按输入指纹持久化，二次打开项目直接读缓存而不重算。
 
-**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, assessment}`。情节线在 `score` 列存 `coherence_score`，这样分析历史不必解开 payload 也能横向比较。
+**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, pacing, assessment}`。情节线在 `score` 列存 `coherence_score`、节奏在 `score` 列存 `pace_score`，这样分析历史不必解开 payload 也能横向比较。新增维度不需要改 `ANALYSIS_VERSION`：旧库缺少该维度的行，读取时天然 miss，会重算并补齐全部维度。
 
 `input_hash = SHA-256(ANALYSIS_VERSION ‖ 每个 block 的字节长度 ‖ block 的 JSON)`（`studio-analysis/src/hash.rs`）：
 
