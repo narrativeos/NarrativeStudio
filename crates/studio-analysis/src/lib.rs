@@ -8,11 +8,13 @@
 //! - Conflict: what the story fights over, and how hard
 //! - Theme: which terms the document keeps coming back to
 //! - Setting: where the story happens, and whether the reader is told
+//! - Cliché: which stock phrases the text reaches for, and how often
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
 
 mod assessment;
+mod cliche;
 mod conflict;
 mod hash;
 mod pacing;
@@ -25,6 +27,9 @@ mod text;
 mod theme;
 
 pub use assessment::{run_assessment, Assessment, DimensionScore, Recommendation};
+pub use cliche::{
+    run_cliche_analysis, ClicheHit, ClicheIssue, ClichePhrase, ClichePoint, ClicheStats,
+};
 pub use conflict::{
     run_conflict_analysis, ConflictAbsence, ConflictPoint, ConflictStats, ConflictType,
 };
