@@ -7,9 +7,12 @@ import RadarChart from "../components/charts/RadarChart";
 import {
   arcShapeLabel,
   entityTotal,
+  formatFixed,
   formatInt,
   formatPercent,
   formatScore,
+  pacingVerdictLabel,
+  pacingVerdictStyle,
   plotShapeLabel,
   plotShapeStyle,
   scoreColor,
@@ -26,9 +29,9 @@ interface AnalysisProps {
 
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
- * analysis plus a rule-based assessment for the selected project, and presents
- * the full portrait grouped by dimension: overview, assessment, statistics, text
- * diagnostics, structure, narrative, and plot.
+ * + pacing analysis plus a rule-based assessment for the selected project, and
+ * presents the full portrait grouped by dimension: overview, assessment,
+ * statistics, text diagnostics, structure, narrative, plot, and pacing.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -107,7 +110,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (!data) return null;
 
-  const { t0, t1, plot } = data;
+  const { t0, t1, plot, pacing } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
 
   return (
@@ -597,6 +600,145 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                 −15；少于 3 个章节不参与评分。
               </p>
             </div>
+          </Panel>
+        </div>
+      </section>
+
+      {/* Pacing analysis */}
+      <section>
+        <SectionTitle>节奏分析</SectionTitle>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="节奏评分" value={`${formatScore(pacing.pace_score)} / 100`} />
+          <StatCard label="张力波动" value={formatFixed(pacing.tension_stdev)} />
+          <StatCard label="最长连续平淡" value={`${pacing.longest_flat_run} 段`} />
+          <StatCard label="拖沓章节" value={formatInt(pacing.drag_sections.length)} />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span
+            className={`px-2 py-0.5 rounded border text-xs ${pacingVerdictStyle(pacing.verdict)}`}
+          >
+            {pacingVerdictLabel(pacing.verdict)}
+          </span>
+          <span className="text-xs text-text-muted">
+            张力 {formatScore(pacing.min_tension)}–{formatScore(pacing.max_tension)} · 每段均{" "}
+            {formatInt(Math.round(pacing.mean_section_chars))} 字 · 句长变化{" "}
+            {formatFixed(pacing.sentence_stdev)} 字
+          </span>
+        </div>
+
+        <div className="mt-4">
+          <Panel title={`节奏曲线（${pacing.segment_count} 段 · 张力 0-100）`}>
+            {pacing.points.length === 0 ? (
+              <p className="text-xs text-text-muted">未识别到节奏曲线：文档没有可切分的段落。</p>
+            ) : (
+              <LineChart
+                points={pacing.points.map((p) => ({
+                  label: p.section || "(root)",
+                  value: p.tension / 100,
+                }))}
+              />
+            )}
+            {pacing.chunked && (
+              <p className="text-xs text-text-muted mt-2">
+                章节不足 3 个：曲线按 {pacing.segment_count} 个等长块切分，不参与评分。
+              </p>
+            )}
+          </Panel>
+        </div>
+
+        <div className="mt-4">
+          <Panel
+            title={`逐段明细（显示 ${Math.min(pacing.points.length, 20)} / ${pacing.points.length} 段）`}
+          >
+            {pacing.points.length === 0 ? (
+              <p className="text-xs text-text-muted">暂无数据</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-text-muted border-b border-gray-700">
+                      <th className="text-left py-1.5 font-medium">段落</th>
+                      <th className="text-right py-1.5 font-medium">张力</th>
+                      <th className="text-right py-1.5 font-medium">字数</th>
+                      <th className="text-right py-1.5 font-medium">句子</th>
+                      <th className="text-right py-1.5 font-medium">平均句长</th>
+                      <th className="text-right py-1.5 font-medium">句长变化</th>
+                      <th className="text-right py-1.5 font-medium">对话占比</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pacing.points.slice(0, 20).map((p) => (
+                      <tr key={p.section} className="border-b border-gray-700/40">
+                        <td className="py-1.5 truncate max-w-[220px]" title={p.section}>
+                          {p.section || "(root)"}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums">{formatScore(p.tension)}</td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {formatInt(p.char_count)}
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {p.sentence_count}
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {formatFixed(p.avg_sentence_chars)}
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {formatFixed(p.sentence_stdev)}
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {formatPercent(p.dialogue_share)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        <div className="mt-4 grid md:grid-cols-2 gap-4">
+          <Panel title={`平淡段落（${pacing.flat_stretches.length}）`}>
+            {pacing.flat_stretches.length === 0 ? (
+              <p className="text-xs text-text-muted">没有连续 4 段以上的平淡区间。</p>
+            ) : (
+              <ul className="text-xs space-y-2">
+                {pacing.flat_stretches.slice(0, 10).map((s) => (
+                  <li key={`${s.from_section}→${s.to_section}`}>
+                    <span className="font-medium">{s.from_section || "(root)"}</span>
+                    <span className="text-text-muted"> → </span>
+                    <span className="font-medium">{s.to_section || "(root)"}</span>
+                    <span className="text-text-muted">
+                      （{s.sections} 段 · 平均张力 {formatScore(s.mean_tension)} ·{" "}
+                      {formatInt(s.char_count)} 字）
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          <Panel title={`拖沓章节（${pacing.drag_sections.length}）`}>
+            {pacing.drag_sections.length === 0 ? (
+              <p className="text-xs text-text-muted">没有明显拖沓的章节。</p>
+            ) : (
+              <ul className="text-xs space-y-2">
+                {pacing.drag_sections.slice(0, 10).map((d) => (
+                  <li key={d.section}>
+                    <span className="font-medium">{d.section || "(root)"}</span>
+                    <span className="text-text-muted">
+                      （{formatFixed(d.length_ratio)}× 均长 · {formatInt(d.char_count)} 字 · 张力{" "}
+                      {formatScore(d.tension)}）
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+              节奏评分从 100 起扣：曲线几乎不动最多 −30，连续平淡满 4 段起每段 −6（最多 −24），拖沓章节每章
+              −8（最多 −24），句长毫无变化最多 −18；少于 3 个章节不参与评分。
+            </p>
           </Panel>
         </div>
       </section>

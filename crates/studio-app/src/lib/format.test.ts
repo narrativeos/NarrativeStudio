@@ -8,6 +8,8 @@ import {
   formatInt,
   formatPercent,
   formatScore,
+  pacingVerdictLabel,
+  pacingVerdictStyle,
   plotShapeLabel,
   plotShapeStyle,
   scoreColor,
@@ -118,5 +120,27 @@ describe("plot shape helpers", () => {
 
   it("falls back to the neutral style for unknown shapes", () => {
     expect(plotShapeStyle("wave")).toBe(plotShapeStyle("minor"));
+  });
+});
+
+describe("pacing verdict helpers", () => {
+  it("localizes every verdict the analysis can emit", () => {
+    expect(pacingVerdictLabel("flat")).toBe("单调");
+    expect(pacingVerdictLabel("varied")).toBe("起伏");
+    expect(pacingVerdictLabel("spiky")).toBe("跳跃");
+  });
+
+  it("passes an unknown verdict through instead of hiding it", () => {
+    expect(pacingVerdictLabel("wave")).toBe("wave");
+  });
+
+  it("marks a curve that never moves as the case to fix", () => {
+    expect(pacingVerdictStyle("flat")).toContain("text-red-400");
+    expect(pacingVerdictStyle("varied")).toContain("text-emerald-400");
+    expect(pacingVerdictStyle("spiky")).toContain("text-amber-400");
+  });
+
+  it("falls back to the warning style for an unknown verdict", () => {
+    expect(pacingVerdictStyle("wave")).toBe(pacingVerdictStyle("flat"));
   });
 });

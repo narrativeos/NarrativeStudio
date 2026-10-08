@@ -115,3 +115,35 @@ const PLOT_SHAPE_STYLES: Record<string, string> = {
 export function plotShapeStyle(shape: string): string {
   return PLOT_SHAPE_STYLES[shape] ?? PLOT_SHAPE_STYLES.minor;
 }
+
+/**
+ * Localized label for a pacing verdict.
+ *
+ * Mirrors `pacing_verdict_label` in `studio-report::markdown` so the screen and
+ * the exported report describe the same curve with the same words. Unknown
+ * verdicts fall through verbatim.
+ */
+const PACING_VERDICT_LABELS: Record<string, string> = {
+  flat: "单调",
+  varied: "起伏",
+  spiky: "跳跃",
+};
+
+export function pacingVerdictLabel(verdict: string): string {
+  return PACING_VERDICT_LABELS[verdict] ?? verdict;
+}
+
+/**
+ * Badge classes for a pacing verdict: a curve that never moves is the case that
+ * asks for a rewrite, a curve that moves is the healthy one, and a curve that
+ * swings hard is worth a look rather than an alarm.
+ */
+const PACING_VERDICT_STYLES: Record<string, string> = {
+  flat: "bg-red-500/15 text-red-400 border-red-500/30",
+  varied: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  spiky: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+};
+
+export function pacingVerdictStyle(verdict: string): string {
+  return PACING_VERDICT_STYLES[verdict] ?? PACING_VERDICT_STYLES.flat;
+}

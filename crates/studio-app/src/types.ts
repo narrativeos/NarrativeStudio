@@ -136,6 +136,62 @@ export interface PlotStats {
   section_count: number;
 }
 
+/** One segment of the pacing curve: what the section is made of and how tense it
+ *  reads on the absolute 0-100 scale. */
+export interface PacingPoint {
+  section: string;
+  char_count: number;
+  sentence_count: number;
+  avg_sentence_chars: number;
+  /** 句长变化: stdev of sentence lengths inside the segment (chars). */
+  sentence_stdev: number;
+  /** Fraction of the segment's visible characters inside quotation marks. */
+  dialogue_share: number;
+  /** Entities per 1000 visible characters. */
+  entity_density: number;
+  /** 0-100 on the absolute scale, so two projects' curves can be compared. */
+  tension: number;
+}
+
+/** A run of consecutive segments whose tension stays inside one band. */
+export interface FlatStretch {
+  from_section: string;
+  to_section: string;
+  sections: number;
+  mean_tension: number;
+  char_count: number;
+}
+
+/** A segment much longer than the average while less tense than the average. */
+export interface DragSection {
+  section: string;
+  char_count: number;
+  tension: number;
+  /** Segment length over the mean segment length. */
+  length_ratio: number;
+}
+
+export interface PacingStats {
+  points: PacingPoint[];
+  segment_count: number;
+  /** True when the document had too few sections and the curve came from block chunks. */
+  chunked: boolean;
+  /** How much the tension moves — not the arc's shape, which says where the peak is. */
+  verdict: "flat" | "varied" | "spiky";
+  /** Standard deviation of tension across segments (0-100 scale). */
+  tension_stdev: number;
+  /** 句长变化 across the whole document (chars). */
+  sentence_stdev: number;
+  min_tension: number;
+  max_tension: number;
+  mean_section_chars: number;
+  longest_flat_run: number;
+  flat_stretches: FlatStretch[];
+  drag_sections: DragSection[];
+  /** 0-100. */
+  pace_score: number;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -173,6 +229,7 @@ export interface ProjectAnalysis {
   t0: T0Stats;
   t1: T1Stats;
   plot: PlotStats;
+  pacing: PacingStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;
