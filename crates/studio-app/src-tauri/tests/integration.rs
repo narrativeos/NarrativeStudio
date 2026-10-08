@@ -15,15 +15,16 @@
 //! 12. Run cliché analysis
 //! 13. Run dialogue analysis
 //! 14. Run explicit language analysis
+//! 15. Run story structure analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
     run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
-    run_setting_analysis, run_t0_analysis, run_t1_analysis, run_theme_analysis, Assessment,
-    ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats,
-    T0Stats, T1Stats, ThemeStats,
+    run_setting_analysis, run_structure_analysis, run_t0_analysis, run_t1_analysis,
+    run_theme_analysis, Assessment, ClicheStats, ConflictStats, DialogueStats, ExplicitStats,
+    PacingStats, PlotStats, SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -214,6 +215,8 @@ fn test_analysis_cache_roundtrip() {
     let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
     let dialogue = run_dialogue_analysis(&loaded).expect("dialogue analysis failed");
     let explicit = run_explicit_analysis(&loaded).expect("explicit language analysis failed");
+    let structure =
+        run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -318,6 +321,18 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&explicit).unwrap(),
     )
     .expect("save explicit");
+    // Story structure carries no score either: fitting three-act shape is not a virtue,
+    // so the row keeps the description without inventing a mark for it.
+    save_result(
+        &conn,
+        project.project_id,
+        "structure",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&structure).unwrap(),
+    )
+    .expect("save structure");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -509,8 +524,44 @@ fn test_analysis_cache_roundtrip() {
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
+    let cached_structure =
+        load_cached::<StructureStats>(&conn, project.project_id, "structure", &hash)
+            .unwrap()
+            .expect("structure cache hit");
+    assert_eq!(cached_structure.landmarks.len(), structure.landmarks.len());
+    assert_eq!(cached_structure.acts.len(), structure.acts.len());
+    assert_eq!(cached_structure.models.len(), structure.models.len());
+    assert_eq!(cached_structure.issues.len(), structure.issues.len());
+    assert_eq!(cached_structure.segment_count, structure.segment_count);
+    assert_eq!(cached_structure.chunked, structure.chunked);
+    assert_eq!(cached_structure.char_count, structure.char_count);
+    assert_eq!(cached_structure.turn_count, structure.turn_count);
+    assert_eq!(cached_structure.readable, structure.readable);
+    assert_eq!(cached_structure.note, structure.note);
+    if let (Some(cached), Some(fresh)) = (cached_structure.models.first(), structure.models.first())
+    {
+        assert_eq!(cached.model, fresh.model);
+        assert_eq!(cached.fit, fresh.fit);
+        assert_eq!(cached.beats.len(), fresh.beats.len());
+        assert_eq!(cached.found, fresh.found);
+        assert_eq!(cached.displaced, fresh.displaced);
+        assert_eq!(cached.missing, fresh.missing);
+    }
+    // The stored row keeps the absence of a score: the dimension describes a shape,
+    // it does not grade one.
+    let stored_score: Option<f32> = conn
+        .query_row(
+            "SELECT score FROM analysis_results WHERE dimension = 'structure'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("structure row");
+    assert!(
+        stored_score.is_none(),
+        "story structure must not be cached with a score"
+    );
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/structure/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
@@ -519,6 +570,7 @@ fn test_analysis_cache_roundtrip() {
         cliche.total_hits,
         dialogue.unit_count,
         explicit.total_hits,
+        structure.landmarks.len(),
         assessment.recommendations.len()
     );
 
@@ -534,9 +586,9 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: ten dimensions plus the assessment
+    // "重新分析" clears everything for the project: eleven dimensions plus the assessment
     // derived from them.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 11);
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 12);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -570,6 +622,8 @@ fn test_report_generation_and_export() {
     let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
     let dialogue = run_dialogue_analysis(&loaded).expect("dialogue analysis failed");
     let explicit = run_explicit_analysis(&loaded).expect("explicit language analysis failed");
+    let structure =
+        run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -586,6 +640,7 @@ fn test_report_generation_and_export() {
         cliche: &cliche,
         dialogue: &dialogue,
         explicit: &explicit,
+        structure: &structure,
         assessment: &assessment,
     });
 
@@ -606,6 +661,7 @@ fn test_report_generation_and_export() {
         "## 场景/设定",
         "## 陈词滥调",
         "## 显式语言",
+        "## 故事结构",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -762,8 +818,38 @@ fn test_report_generation_and_export() {
             "an empty explicit pass still has to say so"
         );
     }
+    // Story structure describes a shape and never grades one: the section names the
+    // landmarks it found, and where the signals cannot place anything it says so rather
+    // than filling the window with a guess.
+    assert!(
+        markdown.contains(&format!(
+            "地标 {} 个 · 转折点 {} 个",
+            structure.landmarks.len(),
+            structure.turn_count
+        )),
+        "story structure counts missing from the report"
+    );
+    assert!(
+        markdown.contains("本维度不给出评分：契合三幕不是优点"),
+        "story structure section missing its no-score note"
+    );
+    if structure.readable {
+        assert!(
+            markdown.contains("### 经典模型对照"),
+            "model comparison missing from the report"
+        );
+        assert!(
+            markdown.contains("#### 三幕结构：节拍落点"),
+            "beat table missing from the report"
+        );
+    } else {
+        assert!(
+            markdown.contains("本次不做模型对照"),
+            "a document too short for shape matching still has to say why"
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
@@ -774,6 +860,7 @@ fn test_report_generation_and_export() {
         cliche.total_hits,
         dialogue.unit_count,
         explicit.total_hits,
+        structure.landmarks.len(),
         assessment.recommendations.len()
     );
 
