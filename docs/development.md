@@ -374,7 +374,7 @@ Closes #42
 | `create_project` | `{ name }` | `Project` | 创建项目 |
 | `delete_project` | `{ project_id }` | - | 删除项目及其级联数据 |
 | `import_project` | `{ project_path }` | `Project` | 导入 TraceView 项目目录（`spawn_blocking` + `import-progress` 事件） |
-| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 冲突 + 主题 + 场景/设定 + 陈词滥调 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
+| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 冲突 + 主题 + 场景/设定 + 陈词滥调 + 对话/叙事比例 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
 | `analyze_projects` | `{ project_ids }` | `Vec<ProjectAnalysis>` | 多项目对比，始终读缓存 |
 | `analyze_t0` / `analyze_t1` | `{ file_path }` | `T0Stats` / `T1Stats` | 直接分析 `semantic_result.json`，调试用，不走缓存 |
 | `list_documents` | `{ project_id }` | `Vec<(doc_id, title)>` | 项目下的文档 |
@@ -745,7 +745,7 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 
 分析是纯函数（同一文档 → 同一结果），所以结果按输入指纹持久化，二次打开项目直接读缓存而不重算。
 
-**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, pacing, conflict, theme, setting, cliche, assessment}`。情节线在 `score` 列存 `coherence_score`、节奏在 `score` 列存 `pace_score`、冲突在 `score` 列存 `conflict_score`、主题在 `score` 列存 `theme_score`、场景在 `score` 列存 `setting_score`、陈词滥调在 `score` 列存 `cliche_score`（未检测到冲突用词、没有可用名词词汇、既没有点名地点也没有环境用词、或全文不足 1000 字不足以按万字密度评分时该列为 NULL——缺席本身也要被记住，读回来仍然是「未评分」而不是 0），这样分析历史不必解开 payload 也能横向比较。新增维度不需要改 `ANALYSIS_VERSION`：旧库缺少该维度的行，读取时天然 miss，会重算并补齐全部维度。
+**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, assessment}`。情节线在 `score` 列存 `coherence_score`、节奏在 `score` 列存 `pace_score`、冲突在 `score` 列存 `conflict_score`、主题在 `score` 列存 `theme_score`、场景在 `score` 列存 `setting_score`、陈词滥调在 `score` 列存 `cliche_score`（未检测到冲突用词、没有可用名词词汇、既没有点名地点也没有环境用词、或全文不足 1000 字不足以按万字密度评分时该列为 NULL——缺席本身也要被记住，读回来仍然是「未评分」而不是 0）；对话/叙事比例则**永远没有分数**：比例不是评级，30% 对白并不比 5% 更好或更坏，所以该维度的 `score` 恒为 NULL 而不是 0。这样分析历史不必解开 payload 也能横向比较。新增维度不需要改 `ANALYSIS_VERSION`：旧库缺少该维度的行，读取时天然 miss，会重算并补齐全部维度。
 
 `input_hash = SHA-256(ANALYSIS_VERSION ‖ 每个 block 的字节长度 ‖ block 的 JSON)`（`studio-analysis/src/hash.rs`）：
 
