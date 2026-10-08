@@ -776,6 +776,89 @@ export interface StructureStats {
   note: string;
 }
 
+/** One time expression found in the text. */
+export interface TimelineMarker {
+  /** The characters found, e.g. `2003年3月12日`. */
+  text: string;
+  /** `absolute` | `partial` | `relative` | `vague`. */
+  kind: string;
+  /** `year` | `month` | `day` | `month_day` | `offset` | `deictic` | `season` |
+   *  `time_of_day`. */
+  precision: string;
+  /** The segment the marker sits in, on the shared curve axis. */
+  section: string;
+  /** Document fraction at the marker (0-1). */
+  position: number;
+  /** The calendar date as `2003-03-12` / `2003-03` / `2003`; empty unless absolute. */
+  resolved: string;
+  /** Estimated signed distance in days for a relative marker (月≈30天, 年≈365天). */
+  offset_days: number;
+  /** Surrounding characters, with ellipses where they were cut. */
+  excerpt: string;
+}
+
+/** One step between two resolvable dates, in reading order. */
+export interface TimelineStep {
+  from_section: string;
+  from_date: string;
+  to_section: string;
+  to_date: string;
+  /** Days between them: positive forward, negative when the story goes back. */
+  days: number;
+}
+
+/** A finding about the document's timekeeping. */
+export interface TimelineIssue {
+  /** `no_markers` | `too_short` | `no_order` | `backstep` | `long_jump` |
+   *  `unmarked_stretch`. */
+  kind: string;
+  section: string;
+  detail: string;
+}
+
+/** Marker count for one segment of the shared curve axis. */
+export interface TimelinePoint {
+  label: string;
+  markers: number;
+}
+
+/**
+ * Time-line analysis. There is no score field: the dimension describes how a document
+ * keeps time rather than grading how well it does.
+ */
+export interface TimelineStats {
+  /** The expressions found, reading order. */
+  markers: TimelineMarker[];
+  /** Marker counts per segment, on the same axis as the pacing and conflict curves. */
+  curve: TimelinePoint[];
+  absolute_count: number;
+  partial_count: number;
+  relative_count: number;
+  vague_count: number;
+  /** `DATE` entities the import carries, which the scan does not read. The gap between
+   *  this and the counts above is dates written in a form the scan cannot read. */
+  entity_date_count: number;
+  first_date: string;
+  last_date: string;
+  /** Days between the first and last resolvable date; 0 when fewer than two. */
+  span_days: number;
+  /** Steps between resolvable dates that go backwards in the calendar. */
+  backsteps: TimelineStep[];
+  /** The largest forward steps. */
+  jumps: TimelineStep[];
+  /** Runs of segments carrying no marker: [first label, last label, how many]. */
+  unmarked_stretches: [string, string, number][];
+  issues: TimelineIssue[];
+  segment_count: number;
+  /** True when the segments are block chunks rather than sections. */
+  chunked: boolean;
+  char_count: number;
+  /** False when the text says nothing about when, or is too short to compare. */
+  readable: boolean;
+  /** Why `readable` is false, in words; empty when it is true. */
+  note: string;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -821,6 +904,7 @@ export interface ProjectAnalysis {
   dialogue: DialogueStats;
   explicit: ExplicitStats;
   structure: StructureStats;
+  timeline: TimelineStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

@@ -797,3 +797,83 @@ const STRUCTURE_ISSUE_STYLES: Record<string, string> = {
 export function structureIssueStyle(kind: string): string {
   return STRUCTURE_ISSUE_STYLES[kind] ?? STRUCTURE_ISSUE_STYLES.too_few_landmarks;
 }
+
+/** What kind of time expression a marker is. */
+const TIMELINE_KIND_LABELS: Record<string, string> = {
+  absolute: "绝对日期",
+  partial: "缺年的日期",
+  relative: "相对表达",
+  vague: "模糊表达",
+};
+
+export function timelineKindLabel(kind: string): string {
+  return TIMELINE_KIND_LABELS[kind] ?? kind;
+}
+
+/** How precisely an expression pins the moment down. */
+const TIMELINE_PRECISION_LABELS: Record<string, string> = {
+  year: "只到年",
+  month: "到月",
+  day: "到日",
+  month_day: "月日",
+  offset: "距离",
+  deictic: "指示",
+  season: "季节",
+  time_of_day: "时段",
+};
+
+export function timelinePrecisionLabel(precision: string): string {
+  return TIMELINE_PRECISION_LABELS[precision] ?? precision;
+}
+
+/** A finding about how the document keeps time. */
+const TIMELINE_ISSUE_LABELS: Record<string, string> = {
+  no_markers: "读不到时间",
+  too_short: "文本过短",
+  no_order: "无法排序",
+  backstep: "时间倒回",
+  long_jump: "大跳跃",
+  unmarked_stretch: "长时间无标记",
+};
+
+export function timelineIssueLabel(kind: string): string {
+  return TIMELINE_ISSUE_LABELS[kind] ?? kind;
+}
+
+/**
+ * Badge classes for a time-line note. Rose is the one finding the calendar settles —
+ * the dates really do go backwards. Amber marks the readings about distance and
+ * coverage; gray marks the three cases where the reading itself was impossible.
+ */
+const TIMELINE_ISSUE_STYLES: Record<string, string> = {
+  backstep: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+  long_jump: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  unmarked_stretch: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  no_markers: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  too_short: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  no_order: "bg-gray-500/15 text-text-muted border-gray-500/30",
+};
+
+export function timelineIssueStyle(kind: string): string {
+  return TIMELINE_ISSUE_STYLES[kind] ?? TIMELINE_ISSUE_STYLES.no_order;
+}
+
+/**
+ * A distance in days, said the way a reader would say it rather than the way it was
+ * measured. Months and years are the analysis' own approximations (30 and 365 days),
+ * which the section states next to any number that uses them.
+ */
+export function timelineSpanLabel(days: number): string {
+  const abs = Math.abs(days);
+  if (abs < 1) return "不足一天";
+  if (abs < 30) return `${abs} 天`;
+  if (abs < 365) return `${Math.round(abs / 30)} 个月`;
+  return `${(abs / 365).toFixed(1)} 年`;
+}
+
+/** The same distance with the direction it was measured in. */
+export function timelineSignedSpan(days: number): string {
+  if (days === 0) return "同一天";
+  return `${days > 0 ? "+" : "−"}${timelineSpanLabel(days)}`;
+}
+

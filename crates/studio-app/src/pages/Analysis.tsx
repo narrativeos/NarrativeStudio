@@ -9,6 +9,7 @@ import ExplicitSection from "../components/analysis/ExplicitSection";
 import SettingSection from "../components/analysis/SettingSection";
 import StructureSection from "../components/analysis/StructureSection";
 import ThemeSection from "../components/analysis/ThemeSection";
+import TimelineSection from "../components/analysis/TimelineSection";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
 import RadarChart from "../components/charts/RadarChart";
@@ -39,10 +40,11 @@ interface AnalysisProps {
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
  * + pacing + conflict + theme + setting + cliché + dialogue + explicit language
- * + story structure analysis plus a rule-based assessment for the selected project,
- * and presents the full portrait grouped by dimension: overview, assessment,
- * statistics, text diagnostics, structure, narrative, plot, pacing, conflict, theme,
- * setting, cliché, dialogue, explicit language and story structure.
+ * + story structure + time line analysis plus a rule-based assessment for the
+ * selected project, and presents the full portrait grouped by dimension: overview,
+ * assessment, statistics, text diagnostics, structure, narrative, plot, pacing,
+ * conflict, theme, setting, cliché, dialogue, explicit language, story structure
+ * and time line.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -133,6 +135,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
     dialogue,
     explicit,
     structure,
+    timeline,
   } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
   // Pacing, conflict and theme all segment the document the same way, so one list
@@ -796,6 +799,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
       {/* Story structure: where the document's own signals place a shape, never a score */}
       <StructureSection structure={structure} />
+
+      {/* Time line: what the text says about when, and whether its dates agree */}
+      <TimelineSection timeline={timeline} />
     </div>
   );
 }

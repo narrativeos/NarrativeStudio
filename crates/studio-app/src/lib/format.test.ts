@@ -51,6 +51,12 @@ import {
   structureModelLabel,
   structureStatusLabel,
   structureStatusStyle,
+  timelineIssueLabel,
+  timelineIssueStyle,
+  timelineKindLabel,
+  timelinePrecisionLabel,
+  timelineSignedSpan,
+  timelineSpanLabel,
   themeConcentrationLabel,
   themeReachLabel,
   themeReachStyle,
@@ -559,5 +565,53 @@ describe("story structure labels", () => {
     expect(structureIssueStyle("act_imbalance")).toContain("text-amber-400");
     expect(structureIssueStyle("too_few_landmarks")).toContain("text-text-muted");
     expect(structureIssueStyle("unknown_note")).toBe(structureIssueStyle("too_few_landmarks"));
+  });
+});
+
+describe("time line labels", () => {
+  it("names the four kinds of time expression apart", () => {
+    // A reader weighs these differently: a dated day, a date missing its year, a move
+    // measured from the narration, and a flavour of when.
+    expect(timelineKindLabel("absolute")).toBe("绝对日期");
+    expect(timelineKindLabel("partial")).toBe("缺年的日期");
+    expect(timelineKindLabel("relative")).toBe("相对表达");
+    expect(timelineKindLabel("vague")).toBe("模糊表达");
+  });
+
+  it("says how precisely a marker pins the moment", () => {
+    expect(timelinePrecisionLabel("day")).toBe("到日");
+    expect(timelinePrecisionLabel("year")).toBe("只到年");
+    expect(timelinePrecisionLabel("month_day")).toBe("月日");
+    expect(timelinePrecisionLabel("time_of_day")).toBe("时段");
+    expect(timelinePrecisionLabel("unknown")).toBe("unknown");
+  });
+
+  it("names what the dimension found, or could not do", () => {
+    expect(timelineIssueLabel("backstep")).toBe("时间倒回");
+    expect(timelineIssueLabel("no_order")).toBe("无法排序");
+    expect(timelineIssueLabel("unmarked_stretch")).toBe("长时间无标记");
+    expect(timelineIssueLabel("unknown")).toBe("unknown");
+  });
+
+  it("separates the calendar's own finding from the limits of the reading", () => {
+    // backstep is settled by the dates themselves; no_markers is about the scan.
+    expect(timelineIssueStyle("backstep")).toContain("text-rose-400");
+    expect(timelineIssueStyle("long_jump")).toContain("text-amber-400");
+    expect(timelineIssueStyle("no_markers")).toContain("text-text-muted");
+    expect(timelineIssueStyle("unknown_note")).toBe(timelineIssueStyle("no_order"));
+  });
+
+  it("says a distance the way a reader would", () => {
+    expect(timelineSpanLabel(0.5)).toBe("不足一天");
+    expect(timelineSpanLabel(3)).toBe("3 天");
+    expect(timelineSpanLabel(60)).toBe("2 个月");
+    expect(timelineSpanLabel(4899)).toBe("13.4 年");
+    expect(timelineSpanLabel(-4809)).toBe("13.2 年");
+  });
+
+  it("keeps the direction a distance was measured in", () => {
+    expect(timelineSignedSpan(3)).toBe("+3 天");
+    expect(timelineSignedSpan(-60)).toBe("−2 个月");
+    expect(timelineSignedSpan(0)).toBe("同一天");
   });
 });
