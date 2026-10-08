@@ -285,6 +285,30 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     ",
     )?;
 
+    // v12: generated reports.
+    //
+    // A report is stored as the rendered Markdown rather than re-derived on
+    // demand: an export has to stay reproducible after the analysis behind it was
+    // re-run or invalidated, and `exported_path` records the file the user
+    // actually saved. `report_id` is a UUID (as in `studio_core::Report`) because
+    // reports are only ever referenced directly, never renumbered.
+    migrate(
+        conn,
+        12,
+        "create_reports",
+        "
+        CREATE TABLE IF NOT EXISTS reports (
+            report_id UUID PRIMARY KEY,
+            project_id UUID NOT NULL,
+            title TEXT,
+            markdown TEXT NOT NULL,
+            exported_path TEXT,
+            created_at TIMESTAMP NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_reports_project ON reports(project_id);
+    ",
+    )?;
+
     Ok(())
 }
 
@@ -333,12 +357,12 @@ mod tests {
             .query_row(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN 
                  ('projects', 'documents', 'semantic_blocks', 'tokens', 'entities', 
-                  'noun_signals', 'analysis_results', 'concerns')",
+                  'noun_signals', 'analysis_results', 'concerns', 'reports')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 8);
+        assert_eq!(count, 9);
     }
 
     #[test]

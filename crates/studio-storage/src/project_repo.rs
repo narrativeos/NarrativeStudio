@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::Result;
 
-fn parse_uuid(s: &str) -> std::result::Result<Uuid, DuckError> {
+pub(crate) fn parse_uuid(s: &str) -> std::result::Result<Uuid, DuckError> {
     Uuid::parse_str(s).map_err(|e| {
         DuckError::FromSqlConversionFailure(
             0,
@@ -19,7 +19,7 @@ fn parse_uuid(s: &str) -> std::result::Result<Uuid, DuckError> {
     })
 }
 
-fn naive_to_utc(dt: chrono::NaiveDateTime) -> chrono::DateTime<chrono::Utc> {
+pub(crate) fn naive_to_utc(dt: chrono::NaiveDateTime) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_naive_utc_and_offset(dt, chrono::Utc)
 }
 
