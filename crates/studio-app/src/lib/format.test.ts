@@ -11,6 +11,11 @@ import {
   conflictTypeLabel,
   conflictVerdictLabel,
   conflictVerdictStyle,
+  dialogueIssueLabel,
+  dialogueIssueStyle,
+  dialogueKindLabel,
+  dialogueVerdictLabel,
+  dialogueVerdictStyle,
   entityTotal,
   formatFixed,
   formatInt,
@@ -330,5 +335,51 @@ describe("cliché labels", () => {
 
   it("falls back to the segment style for an unknown issue kind", () => {
     expect(clicheIssueStyle("stale")).toBe(clicheIssueStyle("dense_segment"));
+  });
+});
+
+describe("dialogue labels", () => {
+  it("localizes every mix verdict the analysis can emit", () => {
+    expect(dialogueVerdictLabel("none")).toBe("未见对白");
+    expect(dialogueVerdictLabel("sparse")).toBe("对白偏少");
+    expect(dialogueVerdictLabel("balanced")).toBe("对白与叙述混合");
+    expect(dialogueVerdictLabel("heavy")).toBe("以对白为主");
+  });
+
+  it("keeps every mix verdict off the red end: a ratio is not a grade", () => {
+    for (const verdict of ["none", "sparse", "balanced", "heavy"]) {
+      expect(dialogueVerdictStyle(verdict)).not.toContain("text-red-400");
+    }
+    expect(dialogueVerdictStyle("none")).toContain("text-text-muted");
+  });
+
+  it("falls back to the neutral style for an unknown verdict", () => {
+    expect(dialogueVerdictStyle("loud")).toBe(dialogueVerdictStyle("none"));
+  });
+
+  it("names how a piece of speech was detected", () => {
+    expect(dialogueKindLabel("quote")).toBe("引号");
+    expect(dialogueKindLabel("dash")).toBe("破折号");
+    expect(dialogueKindLabel("paren")).toBe("paren");
+  });
+
+  it("localizes every mix issue the analysis can emit", () => {
+    expect(dialogueIssueLabel("no_dialogue")).toBe("没有对白");
+    expect(dialogueIssueLabel("silent_segment")).toBe("长时间无对白");
+    expect(dialogueIssueLabel("flooded_segment")).toBe("局部对白过密");
+    expect(dialogueIssueLabel("monologue")).toBe("长独白");
+    expect(dialogueIssueLabel("telegraphic")).toBe("对白过短");
+    expect(dialogueIssueLabel("unquoted")).toBe("对白未加引号");
+    expect(dialogueIssueLabel("uneven")).toBe("各段比例不均");
+  });
+
+  it("reads unquoted speech as punctuation, not as a mistake", () => {
+    expect(dialogueIssueStyle("unquoted")).toContain("text-sky-400");
+    expect(dialogueIssueStyle("monologue")).toContain("text-amber-400");
+    expect(dialogueIssueStyle("no_dialogue")).toContain("text-text-muted");
+  });
+
+  it("falls back to the quiet-segment style for an unknown issue kind", () => {
+    expect(dialogueIssueStyle("whispered")).toBe(dialogueIssueStyle("silent_segment"));
   });
 });

@@ -501,6 +501,87 @@ export interface ClicheStats {
   cliche_score: number | null;
 }
 
+/** One segment of the dialogue curve. */
+export interface DialoguePoint {
+  section: string;
+  char_count: number;
+  /** Visible characters of this segment that are spoken. */
+  dialogue_chars: number;
+  /** Share of the segment's visible characters that is spoken (0-1). */
+  share: number;
+  /** `share` on the 0-100 scale the other dimensions' curves use. */
+  intensity: number;
+  /** Pieces of speech found here. */
+  units: number;
+  /** Longest single piece of speech here. */
+  longest_unit: number;
+  blocks: number;
+  blocks_with_dialogue: number;
+}
+
+/** One piece of speech; the longest are reported so the ratio has faces on it. */
+export interface DialogueSample {
+  section: string;
+  chars: number;
+  /** `quote` (between quotation marks) or `dash` (a line opened with ——). */
+  kind: string;
+  excerpt: string;
+}
+
+/** Something the mix does to the reading. */
+export interface DialogueIssue {
+  /** `no_dialogue` | `silent_segment` | `flooded_segment` | `monologue` |
+   *  `telegraphic` | `unquoted` | `uneven`. */
+  kind: string;
+  section: string;
+  detail: string;
+}
+
+export interface DialogueStats {
+  points: DialoguePoint[];
+  segment_count: number;
+  /** True when the segments are block chunks rather than sections. */
+  chunked: boolean;
+  /** Visible characters the shares are measured over. Quotation marks themselves
+   *  fall on the narrative side: they frame speech rather than speak it. */
+  char_count: number;
+  dialogue_chars: number;
+  narrative_chars: number;
+  /** 0-1. */
+  dialogue_share: number;
+  /** 0-1. */
+  narrative_share: number;
+  /** Pieces of speech found. */
+  unit_count: number;
+  quoted_units: number;
+  dash_units: number;
+  avg_unit_chars: number;
+  longest_unit: number;
+  /** Piece lengths in fixed buckets, short to long. */
+  unit_length_distribution: [string, number][];
+  blocks: number;
+  blocks_with_dialogue: number;
+  /** Longest run of consecutive speech-dominant blocks. */
+  longest_dialogue_run: number;
+  /** Longest run of consecutive blocks carrying no speech at all. */
+  longest_quiet_run: number;
+  /** Visible characters inside that longest quiet run. */
+  longest_quiet_chars: number;
+  silent_segments: number;
+  flooded_segments: number;
+  /** `none` | `sparse` | `balanced` | `heavy` — the mix, not its quality. */
+  verdict: "none" | "sparse" | "balanced" | "heavy";
+  /** Highest segment share minus lowest, over segments with enough text. */
+  spread: number;
+  peak_section: string;
+  peak_share: number;
+  quietest_section: string;
+  quietest_share: number;
+  /** The longest pieces of speech, longest first. */
+  samples: DialogueSample[];
+  issues: DialogueIssue[];
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -543,6 +624,7 @@ export interface ProjectAnalysis {
   theme: ThemeStats;
   setting: SettingStats;
   cliche: ClicheStats;
+  dialogue: DialogueStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

@@ -428,3 +428,88 @@ const CLICHE_ISSUE_STYLES: Record<string, string> = {
 export function clicheIssueStyle(kind: string): string {
   return CLICHE_ISSUE_STYLES[kind] ?? CLICHE_ISSUE_STYLES.dense_segment;
 }
+
+/**
+ * Localized label for how much of the text is spoken.
+ *
+ * `none` says no speech was detected, not that nobody speaks: a text whose source
+ * carries no quotation marks looks the same to the detector. Mirrors
+ * `dialogue_verdict_label` in `studio-report::markdown`.
+ */
+const DIALOGUE_VERDICT_LABELS: Record<string, string> = {
+  none: "未见对白",
+  sparse: "对白偏少",
+  balanced: "对白与叙述混合",
+  heavy: "以对白为主",
+};
+
+export function dialogueVerdictLabel(verdict: string): string {
+  return DIALOGUE_VERDICT_LABELS[verdict] ?? verdict;
+}
+
+/**
+ * Badge classes for a dialogue verdict. No verdict is red: a ratio is a measurement,
+ * not a grade, so the colors only separate the shapes (quiet, mixed, speech-led)
+ * rather than rank them.
+ */
+const DIALOGUE_VERDICT_STYLES: Record<string, string> = {
+  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  sparse: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  balanced: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  heavy: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+};
+
+export function dialogueVerdictStyle(verdict: string): string {
+  return DIALOGUE_VERDICT_STYLES[verdict] ?? DIALOGUE_VERDICT_STYLES.none;
+}
+
+/**
+ * Localized label for how one piece of speech was recognised. Mirrors
+ * `dialogue_kind_label` in `studio-report::markdown`.
+ */
+const DIALOGUE_KIND_LABELS: Record<string, string> = {
+  quote: "引号",
+  dash: "破折号",
+};
+
+export function dialogueKindLabel(kind: string): string {
+  return DIALOGUE_KIND_LABELS[kind] ?? kind;
+}
+
+/**
+ * Localized label for what the mix does to the reading. Mirrors `dialogue_issue_label`
+ * in `studio-report::markdown`.
+ */
+const DIALOGUE_ISSUE_LABELS: Record<string, string> = {
+  no_dialogue: "没有对白",
+  silent_segment: "长时间无对白",
+  flooded_segment: "局部对白过密",
+  monologue: "长独白",
+  telegraphic: "对白过短",
+  unquoted: "对白未加引号",
+  uneven: "各段比例不均",
+};
+
+export function dialogueIssueLabel(kind: string): string {
+  return DIALOGUE_ISSUE_LABELS[kind] ?? kind;
+}
+
+/**
+ * Badge classes for a dialogue issue. Amber marks the shapes usually worth a look
+ * (a 300-character monologue, replies too short to be conversation); sky marks what
+ * is only a property of the text or its punctuation, and gray states a fact about a
+ * text that may not be narrative at all.
+ */
+const DIALOGUE_ISSUE_STYLES: Record<string, string> = {
+  no_dialogue: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  silent_segment: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  flooded_segment: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  monologue: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  telegraphic: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  unquoted: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  uneven: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+};
+
+export function dialogueIssueStyle(kind: string): string {
+  return DIALOGUE_ISSUE_STYLES[kind] ?? DIALOGUE_ISSUE_STYLES.silent_segment;
+}
