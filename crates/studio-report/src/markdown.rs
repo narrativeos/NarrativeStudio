@@ -7,7 +7,7 @@
 
 use chrono::{DateTime, Utc};
 
-use studio_analysis::{Assessment, PlotStats, T0Stats, T1Stats, ANALYSIS_VERSION};
+use studio_analysis::{Assessment, PacingStats, PlotStats, T0Stats, T1Stats, ANALYSIS_VERSION};
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
 /// analysis, so a report can be produced straight from cached rows.
@@ -17,6 +17,7 @@ pub struct ReportInput<'a> {
     pub t0: &'a T0Stats,
     pub t1: &'a T1Stats,
     pub plot: &'a PlotStats,
+    pub pacing: &'a PacingStats,
     pub assessment: &'a Assessment,
 }
 
@@ -35,6 +36,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_structure(&mut out, input.t1);
     write_narrative(&mut out, input.t1);
     write_plot(&mut out, input.plot);
+    write_pacing(&mut out, input.pacing);
     write_footer(&mut out);
     out
 }
@@ -308,6 +310,88 @@ fn write_plot(out: &mut String, plot: &PlotStats) {
     }
 }
 
+/// The pacing curve, the stretches that never move and the chapters that drag.
+///
+/// The verdict is not the arc's shape: the arc says where the peak sits, this says
+/// whether the curve moves at all. Tension is printed on the same 0-100 scale the
+/// UI draws, so a number read on screen can be found in the report.
+fn write_pacing(out: &mut String, pacing: &PacingStats) {
+    out.push_str("## 节奏\n\n");
+    out.push_str(&format!(
+        "节奏评分：**{:.1} / 100**；判定：**{}**（`{}`）· {} 段 · 张力标准差 {:.1}\n\n",
+        pacing.pace_score,
+        pacing_verdict_label(&pacing.verdict),
+        pacing.verdict,
+        pacing.segment_count,
+        pacing.tension_stdev
+    ));
+    if pacing.points.is_empty() {
+        out.push_str("未识别到节奏曲线：文档没有可切分的段落。\n\n");
+        return;
+    }
+    out.push_str(
+        "| 章节 | 张力 | 字数 | 句子 | 平均句长 | 对话占比 |\n| --- | --- | ---: | ---: | ---: | ---: |\n",
+    );
+    for p in pacing.points.iter().take(MAX_ROWS) {
+        out.push_str(&format!(
+            "| {} | {} {:.0} | {} | {} | {:.1} | {:.0}% |\n",
+            esc(&p.section),
+            bar(p.tension / 100.0),
+            p.tension,
+            p.char_count,
+            p.sentence_count,
+            p.avg_sentence_chars,
+            p.dialogue_share * 100.0
+        ));
+    }
+    out.push_str(&omitted(pacing.points.len(), MAX_ROWS));
+    out.push('\n');
+
+    if !pacing.flat_stretches.is_empty() {
+        out.push_str(&format!(
+            "### 平淡段落（{} 处）\n\n",
+            pacing.flat_stretches.len()
+        ));
+        out.push_str("| 起 | 止 | 段数 | 平均张力 | 字数 |\n| --- | --- | ---: | ---: | ---: |\n");
+        for s in pacing.flat_stretches.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} | {} | {:.0} | {} |\n",
+                esc(&s.from_section),
+                esc(&s.to_section),
+                s.sections,
+                s.mean_tension,
+                s.char_count
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !pacing.drag_sections.is_empty() {
+        out.push_str(&format!(
+            "### 拖沓章节（{} 处）\n\n",
+            pacing.drag_sections.len()
+        ));
+        out.push_str("| 章节 | 字数 | 相对均长 | 张力 |\n| --- | ---: | ---: | ---: |\n");
+        for d in pacing.drag_sections.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} | {:.1}× | {:.0} |\n",
+                esc(&d.section),
+                d.char_count,
+                d.length_ratio,
+                d.tension
+            ));
+        }
+        out.push('\n');
+    }
+
+    if pacing.chunked {
+        out.push_str(&format!(
+            "文档章节不足，曲线按 {} 个等长块切分，不参与评分。\n\n",
+            pacing.segment_count
+        ));
+    }
+}
+
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
     out.push_str("_本报告由 NarrativeStudio 基于导入的分析结果自动生成。_\n");
@@ -385,12 +469,21 @@ fn plot_shape_label(shape: &str) -> &'static str {
     }
 }
 
+fn pacing_verdict_label(verdict: &str) -> &'static str {
+    match verdict {
+        "flat" => "单调",
+        "varied" => "起伏",
+        "spiky" => "跳跃",
+        _ => "未知",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use studio_analysis::{
-        ArcPoint, DimensionScore, NarrativeArc, Plotline, PlotlineStage, Readability,
-        Recommendation, RepeatedPhrase, SectionInfo, TurningPoint,
+        ArcPoint, DimensionScore, DragSection, FlatStretch, NarrativeArc, PacingPoint, Plotline,
+        PlotlineStage, Readability, Recommendation, RepeatedPhrase, SectionInfo, TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -461,6 +554,25 @@ mod tests {
         }
     }
 
+    /// What `run_pacing_analysis` returns for an empty document: nothing judged.
+    fn empty_pacing() -> PacingStats {
+        PacingStats {
+            points: vec![],
+            segment_count: 0,
+            chunked: false,
+            verdict: "flat".into(),
+            tension_stdev: 0.0,
+            sentence_stdev: 0.0,
+            min_tension: 0.0,
+            max_tension: 0.0,
+            mean_section_chars: 0.0,
+            longest_flat_run: 0,
+            flat_stretches: vec![],
+            drag_sections: vec![],
+            pace_score: 100.0,
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -476,13 +588,20 @@ mod tests {
 
     #[test]
     fn test_render_is_deterministic() {
-        let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
+        let (t0, t1, plot, pacing, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            clean_assessment(),
+        );
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -490,13 +609,20 @@ mod tests {
 
     #[test]
     fn test_golden_minimal_report() {
-        let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
+        let (t0, t1, plot, pacing, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            clean_assessment(),
+        );
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         let expected = "\
@@ -586,6 +712,12 @@ mod tests {
 
 未识别到情节线：没有实体或名词信号达到 3 次的提及门槛。
 
+## 节奏
+
+节奏评分：**100.0 / 100**；判定：**单调**（`flat`）· 0 段 · 张力标准差 0.0
+
+未识别到节奏曲线：文档没有可切分的段落。
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -604,13 +736,14 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 detail: "—".into(),
             });
         }
-        let (t0, t1, plot) = (empty_t0(), empty_t1(), empty_plot());
+        let (t0, t1, plot, pacing) = (empty_t0(), empty_t1(), empty_plot(), empty_pacing());
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -623,6 +756,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 章节结构",
             "## 叙事分析",
             "## 情节线",
+            "## 节奏",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -632,12 +766,12 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
                 "missing dimension {i}"
             );
         }
-        assert_eq!(md.matches("\n## ").count(), 7, "exactly seven H2 sections");
+        assert_eq!(md.matches("\n## ").count(), 8, "exactly eight H2 sections");
     }
 
     #[test]
     fn test_recommendations_grouped_and_counted() {
-        let (t0, t1, plot) = (empty_t0(), empty_t1(), empty_plot());
+        let (t0, t1, plot, pacing) = (empty_t0(), empty_t1(), empty_plot(), empty_pacing());
         let mut a = clean_assessment();
         a.recommendations = vec![
             Recommendation {
@@ -659,6 +793,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -669,7 +804,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_table_cells_are_escaped() {
-        let (mut t0, mut t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
+        let (mut t0, mut t1, plot, pacing, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            clean_assessment(),
+        );
         t0.top_entities = vec![("A|B".into(), 3)];
         t1.sections = vec![SectionInfo {
             path: "第一章\n第二节".into(),
@@ -682,6 +823,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -698,7 +840,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_long_lists_are_capped_and_announced() {
-        let (mut t0, mut t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
+        let (mut t0, mut t1, plot, pacing, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            clean_assessment(),
+        );
         t0.top_words = (0..25).map(|i| (format!("w{i}"), i)).collect();
         t0.top_repeated_phrases = (0..25)
             .map(|i| RepeatedPhrase {
@@ -719,6 +867,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -732,7 +881,13 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     #[test]
     fn test_arc_renders_bar_and_shape() {
-        let (t0, mut t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
+        let (t0, mut t1, plot, pacing, a) = (
+            empty_t0(),
+            empty_t1(),
+            empty_plot(),
+            empty_pacing(),
+            clean_assessment(),
+        );
         t1.arc.shape = "mountain".into();
         t1.arc.points = vec![
             ArcPoint {
@@ -757,6 +912,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -770,6 +926,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
     fn test_plot_section_renders_threads_turns_and_dangling_threads() {
         let (t0, t1, a) = (empty_t0(), empty_t1(), clean_assessment());
         let mut plot = empty_plot();
+        let pacing = empty_pacing();
         plot.coherence_score = 84.0;
         plot.thread_count = 3;
         plot.section_count = 5;
@@ -824,6 +981,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             t0: &t0,
             t1: &t1,
             plot: &plot,
+            pacing: &pacing,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -835,5 +993,71 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("| 第三章 | 60% | Tobey | Chase |"));
         assert!(md.contains("铺垫未回收（1）：Chase"));
         assert!(md.contains("结尾登场（1）：Tobey"));
+    }
+
+    #[test]
+    fn test_pacing_section_renders_curve_stretches_and_drag() {
+        let (t0, t1, plot, a) = (empty_t0(), empty_t1(), empty_plot(), clean_assessment());
+        let mut pacing = empty_pacing();
+        pacing.pace_score = 62.0;
+        pacing.verdict = "varied".into();
+        pacing.segment_count = 4;
+        pacing.tension_stdev = 18.4;
+        pacing.points = vec![
+            PacingPoint {
+                section: "第一章".into(),
+                char_count: 900,
+                sentence_count: 40,
+                avg_sentence_chars: 22.0,
+                sentence_stdev: 9.0,
+                dialogue_share: 0.05,
+                entity_density: 3.0,
+                tension: 12.0,
+            },
+            PacingPoint {
+                section: "第二章".into(),
+                char_count: 1200,
+                sentence_count: 55,
+                avg_sentence_chars: 21.0,
+                sentence_stdev: 11.0,
+                dialogue_share: 0.42,
+                entity_density: 8.0,
+                tension: 76.0,
+            },
+        ];
+        pacing.flat_stretches = vec![FlatStretch {
+            from_section: "第一章".into(),
+            to_section: "第二章".into(),
+            sections: 4,
+            mean_tension: 14.0,
+            char_count: 4200,
+        }];
+        pacing.drag_sections = vec![DragSection {
+            section: "第一章".into(),
+            char_count: 2100,
+            tension: 12.0,
+            length_ratio: 2.4,
+        }];
+
+        let input = ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            assessment: &a,
+        };
+        let md = render_markdown(&input);
+        assert!(md.contains(
+            "节奏评分：**62.0 / 100**；判定：**起伏**（`varied`）· 4 段 · 张力标准差 18.4"
+        ));
+        // Tension is drawn on the same 0-100 scale the UI charts use.
+        assert!(md.contains("| 第一章 | █░░░░░░░░░ 12 | 900 | 40 | 22.0 | 5% |"));
+        assert!(md.contains("| 第二章 | ████████░░ 76 | 1200 | 55 | 21.0 | 42% |"));
+        assert!(md.contains("### 平淡段落（1 处）"));
+        assert!(md.contains("| 第一章 | 第二章 | 4 | 14 | 4200 |"));
+        assert!(md.contains("### 拖沓章节（1 处）"));
+        assert!(md.contains("| 第一章 | 2100 | 2.4× | 12 |"));
     }
 }

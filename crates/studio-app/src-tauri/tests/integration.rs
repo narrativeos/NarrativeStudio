@@ -8,12 +8,13 @@
 //! 5. Run T0 analysis
 //! 6. Run T1 analysis
 //! 7. Run plot analysis
+//! 8. Run pacing analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
-    document_hash, run_assessment, run_plot_analysis, run_t0_analysis, run_t1_analysis, Assessment,
-    PlotStats, T0Stats, T1Stats,
+    document_hash, run_assessment, run_pacing_analysis, run_plot_analysis, run_t0_analysis,
+    run_t1_analysis, Assessment, PacingStats, PlotStats, T0Stats, T1Stats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -197,6 +198,7 @@ fn test_analysis_cache_roundtrip() {
     let t0 = run_t0_analysis(&loaded).expect("T0 failed");
     let t1 = run_t1_analysis(&loaded).expect("T1 failed");
     let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
+    let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -228,6 +230,16 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&plot).unwrap(),
     )
     .expect("save plot");
+    save_result(
+        &conn,
+        project.project_id,
+        "pacing",
+        "t1",
+        &hash,
+        Some(pacing.pace_score as f32),
+        &serde_json::to_string(&pacing).unwrap(),
+    )
+    .expect("save pacing");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -281,14 +293,33 @@ fn test_analysis_cache_roundtrip() {
         serde_json::to_string(&plot).unwrap(),
         "cached plot analysis must round-trip exactly"
     );
+    let cached_pacing = load_cached::<PacingStats>(&conn, project.project_id, "pacing", &hash)
+        .unwrap()
+        .expect("pacing cache hit");
+    // Not a string comparison: the payload lives in a JSON column, and DuckDB
+    // re-formats doubles on the way out, so a standard deviation can come back one
+    // unit in the last place away from what was written. The numbers are what have
+    // to survive the round trip.
+    assert_eq!(cached_pacing.segment_count, pacing.segment_count);
+    assert_eq!(cached_pacing.verdict, pacing.verdict);
+    assert_eq!(cached_pacing.points.len(), pacing.points.len());
+    for (cached, fresh) in cached_pacing.points.iter().zip(pacing.points.iter()) {
+        assert_eq!(cached.section, fresh.section);
+        assert!((cached.tension - fresh.tension).abs() < 1e-9);
+    }
+    assert!(
+        (cached_pacing.pace_score - pacing.pace_score).abs() < 1e-6,
+        "pace score must survive the cache"
+    );
     let cached_assessment =
         load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
             .unwrap()
             .expect("assessment cache hit");
     assert_eq!(cached_assessment.overall, assessment.overall);
     println!(
-        "✓ Cache hit for t0/t1/plot/assessment ({} threads, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/assessment ({} threads, {} segments, {} recommendations)",
         plot.thread_count,
+        pacing.segment_count,
         assessment.recommendations.len()
     );
 
@@ -304,8 +335,8 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 4);
+    // "重新分析" clears everything for the project: five dimensions.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 5);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -332,6 +363,7 @@ fn test_report_generation_and_export() {
     let t0 = run_t0_analysis(&loaded).expect("T0 failed");
     let t1 = run_t1_analysis(&loaded).expect("T1 failed");
     let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
+    let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -341,6 +373,7 @@ fn test_report_generation_and_export() {
         t0: &t0,
         t1: &t1,
         plot: &plot,
+        pacing: &pacing,
         assessment: &assessment,
     });
 
@@ -354,6 +387,7 @@ fn test_report_generation_and_export() {
         "## 章节结构",
         "## 叙事分析",
         "## 情节线",
+        "## 节奏",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -364,6 +398,7 @@ fn test_report_generation_and_export() {
         "情节连贯性：**{:.1} / 100**",
         plot.coherence_score
     )));
+    assert!(markdown.contains(&format!("节奏评分：**{:.1} / 100**", pacing.pace_score)));
     assert!(
         !markdown.contains("NaN") && !markdown.contains("Inf"),
         "a non-finite number leaked into the report"
@@ -382,11 +417,19 @@ fn test_report_generation_and_export() {
             line.subject
         );
     }
+    if let Some(point) = pacing.points.first() {
+        assert!(
+            markdown.contains(&point.section),
+            "first pacing segment {} missing from the report",
+            point.section
+        );
+    }
     println!(
-        "✓ report rendered: {} lines, {} bytes ({} threads, {} recommendations)",
+        "✓ report rendered: {} lines, {} bytes ({} threads, {} pacing segments, {} recommendations)",
         markdown.lines().count(),
         markdown.len(),
         plot.thread_count,
+        pacing.segment_count,
         assessment.recommendations.len()
     );
 

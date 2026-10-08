@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use duckdb::Connection;
 use serde::Serialize;
 use studio_analysis::{
-    document_hash, run_assessment, run_plot_analysis, run_t0_analysis, run_t1_analysis, Assessment,
-    PlotStats, T0Stats, T1Stats,
+    document_hash, run_assessment, run_pacing_analysis, run_plot_analysis, run_t0_analysis,
+    run_t1_analysis, Assessment, PacingStats, PlotStats, T0Stats, T1Stats,
 };
 use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
@@ -383,7 +383,8 @@ fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
     run_t1_analysis(&doc).map_err(|e| e.to_string())
 }
 
-/// Analysis result for a single project (T0 + T1 + plot + rule-based assessment).
+/// Analysis result for a single project (T0 + T1 + plot + pacing + rule-based
+/// assessment).
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectAnalysis {
     pub project_id: String,
@@ -391,6 +392,7 @@ pub struct ProjectAnalysis {
     pub t0: T0Stats,
     pub t1: T1Stats,
     pub plot: PlotStats,
+    pub pacing: PacingStats,
     pub assessment: Assessment,
     /// True when the numbers came from the persisted cache instead of being
     /// recomputed, so the UI can say where the result came from.
@@ -458,15 +460,20 @@ fn analyze_project_inner(
             .map_err(|e| e.to_string())?;
         let plot = load_cached::<PlotStats>(&storage.conn, pid, "plot", &input_hash)
             .map_err(|e| e.to_string())?;
+        let pacing = load_cached::<PacingStats>(&storage.conn, pid, "pacing", &input_hash)
+            .map_err(|e| e.to_string())?;
         let assessment = load_cached::<Assessment>(&storage.conn, pid, "assessment", &input_hash)
             .map_err(|e| e.to_string())?;
-        if let (Some(t0), Some(t1), Some(plot), Some(assessment)) = (t0, t1, plot, assessment) {
+        if let (Some(t0), Some(t1), Some(plot), Some(pacing), Some(assessment)) =
+            (t0, t1, plot, pacing, assessment)
+        {
             return Ok(ProjectAnalysis {
                 project_id: pid.to_string(),
                 name: project.name,
                 t0,
                 t1,
                 plot,
+                pacing,
                 assessment,
                 cached: true,
             });
@@ -476,34 +483,30 @@ fn analyze_project_inner(
     let t0 = run_t0_analysis(&doc).map_err(|e| e.to_string())?;
     let t1 = run_t1_analysis(&doc).map_err(|e| e.to_string())?;
     let plot = run_plot_analysis(&doc).map_err(|e| e.to_string())?;
+    let pacing = run_pacing_analysis(&doc).map_err(|e| e.to_string())?;
     let assessment = run_assessment(&t0, &t1);
 
-    // A cache-write failure must not lose the analysis the user is waiting for:
-    // warn and return the fresh result, which simply costs a recompute next time.
-    if let Err(e) = persist_analysis(
-        &storage.conn,
-        pid,
-        &input_hash,
-        &t0,
-        &t1,
-        &plot,
-        &assessment,
-    ) {
-        eprintln!("分析结果写入缓存失败（本次结果仍已返回）: {e}");
-    }
-
-    Ok(ProjectAnalysis {
+    let analysis = ProjectAnalysis {
         project_id: pid.to_string(),
         name: project.name,
         t0,
         t1,
         plot,
+        pacing,
         assessment,
         cached: false,
-    })
+    };
+
+    // A cache-write failure must not lose the analysis the user is waiting for:
+    // warn and return the fresh result, which simply costs a recompute next time.
+    if let Err(e) = persist_analysis(&storage.conn, pid, &input_hash, &analysis) {
+        eprintln!("分析结果写入缓存失败（本次结果仍已返回）: {e}");
+    }
+
+    Ok(analysis)
 }
 
-/// Persist the four computed dimensions under `input_hash`, plus the
+/// Persist the five computed dimensions under `input_hash`, plus the
 /// assessment's recommendations as queryable concern rows.
 ///
 /// The recommendation rows are what let a later feature (report export) list a
@@ -512,56 +515,57 @@ fn persist_analysis(
     conn: &Connection,
     project_id: Uuid,
     input_hash: &str,
-    t0: &T0Stats,
-    t1: &T1Stats,
-    plot: &PlotStats,
-    assessment: &Assessment,
+    analysis: &ProjectAnalysis,
 ) -> Result<(), String> {
-    save_result(
-        conn,
-        project_id,
-        "t0",
-        "t0",
-        input_hash,
-        None,
-        &serde_json::to_string(t0).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    save_result(
-        conn,
-        project_id,
-        "t1",
-        "t1",
-        input_hash,
-        None,
-        &serde_json::to_string(t1).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    // Plot sits at the T1 tier: same input, same cost, purely structural. Its
-    // score is stored so the analysis history can be compared without unpacking
-    // the payload.
-    save_result(
-        conn,
-        project_id,
-        "plot",
-        "t1",
-        input_hash,
-        Some(plot.coherence_score as f32),
-        &serde_json::to_string(plot).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    // Plot and pacing sit at the T1 tier: same input, same cost, purely
+    // structural. Their scores are stored so the analysis history can be compared
+    // without unpacking the payload.
+    let dimensions: Vec<(&str, &str, Option<f32>, String)> = vec![
+        (
+            "t0",
+            "t0",
+            None,
+            serde_json::to_string(&analysis.t0).map_err(|e| e.to_string())?,
+        ),
+        (
+            "t1",
+            "t1",
+            None,
+            serde_json::to_string(&analysis.t1).map_err(|e| e.to_string())?,
+        ),
+        (
+            "plot",
+            "t1",
+            Some(analysis.plot.coherence_score as f32),
+            serde_json::to_string(&analysis.plot).map_err(|e| e.to_string())?,
+        ),
+        (
+            "pacing",
+            "t1",
+            Some(analysis.pacing.pace_score as f32),
+            serde_json::to_string(&analysis.pacing).map_err(|e| e.to_string())?,
+        ),
+    ];
+    for (dimension, tier, score, data) in dimensions {
+        save_result(conn, project_id, dimension, tier, input_hash, score, &data)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // The assessment row is written apart from the loop because its id anchors the
+    // concern rows.
     let assessment_id = save_result(
         conn,
         project_id,
         "assessment",
         "t1",
         input_hash,
-        Some(assessment.overall as f32),
-        &serde_json::to_string(assessment).map_err(|e| e.to_string())?,
+        Some(analysis.assessment.overall as f32),
+        &serde_json::to_string(&analysis.assessment).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
 
-    let concerns: Vec<Concern> = assessment
+    let concerns: Vec<Concern> = analysis
+        .assessment
         .recommendations
         .iter()
         .map(|r| Concern {
@@ -693,6 +697,7 @@ async fn report_generate(
         t0: &analysis.t0,
         t1: &analysis.t1,
         plot: &analysis.plot,
+        pacing: &analysis.pacing,
         assessment: &analysis.assessment,
     });
 
