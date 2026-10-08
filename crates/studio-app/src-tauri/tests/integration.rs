@@ -23,8 +23,9 @@ use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
     run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
     run_setting_analysis, run_structure_analysis, run_t0_analysis, run_t1_analysis,
-    run_theme_analysis, Assessment, ClicheStats, ConflictStats, DialogueStats, ExplicitStats,
-    PacingStats, PlotStats, SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats,
+    run_theme_analysis, run_timeline_analysis, Assessment, ClicheStats, ConflictStats,
+    DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats, StructureStats, T0Stats,
+    T1Stats, ThemeStats, TimelineStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -217,6 +218,7 @@ fn test_analysis_cache_roundtrip() {
     let explicit = run_explicit_analysis(&loaded).expect("explicit language analysis failed");
     let structure =
         run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
+    let timeline = run_timeline_analysis(&loaded).expect("time line analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -333,6 +335,18 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&structure).unwrap(),
     )
     .expect("save structure");
+    // The time line carries no score either: a story that never writes a date is not
+    // keeping time badly, so the row keeps the description without a mark.
+    save_result(
+        &conn,
+        project.project_id,
+        "timeline",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&timeline).unwrap(),
+    )
+    .expect("save timeline");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -560,8 +574,41 @@ fn test_analysis_cache_roundtrip() {
         stored_score.is_none(),
         "story structure must not be cached with a score"
     );
+    let cached_timeline =
+        load_cached::<TimelineStats>(&conn, project.project_id, "timeline", &hash)
+            .unwrap()
+            .expect("timeline cache hit");
+    assert_eq!(cached_timeline.markers.len(), timeline.markers.len());
+    assert_eq!(cached_timeline.absolute_count, timeline.absolute_count);
+    assert_eq!(
+        cached_timeline.entity_date_count,
+        timeline.entity_date_count
+    );
+    assert_eq!(cached_timeline.segment_count, timeline.segment_count);
+    assert_eq!(cached_timeline.chunked, timeline.chunked);
+    assert_eq!(cached_timeline.char_count, timeline.char_count);
+    assert_eq!(cached_timeline.readable, timeline.readable);
+    assert_eq!(cached_timeline.note, timeline.note);
+    // The fixture's CJK is a 1:1 substitution, so every date unit in it was scrambled: the
+    // dimension has to report that dates exist without pretending it can order them.
+    assert_eq!(cached_timeline.entity_date_count, 19);
+    assert!(
+        cached_timeline.markers.is_empty(),
+        "the scrambled fixture must not yield readable dates"
+    );
+    let stored_timeline_score: Option<f32> = conn
+        .query_row(
+            "SELECT score FROM analysis_results WHERE dimension = 'timeline'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("timeline row");
+    assert!(
+        stored_timeline_score.is_none(),
+        "the time line must not be cached with a score"
+    );
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/structure/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/structure/timeline/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} markers, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
@@ -571,6 +618,7 @@ fn test_analysis_cache_roundtrip() {
         dialogue.unit_count,
         explicit.total_hits,
         structure.landmarks.len(),
+        timeline.markers.len(),
         assessment.recommendations.len()
     );
 
@@ -586,9 +634,9 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: eleven dimensions plus the assessment
+    // "重新分析" clears everything for the project: twelve dimensions plus the assessment
     // derived from them.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 12);
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 13);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -624,6 +672,7 @@ fn test_report_generation_and_export() {
     let explicit = run_explicit_analysis(&loaded).expect("explicit language analysis failed");
     let structure =
         run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
+    let timeline = run_timeline_analysis(&loaded).expect("time line analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -641,6 +690,7 @@ fn test_report_generation_and_export() {
         dialogue: &dialogue,
         explicit: &explicit,
         structure: &structure,
+        timeline: &timeline,
         assessment: &assessment,
     });
 
@@ -662,9 +712,15 @@ fn test_report_generation_and_export() {
         "## 陈词滥调",
         "## 显式语言",
         "## 故事结构",
+        "## 时间线",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
+    // The fixture's date units were scrambled by desensitization, so the time-line section
+    // has to report dates it cannot read rather than invent an order: no ordering, and the
+    // entity cross-check named.
+    assert!(markdown.contains("本次不做时间排序"));
+    assert!(markdown.contains("导入的实体标注里有 19 处日期"));
     assert!(markdown.starts_with(&format!("# {} · 叙事分析报告", project.name)));
     assert!(markdown.contains(&format!("**{:.1} / 100**", assessment.overall)));
     assert!(markdown.contains(&format!("| 字数 | {} |", t0.char_count)));
