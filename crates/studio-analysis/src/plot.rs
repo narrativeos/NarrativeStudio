@@ -272,7 +272,9 @@ fn build_thread(
         longest_gap,
         shape: classify_shape(
             coverage,
+            idxs.len() as u32,
             longest_gap,
+            mentions,
             idxs[0],
             idxs[idxs.len() - 1],
             section_count,
@@ -287,7 +289,9 @@ fn build_thread(
 /// though it is also short.
 fn classify_shape(
     coverage: f64,
+    touched: u32,
     longest_gap: u32,
+    mentions: u32,
     first_idx: usize,
     last_idx: usize,
     section_count: usize,
@@ -306,6 +310,11 @@ fn classify_shape(
     }
     if longest_gap >= 2 {
         return "intermittent";
+    }
+    // Concentrated in one or two neighbouring sections and heavy there: a burst of
+    // activity rather than a thread that runs.
+    if touched <= 2 && mentions >= 2 * MIN_MENTIONS {
+        return "burst";
     }
     "minor"
 }
@@ -570,6 +579,21 @@ mod tests {
         assert_eq!(ty.longest_gap, 2);
         assert_eq!(ty.shape, "intermittent");
         assert_eq!(ty.stages[1].gap_before, 2);
+    }
+
+    #[test]
+    fn test_heavy_in_two_neighbouring_sections_is_a_burst() {
+        let doc = doc_of(vec![
+            person("S1", &["Marlowe"]),
+            person("S2", &["Marlowe", "Ty", "Ty", "Ty"]),
+            person("S3", &["Marlowe"]),
+            person("S4", &["Marlowe", "Ty", "Ty", "Ty"]),
+            person("S5", &["Marlowe"]),
+        ]);
+        let stats = run_plot_analysis(&doc).unwrap();
+        let ty = stats.plotlines.iter().find(|p| p.subject == "Ty").unwrap();
+        assert_eq!(ty.mentions, 6);
+        assert_eq!(ty.shape, "burst");
     }
 
     #[test]
