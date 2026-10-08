@@ -14,16 +14,20 @@ use studio_core::project::Project;
 use studio_import::parse_semantic_result;
 use studio_storage::{create, list, load_document, run_migrations, save_document};
 
-/// Path to a real semantic_result.json for testing.
-/// Override with NARRATIVE_TEST_FILE env var if needed.
+/// Path to the semantic_result.json fixture used by these tests.
+///
+/// Defaults to the committed repo fixture (`tests/fixtures/`), so the suite runs
+/// on any machine and on CI. `NARRATIVE_TEST_FILE` overrides it — point it at a
+/// full TraceView `semantic_result.json` to smoke-test against real data.
 fn test_file_path() -> String {
     std::env::var("NARRATIVE_TEST_FILE").unwrap_or_else(|_| {
         format!(
-            "{}/.TraceView/ovgj/semantic/semantic_result.json",
-            std::env::var("HOME").unwrap()
+            "{}/tests/fixtures/traceview_semantic_sample.json",
+            env!("CARGO_MANIFEST_DIR")
         )
     })
 }
+
 
 #[test]
 fn test_full_import_and_analysis_flow() {
@@ -118,9 +122,31 @@ fn test_parse_semantic_result_structure() {
     // Check tokens exist
     let total_tokens: usize = doc.blocks.iter().map(|b| b.tokens.len()).sum();
     assert!(total_tokens > 0, "Should have tokens");
+
+    // The committed fixture is a 12-block window carrying real entity coverage
+    // (PERSON + LOCATION), so the entity/structural paths of the analysis layer
+    // are exercised, not just word counting. Guard against fixture rot.
+    assert!(
+        doc.blocks.len() >= 10,
+        "Fixture should carry at least 10 blocks, got {}",
+        doc.blocks.len()
+    );
+    let total_entities: usize = doc.blocks.iter().map(|b| b.entities.len()).sum();
+    assert!(
+        total_entities > 50,
+        "Fixture should carry rich entity coverage, got {total_entities}"
+    );
+    let has_person = doc
+        .blocks
+        .iter()
+        .flat_map(|b| b.entities.iter())
+        .any(|e| e.category == studio_core::entity::EntityCategory::Person);
+    assert!(has_person, "Fixture should include PERSON entities");
+
     println!(
-        "✓ Structure: {} blocks, {} total tokens",
+        "✓ Structure: {} blocks, {} total tokens, {} entities",
         doc.blocks.len(),
-        total_tokens
+        total_tokens,
+        total_entities
     );
 }
