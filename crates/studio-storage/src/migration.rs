@@ -252,6 +252,39 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     ",
     )?;
 
+    // v11: make stored analysis results reusable.
+    //
+    // `analysis_results` has existed since v7 but nothing ever wrote to it, so
+    // every page load recomputed T0/T1 from the imported blocks. Two columns
+    // turn it into a cache that can be invalidated safely:
+    //   tier        — which pipeline stage produced the row ('t0' | 't1' | 't2');
+    //   input_hash  — SHA-256 of the analysed content (studio_analysis::hash),
+    //                 so a row is only ever reused for the exact input it came
+    //                 from, and a changed document simply misses.
+    // The unique index makes re-analysis idempotent instead of accumulating one
+    // row per run per dimension. The sequences supply the integer primary keys
+    // that the v7/v8 tables declare but never generated.
+    //
+    // Both columns are nullable: DuckDB rejects `ADD COLUMN` with a constraint
+    // ("Adding columns with constraints not yet supported"), so `NOT NULL
+    // DEFAULT 't0'` is not an option. Every row written through `analysis_repo`
+    // fills both, and readers fall back to a default for pre-v11 rows.
+    migrate(
+        conn,
+        11,
+        "analysis_result_cache",
+        "
+        ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS tier TEXT;
+        ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS input_hash TEXT;
+
+        CREATE SEQUENCE IF NOT EXISTS seq_analysis_results START 1;
+        CREATE SEQUENCE IF NOT EXISTS seq_concerns START 1;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_result_unique
+            ON analysis_results(project_id, dimension, input_hash);
+    ",
+    )?;
+
     Ok(())
 }
 
@@ -306,5 +339,57 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 8);
+    }
+
+    #[test]
+    fn test_v11_analysis_cache_schema() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // The two columns the result cache is keyed on must exist.
+        let cols: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM information_schema.columns \
+                 WHERE table_name = 'analysis_results' \
+                   AND column_name IN ('tier', 'input_hash')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cols, 2);
+
+        // The sequences must hand out distinct ids (the v7/v8 tables have no
+        // auto-increment of their own).
+        let a: i64 = conn
+            .query_row("SELECT nextval('seq_analysis_results')", [], |r| r.get(0))
+            .unwrap();
+        let b: i64 = conn
+            .query_row("SELECT nextval('seq_analysis_results')", [], |r| r.get(0))
+            .unwrap();
+        assert_ne!(a, b);
+
+        // The unique index makes a second insert for the same
+        // (project, dimension, input_hash) fail rather than duplicate a row.
+        let project = "11111111-1111-1111-1111-111111111111";
+        let insert = "INSERT INTO analysis_results \
+                      (result_id, project_id, dimension, tier, input_hash, data, computed_at) \
+                      VALUES (?, ?, ?, ?, ?, ?, ?)";
+        conn.execute(
+            insert,
+            duckdb::params![a, project, "t0", "t0", "h1", "{}", "2026-01-01 00:00:00"],
+        )
+        .unwrap();
+        let duplicate = conn.execute(
+            insert,
+            duckdb::params![b, project, "t0", "t0", "h1", "{}", "2026-01-01 00:00:00"],
+        );
+        assert!(duplicate.is_err(), "unique index must reject duplicates");
+
+        // A different input_hash is a different row, not a conflict.
+        conn.execute(
+            insert,
+            duckdb::params![b, project, "t0", "t0", "h2", "{}", "2026-01-01 00:00:00"],
+        )
+        .unwrap();
     }
 }

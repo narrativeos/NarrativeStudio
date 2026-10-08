@@ -4,10 +4,15 @@
 
 pub use studio_core::error::{Result, StudioError};
 
+mod analysis_repo;
 mod document_repo;
 mod migration;
 mod project_repo;
 
+pub use analysis_repo::{
+    invalidate_project, list_concerns, load_cached, load_result, save_concerns, save_result,
+    StoredResult,
+};
 pub use document_repo::{load_document, save_document};
 pub use migration::run_migrations;
 pub use project_repo::{create, delete, get, list};
