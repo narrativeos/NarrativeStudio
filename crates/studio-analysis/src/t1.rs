@@ -150,7 +150,7 @@ pub fn run_t1_analysis(doc: &DocumentData) -> Result<T1Stats> {
 }
 
 /// Top-level section: the first component of a " / "-joined section path.
-fn top_level_section(path: &str) -> String {
+pub(crate) fn top_level_section(path: &str) -> String {
     if path.is_empty() {
         "(root)".to_string()
     } else {
