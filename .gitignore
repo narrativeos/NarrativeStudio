@@ -1,6 +1,8 @@
 # Rust
 target/
-Cargo.lock
+# Cargo.lock IS tracked: NarrativeStudio is an application, not a library, so CI
+# and releases must build against pinned dependency versions (DuckDB in particular).
+
 
 # Node
 node_modules/
