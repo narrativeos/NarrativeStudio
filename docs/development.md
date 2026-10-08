@@ -563,7 +563,10 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
 
 - 所有图表使用 **SVG 渲染**（非 Canvas），支持响应式
 - **不引入图表库**（D3 / Chart.js 等）：组件直接手写 SVG 元素；极坐标、比例尺等
-  几何计算放在 `src/lib/`（如 `radar.ts`），与 JSX 分离以便用 Vitest 单测
+  几何计算放在 `src/lib/`（如 `radar.ts`、`graph.ts`），与 JSX 分离以便用 Vitest 单测
+- **布局必须确定性**：同一份输入每次画出同一张图。力导向一类迭代布局每次收敛结果不同，
+  既无法复现也无法断言，因此不使用；关系图用按提及数排序的环形布局代替
+- 画布尺寸与布局常数放在 `src/lib/`（如 `GRAPH_BOX`），使「标签不溢出画布」这类性质可被测试断言
 - 每个图表组件接收数据 + 可选的 `size` / `color` props，数据为空时返回
   「暂无数据」占位而不是渲染空坐标系
 - 颜色方案：项目 A=#3B82F6(蓝), B=#F97316(橙), C=#22C55E(绿), D=#A855F7(紫), E=#EF4444(红)
