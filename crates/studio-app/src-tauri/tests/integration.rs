@@ -9,10 +9,16 @@
 //! 6. Run T1 analysis
 
 use duckdb::Connection;
-use studio_analysis::{run_t0_analysis, run_t1_analysis};
+use studio_analysis::{
+    document_hash, run_assessment, run_t0_analysis, run_t1_analysis, Assessment, T0Stats, T1Stats,
+};
+use studio_core::concern::Severity;
 use studio_core::project::Project;
 use studio_import::parse_semantic_result;
-use studio_storage::{create, list, load_document, run_migrations, save_document};
+use studio_storage::{
+    create, invalidate_project, list, list_concerns, load_cached, load_document, run_migrations,
+    save_concerns, save_document, save_result,
+};
 
 /// Path to the semantic_result.json fixture used by these tests.
 ///
@@ -148,4 +154,137 @@ fn test_parse_semantic_result_structure() {
         total_tokens,
         total_entities
     );
+}
+
+/// The analysis cache as the app actually uses it: hash the document loaded from
+/// the database, store the computed dimensions under that hash, and read them
+/// back on the next open instead of recomputing.
+#[test]
+fn test_analysis_cache_roundtrip() {
+    let file_path = test_file_path();
+    let content = std::fs::read_to_string(&file_path).expect("Failed to read test file");
+    let doc = parse_semantic_result(&content).expect("Failed to parse semantic result");
+
+    let conn = Connection::open_in_memory().expect("Failed to open in-memory DuckDB");
+    run_migrations(&conn).expect("Failed to run migrations");
+    let project = create(&conn, &Project::new("Cache Project")).expect("create project");
+    save_document(&conn, project.project_id, &doc, None).expect("save document");
+
+    // The cache key is computed from the *loaded* document, so what matters is
+    // that loading the same rows twice yields the same fingerprint. If this were
+    // unstable the cache would miss on every launch.
+    let loaded = load_document(&conn, doc.doc_id).expect("load document");
+    let hash = document_hash(&loaded).expect("hash document");
+    let again = load_document(&conn, doc.doc_id).expect("load document again");
+    assert_eq!(hash, document_hash(&again).unwrap(), "hash must be stable");
+    assert_eq!(hash.len(), 64, "hash must be lowercase hex SHA-256");
+    println!("✓ Input hash stable across loads: {}…", &hash[..12]);
+
+    // First run: nothing stored yet, so every dimension misses.
+    assert!(
+        load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
+            .unwrap()
+            .is_none()
+    );
+
+    // Compute, then persist exactly the way the command layer does.
+    let t0 = run_t0_analysis(&loaded).expect("T0 failed");
+    let t1 = run_t1_analysis(&loaded).expect("T1 failed");
+    let assessment = run_assessment(&t0, &t1);
+    save_result(
+        &conn,
+        project.project_id,
+        "t0",
+        "t0",
+        &hash,
+        None,
+        &serde_json::to_string(&t0).unwrap(),
+    )
+    .expect("save t0");
+    save_result(
+        &conn,
+        project.project_id,
+        "t1",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&t1).unwrap(),
+    )
+    .expect("save t1");
+    let assessment_id = save_result(
+        &conn,
+        project.project_id,
+        "assessment",
+        "t1",
+        &hash,
+        Some(assessment.overall as f32),
+        &serde_json::to_string(&assessment).unwrap(),
+    )
+    .expect("save assessment");
+    let concerns: Vec<studio_core::concern::Concern> = assessment
+        .recommendations
+        .iter()
+        .map(|r| studio_core::concern::Concern {
+            severity: match r.severity.as_str() {
+                "high" => Severity::High,
+                "low" => Severity::Low,
+                _ => Severity::Medium,
+            },
+            title: r.title.clone(),
+            description: r.detail.clone(),
+            location: studio_core::concern::ConcernLocation {
+                block_id: None,
+                section_path: None,
+                span_start: None,
+                span_end: None,
+            },
+            suggestion: None,
+        })
+        .collect();
+    save_concerns(&conn, assessment_id, &concerns).expect("save concerns");
+
+    // Second open: every dimension comes back identical to what was computed.
+    let cached_t0 = load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
+        .unwrap()
+        .expect("t0 cache hit");
+    assert_eq!(
+        serde_json::to_string(&cached_t0).unwrap(),
+        serde_json::to_string(&t0).unwrap(),
+        "cached T0 must round-trip exactly"
+    );
+    let cached_t1 = load_cached::<T1Stats>(&conn, project.project_id, "t1", &hash)
+        .unwrap()
+        .expect("t1 cache hit");
+    assert_eq!(cached_t1.section_count, t1.section_count);
+    let cached_assessment =
+        load_cached::<Assessment>(&conn, project.project_id, "assessment", &hash)
+            .unwrap()
+            .expect("assessment cache hit");
+    assert_eq!(cached_assessment.overall, assessment.overall);
+    println!(
+        "✓ Cache hit for t0/t1/assessment ({} recommendations)",
+        assessment.recommendations.len()
+    );
+
+    // The recommendations are queryable without re-running the analysis.
+    let stored = list_concerns(&conn, project.project_id).expect("list concerns");
+    assert_eq!(stored.len(), assessment.recommendations.len());
+    println!("✓ {} concerns persisted", stored.len());
+
+    // A different input hash (i.e. edited text) must not read these rows.
+    assert!(
+        load_cached::<T0Stats>(&conn, project.project_id, "t0", "stale-hash")
+            .unwrap()
+            .is_none()
+    );
+
+    // "重新分析" clears everything for the project.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 3);
+    assert!(
+        load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
+            .unwrap()
+            .is_none()
+    );
+    assert!(list_concerns(&conn, project.project_id).unwrap().is_empty());
+    println!("✓ invalidate_project clears results and concerns");
 }

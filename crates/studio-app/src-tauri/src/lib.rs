@@ -3,12 +3,16 @@ use std::sync::Mutex;
 use duckdb::Connection;
 use serde::Serialize;
 use studio_analysis::{
-    run_assessment, run_t0_analysis, run_t1_analysis, Assessment, T0Stats, T1Stats,
+    document_hash, run_assessment, run_t0_analysis, run_t1_analysis, Assessment, T0Stats, T1Stats,
 };
+use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
 use studio_core::project::{Project, ProjectSummary};
 use studio_import::{parse_semantic_result, parse_semantic_result_enriched};
-use studio_storage::{create, delete, get, list, load_document, run_migrations, save_document};
+use studio_storage::{
+    create, delete, get, invalidate_project, list, load_cached, load_document, run_migrations,
+    save_concerns, save_document, save_result,
+};
 use tauri::{Emitter, Manager, State};
 use uuid::Uuid;
 
@@ -384,6 +388,9 @@ pub struct ProjectAnalysis {
     pub t0: T0Stats,
     pub t1: T1Stats,
     pub assessment: Assessment,
+    /// True when the numbers came from the persisted cache instead of being
+    /// recomputed, so the UI can say where the result came from.
+    pub cached: bool,
 }
 
 /// Load all documents of a project and merge them into a single `DocumentData`.
@@ -419,25 +426,138 @@ fn load_project_document(conn: &Connection, project_id: Uuid) -> Result<Document
     Ok(merged)
 }
 
-/// Core: run T0/T1 analysis on a project by loading its documents from the DB.
+/// Core: get T0/T1/assessment for a project, from the cache when it is valid.
+///
+/// The cache is keyed on the SHA-256 of the analysed content, so it is only
+/// reused for byte-identical input: re-importing the same file keeps the cache
+/// (the new `doc_id` is not part of the hash), while any text change misses.
+/// `force` (the "重新分析" button) drops the stored rows first and recomputes —
+/// needed when the analysis logic itself changed, which the input hash cannot
+/// detect on its own.
 fn analyze_project_inner(
     state: &State<AppState>,
     project_id: &str,
+    force: bool,
 ) -> Result<ProjectAnalysis, String> {
     let pid = Uuid::parse_str(project_id).map_err(|e| e.to_string())?;
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
     let project = get(&storage.conn, pid).map_err(|e| e.to_string())?;
     let doc = load_project_document(&storage.conn, pid)?;
+    let input_hash = document_hash(&doc).map_err(|e| e.to_string())?;
+
+    if force {
+        invalidate_project(&storage.conn, pid).map_err(|e| e.to_string())?;
+    } else {
+        let t0 = load_cached::<T0Stats>(&storage.conn, pid, "t0", &input_hash)
+            .map_err(|e| e.to_string())?;
+        let t1 = load_cached::<T1Stats>(&storage.conn, pid, "t1", &input_hash)
+            .map_err(|e| e.to_string())?;
+        let assessment = load_cached::<Assessment>(&storage.conn, pid, "assessment", &input_hash)
+            .map_err(|e| e.to_string())?;
+        if let (Some(t0), Some(t1), Some(assessment)) = (t0, t1, assessment) {
+            return Ok(ProjectAnalysis {
+                project_id: pid.to_string(),
+                name: project.name,
+                t0,
+                t1,
+                assessment,
+                cached: true,
+            });
+        }
+    }
+
     let t0 = run_t0_analysis(&doc).map_err(|e| e.to_string())?;
     let t1 = run_t1_analysis(&doc).map_err(|e| e.to_string())?;
     let assessment = run_assessment(&t0, &t1);
+
+    // A cache-write failure must not lose the analysis the user is waiting for:
+    // warn and return the fresh result, which simply costs a recompute next time.
+    if let Err(e) = persist_analysis(&storage.conn, pid, &input_hash, &t0, &t1, &assessment) {
+        eprintln!("分析结果写入缓存失败（本次结果仍已返回）: {e}");
+    }
+
     Ok(ProjectAnalysis {
         project_id: pid.to_string(),
         name: project.name,
         t0,
         t1,
         assessment,
+        cached: false,
     })
+}
+
+/// Persist the three computed dimensions under `input_hash`, plus the
+/// assessment's recommendations as queryable concern rows.
+///
+/// The recommendation rows are what let a later feature (report export) list a
+/// project's concerns without re-running the analysis.
+fn persist_analysis(
+    conn: &Connection,
+    project_id: Uuid,
+    input_hash: &str,
+    t0: &T0Stats,
+    t1: &T1Stats,
+    assessment: &Assessment,
+) -> Result<(), String> {
+    save_result(
+        conn,
+        project_id,
+        "t0",
+        "t0",
+        input_hash,
+        None,
+        &serde_json::to_string(t0).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    save_result(
+        conn,
+        project_id,
+        "t1",
+        "t1",
+        input_hash,
+        None,
+        &serde_json::to_string(t1).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let assessment_id = save_result(
+        conn,
+        project_id,
+        "assessment",
+        "t1",
+        input_hash,
+        Some(assessment.overall as f32),
+        &serde_json::to_string(assessment).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let concerns: Vec<Concern> = assessment
+        .recommendations
+        .iter()
+        .map(|r| Concern {
+            severity: concern_severity(&r.severity),
+            title: r.title.clone(),
+            description: r.detail.clone(),
+            location: ConcernLocation {
+                block_id: None,
+                section_path: None,
+                span_start: None,
+                span_end: None,
+            },
+            suggestion: None,
+        })
+        .collect();
+    save_concerns(conn, assessment_id, &concerns).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// The rule engine spells severity as `"high" | "medium" | "low"`; anything else
+/// keeps the concern at `Medium` rather than dropping it.
+fn concern_severity(severity: &str) -> Severity {
+    match severity {
+        "high" => Severity::High,
+        "low" => Severity::Low,
+        _ => Severity::Medium,
+    }
 }
 
 /// Run T0/T1 analysis on a single project (data loaded from the database).
@@ -445,18 +565,22 @@ fn analyze_project_inner(
 /// Marked `async` so the DB load + T0/T1 analysis run on Tauri's async runtime
 /// (a worker thread) rather than the main/UI thread. Keeping this heavy work off
 /// the main thread is what prevents the frontend from freezing on large docs.
+///
+/// `force: true` re-runs the analysis even when a valid cached result exists.
 #[tauri::command]
 async fn analyze_project(
     state: State<'_, AppState>,
     project_id: String,
+    force: Option<bool>,
 ) -> Result<ProjectAnalysis, String> {
-    analyze_project_inner(&state, &project_id)
+    analyze_project_inner(&state, &project_id, force.unwrap_or(false))
 }
 
 /// Run T0/T1 analysis on multiple projects for cross-project comparison.
 ///
 /// `async` for the same reason as [`analyze_project`]: keep the heavy work off
-/// the main/UI thread so the frontend stays responsive.
+/// the main/UI thread so the frontend stays responsive. Comparison always reads
+/// the cache when it is valid — there is no UI affordance to force it here.
 #[tauri::command]
 async fn analyze_projects(
     state: State<'_, AppState>,
@@ -464,7 +588,7 @@ async fn analyze_projects(
 ) -> Result<Vec<ProjectAnalysis>, String> {
     project_ids
         .iter()
-        .map(|id| analyze_project_inner(&state, id))
+        .map(|id| analyze_project_inner(&state, id, false))
         .collect()
 }
 

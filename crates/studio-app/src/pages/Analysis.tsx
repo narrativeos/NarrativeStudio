@@ -30,6 +30,10 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumping `reload` re-runs the load; `force` marks a run that must bypass and
+  // replace the persisted cache ("重新分析").
+  const [reload, setReload] = useState(0);
+  const [force, setForce] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +42,10 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       setError(null);
       setData(null);
       try {
-        const result = await invoke<ProjectAnalysis>("analyze_project", { projectId });
+        const result = await invoke<ProjectAnalysis>("analyze_project", {
+          projectId,
+          force,
+        });
         if (!cancelled) setData(result);
       } catch (e) {
         if (!cancelled) setError(String(e));
@@ -50,7 +57,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, reload, force]);
 
   if (loading) {
     return <div className="text-text-muted">分析中…</div>;
@@ -87,6 +94,26 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             {formatInt(t0.block_count)} 块 · {formatInt(t1.section_count)} 章节 ·{" "}
             {formatInt(t0.char_count)} 字
           </p>
+        </div>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {data.cached && (
+            <span
+              className="text-xs text-text-muted"
+              title="结果来自上次分析的持久化结果；文本变化或点击重新分析后会重算"
+            >
+              缓存结果
+            </span>
+          )}
+          <button
+            onClick={() => {
+              setForce(true);
+              setReload((n) => n + 1);
+            }}
+            className="px-3 py-1.5 text-sm rounded-md bg-gray-700/60 hover:bg-gray-700 text-text transition-colors"
+            title="忽略缓存，重新计算并覆盖已保存的分析结果"
+          >
+            重新分析
+          </button>
         </div>
       </div>
 

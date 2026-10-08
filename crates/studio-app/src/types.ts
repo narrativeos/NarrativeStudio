@@ -111,4 +111,6 @@ export interface ProjectAnalysis {
   t0: T0Stats;
   t1: T1Stats;
   assessment: Assessment;
+  /** True when the numbers were read from the persisted cache. */
+  cached: boolean;
 }
