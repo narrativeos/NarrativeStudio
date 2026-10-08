@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 
 use studio_analysis::{
     Assessment, ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats,
-    SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats, ANALYSIS_VERSION,
+    SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats, TimelineIssue, TimelineStats,
+    ANALYSIS_VERSION,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -28,6 +29,7 @@ pub struct ReportInput<'a> {
     pub dialogue: &'a DialogueStats,
     pub explicit: &'a ExplicitStats,
     pub structure: &'a StructureStats,
+    pub timeline: &'a TimelineStats,
     pub assessment: &'a Assessment,
 }
 
@@ -54,6 +56,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_cliche(&mut out, input.cliche);
     write_explicit(&mut out, input.explicit);
     write_story_structure(&mut out, input.structure);
+    write_timeline(&mut out, input.timeline);
     write_footer(&mut out);
     out
 }
@@ -1214,6 +1217,230 @@ fn write_story_structure(out: &mut String, structure: &StructureStats) {
     out.push_str(&structure_limits(structure));
 }
 
+fn write_timeline(out: &mut String, timeline: &TimelineStats) {
+    out.push_str("## 时间线\n\n");
+    let cut = if timeline.chunked {
+        "按字数等分，非作者章节"
+    } else {
+        "按作者章节"
+    };
+    let dated = timeline
+        .markers
+        .iter()
+        .filter(|m| !m.resolved.is_empty())
+        .count();
+    out.push_str(&format!(
+        "时间标记 {} 处（绝对 {} · 月日 {} · 相对 {} · 模糊 {}）· 可排序日期 {} 个 · 曲线段落 {} 段（{}）· 可见正文 {} 字\n\n",
+        timeline.markers.len(),
+        timeline.absolute_count,
+        timeline.partial_count,
+        timeline.relative_count,
+        timeline.vague_count,
+        dated,
+        timeline.segment_count,
+        cut,
+        timeline.char_count
+    ));
+
+    if !timeline.readable {
+        out.push_str(&format!("{}本次不做时间排序。\n\n", esc(&timeline.note)));
+        out.push_str(&timeline_limits(timeline));
+        return;
+    }
+
+    out.push_str(&format!(
+        "### 标记分布（{} 段）\n\n| 段落 | 标记 | |\n| --- | ---: | --- |\n",
+        timeline.curve.len()
+    ));
+    let peak = timeline
+        .curve
+        .iter()
+        .map(|p| p.markers)
+        .max()
+        .unwrap_or(0)
+        .max(1) as f64;
+    for p in timeline.curve.iter().take(MAX_ROWS) {
+        out.push_str(&format!(
+            "| {} | {} | {} |\n",
+            esc(&p.label),
+            p.markers,
+            bar(p.markers as f64 / peak)
+        ));
+    }
+    out.push('\n');
+
+    out.push_str(&format!("### 日期（{} 个，按出现顺序）\n\n", dated));
+    if dated < 2 {
+        out.push_str("可排序的日期不足两个，先后无从判断。\n\n");
+    } else {
+        out.push_str("| 位置 | 段落 | 日期 | 粒度 |\n| ---: | --- | --- | --- |\n");
+        for m in timeline
+            .markers
+            .iter()
+            .filter(|m| !m.resolved.is_empty())
+            .take(MAX_ROWS)
+        {
+            out.push_str(&format!(
+                "| {:.0}% | {} | {} | {} |\n",
+                m.position * 100.0,
+                esc(&m.section),
+                esc(&m.resolved),
+                timeline_precision_label(&m.precision)
+            ));
+        }
+        out.push_str(&omitted(dated, MAX_ROWS));
+        out.push('\n');
+    }
+
+    if !timeline.backsteps.is_empty() {
+        out.push_str(&format!(
+            "### 时间倒回（{} 处）\n\n| 前一处 | 日期 | 后一处 | 日期 | 相差 |\n| --- | --- | --- | --- | ---: |\n",
+            timeline.backsteps.len()
+        ));
+        for s in &timeline.backsteps {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} | 早 {} 天 |\n",
+                esc(&s.from_section),
+                esc(&s.from_date),
+                esc(&s.to_section),
+                esc(&s.to_date),
+                -s.days
+            ));
+        }
+        out.push('\n');
+        out.push_str("日历上倒退不等于写错：倒叙是合法手法，文本分不出这两种。\n\n");
+    }
+
+    if !timeline.jumps.is_empty() {
+        out.push_str(&format!(
+            "### 大跳跃（{} 处）\n\n| 从 | 日期 | 到 | 日期 | 跨度 |\n| --- | --- | --- | --- | ---: |\n",
+            timeline.jumps.len()
+        ));
+        for s in &timeline.jumps {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} | {:.1} 年 |\n",
+                esc(&s.from_section),
+                esc(&s.from_date),
+                esc(&s.to_section),
+                esc(&s.to_date),
+                s.days as f64 / 365.0
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !timeline.unmarked_stretches.is_empty() {
+        out.push_str("### 没有标记的区间\n\n");
+        for (from, to, count) in timeline.unmarked_stretches.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- 「{}」到「{}」：{} 段没有一处时间标记\n",
+                esc(from),
+                esc(to),
+                count
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str(&format!(
+        "### 标记样本（前 {} 处）\n\n| 位置 | 段落 | 类型 | 粒度 | 原文 |\n| ---: | --- | --- | --- | --- |\n",
+        timeline.markers.len().min(MAX_ROWS)
+    ));
+    for m in timeline.markers.iter().take(MAX_ROWS) {
+        out.push_str(&format!(
+            "| {:.0}% | {} | {} | {} | {} |\n",
+            m.position * 100.0,
+            esc(&m.section),
+            timeline_kind_label(&m.kind),
+            timeline_precision_label(&m.precision),
+            esc(&m.text)
+        ));
+    }
+    out.push_str(&omitted(timeline.markers.len(), MAX_ROWS));
+    out.push('\n');
+
+    let notes: Vec<&TimelineIssue> = timeline
+        .issues
+        .iter()
+        .filter(|i| i.kind != "backstep" && i.kind != "long_jump")
+        .collect();
+    if !notes.is_empty() {
+        out.push_str("### 时间线提示\n\n");
+        for i in notes.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "- **{}**（{}）— {}\n",
+                timeline_issue_label(&i.kind),
+                if i.section.is_empty() {
+                    "全文".to_string()
+                } else {
+                    esc(&i.section)
+                },
+                esc(&i.detail)
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str(&timeline_limits(timeline));
+}
+
+fn timeline_kind_label(kind: &str) -> String {
+    match kind {
+        "absolute" => "绝对日期",
+        "partial" => "缺年的日期",
+        "relative" => "相对表达",
+        "vague" => "模糊表达",
+        other => other,
+    }
+    .to_string()
+}
+
+fn timeline_precision_label(precision: &str) -> String {
+    match precision {
+        "year" => "只到年",
+        "month" => "到月",
+        "day" => "到日",
+        "month_day" => "月日",
+        "offset" => "距离",
+        "deictic" => "指示",
+        "season" => "季节",
+        "time_of_day" => "时段",
+        other => other,
+    }
+    .to_string()
+}
+
+fn timeline_issue_label(kind: &str) -> String {
+    match kind {
+        "no_markers" => "读不到时间",
+        "too_short" => "文本过短",
+        "no_order" => "无法排序",
+        "backstep" => "时间倒回",
+        "long_jump" => "大跳跃",
+        "unmarked_stretch" => "长时间无标记",
+        other => other,
+    }
+    .to_string()
+}
+
+fn timeline_limits(timeline: &TimelineStats) -> String {
+    let mut note = String::from(
+        "_本维度不给出评分：不写日期的故事不比写满日期的故事差。识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达和常见的季节、时段词；年号、农历、干支和外文日期不在范围内。相对与模糊表达锚在叙述当下而不是日历，只统计不参与排序；只到年份的日期粒度太粗，同样不参与排序。月按 30 天、年按 365 天估算。_\n\n",
+    );
+    if timeline.entity_date_count > 0 {
+        note.push_str(&format!(
+            "导入的实体标注里有 {} 处日期，本维度的文本扫描没有读取它们；两处数字相差多少，说明有多少日期是用本文不认的写法写的。\n\n",
+            timeline.entity_date_count
+        ));
+    }
+    if timeline.chunked {
+        note.push_str(
+            "本文的章节少于三段，标记分布落在按字数等分的块上，所以位置是算术结果，不是作者自己的分段。\n\n",
+        );
+    }
+    note
+}
+
 /// What the shape match cannot claim. Always printed, because the limits are the
 /// difference between a description and a grade.
 fn structure_limits(structure: &StructureStats) -> String {
@@ -1629,7 +1856,8 @@ mod tests {
         DragSection, ExplicitHit, ExplicitIssue, ExplicitTerm, FlatStretch, NarrativeArc,
         PacingPoint, Place, Plotline, PlotlineStage, Readability, Recommendation, RepeatedPhrase,
         Scene, SectionInfo, SettingIssue, StructureAct, StructureBeat, StructureIssue,
-        StructureLandmark, StructureModel, Theme, TurningPoint,
+        StructureLandmark, StructureModel, Theme, TimelineMarker, TimelinePoint, TimelineStep,
+        TurningPoint,
     };
 
     fn at() -> DateTime<Utc> {
@@ -1897,6 +2125,30 @@ mod tests {
         }
     }
 
+    fn empty_timeline() -> TimelineStats {
+        TimelineStats {
+            markers: vec![],
+            curve: vec![],
+            absolute_count: 0,
+            partial_count: 0,
+            relative_count: 0,
+            vague_count: 0,
+            entity_date_count: 0,
+            first_date: String::new(),
+            last_date: String::new(),
+            span_days: 0,
+            backsteps: vec![],
+            jumps: vec![],
+            unmarked_stretches: vec![],
+            issues: vec![],
+            segment_count: 0,
+            chunked: false,
+            char_count: 0,
+            readable: false,
+            note: "全文没有读到任何时间表达。".into(),
+        }
+    }
+
     fn clean_assessment() -> Assessment {
         Assessment {
             overall: 88.0,
@@ -1926,6 +2178,7 @@ mod tests {
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1940,6 +2193,7 @@ mod tests {
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -1961,6 +2215,7 @@ mod tests {
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "测试项目",
             generated_at: at(),
@@ -1975,6 +2230,7 @@ mod tests {
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let expected = "\
@@ -2138,6 +2394,14 @@ _本维度不给出评分：一部战争题材并不比田园题材更差，露�
 
 _本维度不给出评分：契合三幕不是优点，有意拒绝这个形状也不是缺点。地标来自线程变化与张力曲线，两者都是代理信号；「未见」只说明这些信号没有显示这一环，不等于故事缺少它。节拍区间（如 25%/50%/25%）是写作手册里的约定，不是测量。_
 
+## 时间线
+
+时间标记 0 处（绝对 0 · 月日 0 · 相对 0 · 模糊 0）· 可排序日期 0 个 · 曲线段落 0 段（按作者章节）· 可见正文 0 字
+
+全文没有读到任何时间表达。本次不做时间排序。
+
+_本维度不给出评分：不写日期的故事不比写满日期的故事差。识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达和常见的季节、时段词；年号、农历、干支和外文日期不在范围内。相对与模糊表达锚在叙述当下而不是日历，只统计不参与排序；只到年份的日期粒度太粗，同样不参与排序。月按 30 天、年按 365 天估算。_
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -2169,6 +2433,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2183,6 +2448,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2203,6 +2469,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 陈词滥调",
             "## 显式语言",
             "## 故事结构",
+            "## 时间线",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -2214,8 +2481,8 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }
         assert_eq!(
             md.matches("\n## ").count(),
-            15,
-            "exactly fifteen H2 sections"
+            16,
+            "exactly sixteen H2 sections"
         );
     }
 
@@ -2249,6 +2516,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2263,6 +2531,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2293,6 +2562,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2307,6 +2577,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2351,6 +2622,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2365,6 +2637,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2410,6 +2683,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2424,6 +2698,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2493,6 +2768,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2507,6 +2783,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2571,6 +2848,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2585,6 +2863,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2665,6 +2944,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2679,6 +2959,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2714,6 +2995,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2728,6 +3010,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2792,6 +3075,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2806,6 +3090,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2838,6 +3123,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2852,6 +3138,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2944,6 +3231,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let input = ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -2958,6 +3246,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3080,6 +3369,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -3094,6 +3384,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         });
 
@@ -3126,6 +3417,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let mut dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         dialogue.char_count = 2000;
         dialogue.dialogue_chars = 600;
         dialogue.narrative_chars = 1400;
@@ -3216,6 +3508,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &assessment,
         });
         // The all-narrative wording is only for text where no speech was detected.
@@ -3262,6 +3555,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         let md = render_markdown(&ReportInput {
             project_name: "P",
             generated_at: at(),
@@ -3276,6 +3570,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         });
 
@@ -3302,6 +3597,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
         let mut explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
         explicit.total_hits = 4;
         explicit.distinct_terms = 2;
         explicit.per_10k = 12.0;
@@ -3397,6 +3693,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         });
 
@@ -3432,6 +3729,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let dialogue = empty_dialogue();
         let explicit = empty_explicit();
         let structure = empty_structure();
+        let timeline = empty_timeline();
 
         let md = render_markdown(&ReportInput {
             project_name: "P",
@@ -3447,6 +3745,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure: &structure,
+            timeline: &timeline,
             assessment: &a,
         });
 
@@ -3562,6 +3861,15 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
 
     /// A report built only to look at one dimension's section.
     fn render_with(structure: &StructureStats) -> String {
+        render_sections(structure, &empty_timeline())
+    }
+
+    /// The same, for the time-line section.
+    fn render_timeline_with(timeline: &TimelineStats) -> String {
+        render_sections(&empty_structure(), timeline)
+    }
+
+    fn render_sections(structure: &StructureStats, timeline: &TimelineStats) -> String {
         let t0 = empty_t0();
         let t1 = empty_t1();
         let plot = empty_plot();
@@ -3587,6 +3895,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             dialogue: &dialogue,
             explicit: &explicit,
             structure,
+            timeline,
             assessment: &a,
         })
     }
@@ -3639,5 +3948,111 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let md = render_with(&structure);
         assert!(md.contains("曲线段落 10 段（按字数等分，非作者章节）"));
         assert!(md.contains("位置是算术结果，不是作者自己的分段"));
+    }
+
+    /// A document that gives two dates and goes backwards between them.
+    fn dated_timeline() -> TimelineStats {
+        TimelineStats {
+            markers: vec![
+                TimelineMarker {
+                    text: "2011年5月1日".into(),
+                    kind: "absolute".into(),
+                    precision: "day".into(),
+                    section: "第一章".into(),
+                    position: 0.1,
+                    resolved: "2011-05-01".into(),
+                    offset_days: 0.0,
+                    excerpt: String::new(),
+                },
+                TimelineMarker {
+                    text: "三天后".into(),
+                    kind: "relative".into(),
+                    precision: "offset".into(),
+                    section: "第二章".into(),
+                    position: 0.4,
+                    resolved: String::new(),
+                    offset_days: 3.0,
+                    excerpt: String::new(),
+                },
+                TimelineMarker {
+                    text: "1998年3月2日".into(),
+                    kind: "absolute".into(),
+                    precision: "day".into(),
+                    section: "第二章".into(),
+                    position: 0.6,
+                    resolved: "1998-03-02".into(),
+                    offset_days: 0.0,
+                    excerpt: String::new(),
+                },
+            ],
+            curve: vec![
+                TimelinePoint {
+                    label: "第一章".into(),
+                    markers: 1,
+                },
+                TimelinePoint {
+                    label: "第二章".into(),
+                    markers: 2,
+                },
+            ],
+            absolute_count: 2,
+            partial_count: 0,
+            relative_count: 1,
+            vague_count: 0,
+            entity_date_count: 0,
+            first_date: "2011-05-01".into(),
+            last_date: "1998-03-02".into(),
+            span_days: -4809,
+            backsteps: vec![TimelineStep {
+                from_section: "第一章".into(),
+                from_date: "2011-05-01".into(),
+                to_section: "第二章".into(),
+                to_date: "1998-03-02".into(),
+                days: -4809,
+            }],
+            jumps: vec![],
+            unmarked_stretches: vec![],
+            issues: vec![TimelineIssue {
+                kind: "backstep".into(),
+                section: "第二章".into(),
+                detail: "「第一章」的 2011-05-01 之后，「第二章」又出现 1998-03-02，早了 4809 天：倒叙还是笔误，文本分不出".into(),
+            }],
+            segment_count: 2,
+            chunked: false,
+            char_count: 5000,
+            readable: true,
+            note: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_timeline_section_lists_dates_and_names_the_backstep() {
+        let md = render_timeline_with(&dated_timeline());
+        assert!(md.contains("## 时间线"));
+        assert!(md.contains("时间标记 3 处（绝对 2 · 月日 0 · 相对 1 · 模糊 0）· 可排序日期 2 个"));
+        assert!(md.contains("| 10% | 第一章 | 2011-05-01 | 到日 |"));
+        assert!(md.contains("### 时间倒回（1 处）"));
+        assert!(md.contains("| 第一章 | 2011-05-01 | 第二章 | 1998-03-02 | 早 4809 天 |"));
+        // The report declines to say which kind of backwards it is.
+        assert!(md.contains("倒叙是合法手法"));
+        assert!(md.contains("| 40% | 第二章 | 相对表达 | 距离 | 三天后 |"));
+    }
+
+    #[test]
+    fn test_timeline_section_does_not_repeat_a_backstep_as_a_bullet() {
+        // The step is already in its own table; a second copy in the notes would only
+        // give the same finding two voices with slightly different words.
+        let md = render_timeline_with(&dated_timeline());
+        assert!(!md.contains("### 时间线提示"));
+    }
+
+    #[test]
+    fn test_timeline_section_names_dates_it_could_not_read() {
+        let mut timeline = empty_timeline();
+        timeline.entity_date_count = 19;
+        timeline.note = "没有读到可解析的时间表达，而导入数据标了 19 处日期".into();
+        let md = render_timeline_with(&timeline);
+        assert!(md.contains("本次不做时间排序"));
+        assert!(md.contains("导入的实体标注里有 19 处日期"));
     }
 }
