@@ -192,6 +192,69 @@ export interface PacingStats {
   pace_score: number;
 }
 
+/** One segment of the conflict curve. */
+export interface ConflictPoint {
+  section: string;
+  char_count: number;
+  /** Conflict vocabulary hits in the segment. */
+  hits: number;
+  /** Hits per 1000 visible characters. */
+  density: number;
+  /** 0-100 on the absolute scale, so two projects' curves can be compared. */
+  intensity: number;
+  /** The family with most hits here; empty when the segment has none. */
+  dominant: string;
+  /** Per-family hits; families with no hits are omitted. */
+  by_type: [string, number][];
+}
+
+/** One conflict family as it appears in the whole document. */
+export interface ConflictType {
+  /** `interpersonal` | `internal` | `societal` | `survival`. */
+  kind: string;
+  hits: number;
+  /** Share of all conflict hits. */
+  share: number;
+  /** Hits per 1000 visible characters across the document. */
+  density: number;
+  top_terms: [string, number][];
+}
+
+/** A run of consecutive segments carrying no conflict vocabulary at all. */
+export interface ConflictAbsence {
+  from_section: string;
+  to_section: string;
+  sections: number;
+  char_count: number;
+}
+
+export interface ConflictStats {
+  points: ConflictPoint[];
+  segment_count: number;
+  chunked: boolean;
+  total_hits: number;
+  /** Hits per 1000 visible characters across the document. */
+  density: number;
+  /** Families present, most hits first. */
+  types: ConflictType[];
+  /** The busiest family; empty when nothing was found. */
+  dominant_type: string;
+  /** `none` | `thin` | `present` | `heavy` — vocabulary coverage, not quality. */
+  verdict: "none" | "thin" | "present" | "heavy";
+  peak_section: string;
+  peak_intensity: number;
+  /** Where the peak sits in the document (0-1). */
+  peak_position: number;
+  /** Mean intensity over the final third of the segments. */
+  tail_intensity: number;
+  /** Share of all hits held by the single busiest segment. */
+  concentration: number;
+  absent_runs: ConflictAbsence[];
+  longest_absent_run: number;
+  /** 0-100, or null when the text carries no conflict vocabulary at all. */
+  conflict_score: number | null;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -230,6 +293,7 @@ export interface ProjectAnalysis {
   t1: T1Stats;
   plot: PlotStats;
   pacing: PacingStats;
+  conflict: ConflictStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

@@ -147,3 +147,52 @@ const PACING_VERDICT_STYLES: Record<string, string> = {
 export function pacingVerdictStyle(verdict: string): string {
   return PACING_VERDICT_STYLES[verdict] ?? PACING_VERDICT_STYLES.flat;
 }
+
+/**
+ * Localized label for a conflict family. Mirrors `conflict_type_label` in
+ * `studio-report::markdown`; `""` is a segment with no conflict vocabulary at all.
+ */
+const CONFLICT_TYPE_LABELS: Record<string, string> = {
+  interpersonal: "人际",
+  internal: "内心",
+  societal: "社会",
+  survival: "生存",
+  "": "无",
+};
+
+export function conflictTypeLabel(kind: string): string {
+  return CONFLICT_TYPE_LABELS[kind] ?? kind;
+}
+
+/**
+ * Localized label for how much conflict vocabulary a document carries.
+ *
+ * `none` deliberately reads as "no conflict *vocabulary*", not "no conflict": the
+ * text may be non-narrative, or the lexicon may simply miss its wording.
+ */
+const CONFLICT_VERDICT_LABELS: Record<string, string> = {
+  none: "未见用词",
+  thin: "偏少",
+  present: "适中",
+  heavy: "密集",
+};
+
+export function conflictVerdictLabel(verdict: string): string {
+  return CONFLICT_VERDICT_LABELS[verdict] ?? verdict;
+}
+
+/**
+ * Badge classes for a conflict verdict. A thin spread is the case worth a look;
+ * "no vocabulary found" is neutral, because the engine cannot tell a conflict-free
+ * story from a text it has no words for.
+ */
+const CONFLICT_VERDICT_STYLES: Record<string, string> = {
+  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  thin: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  present: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  heavy: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+};
+
+export function conflictVerdictStyle(verdict: string): string {
+  return CONFLICT_VERDICT_STYLES[verdict] ?? CONFLICT_VERDICT_STYLES.none;
+}

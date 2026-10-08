@@ -1,6 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { Panel, SectionTitle, StatCard } from "../components/Cards";
+import ConflictSection from "../components/analysis/ConflictSection";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
 import RadarChart from "../components/charts/RadarChart";
@@ -29,9 +31,10 @@ interface AnalysisProps {
 
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
- * + pacing analysis plus a rule-based assessment for the selected project, and
- * presents the full portrait grouped by dimension: overview, assessment,
- * statistics, text diagnostics, structure, narrative, plot, and pacing.
+ * + pacing + conflict analysis plus a rule-based assessment for the selected
+ * project, and presents the full portrait grouped by dimension: overview,
+ * assessment, statistics, text diagnostics, structure, narrative, plot, pacing,
+ * and conflict.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -110,7 +113,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (!data) return null;
 
-  const { t0, t1, plot, pacing } = data;
+  const { t0, t1, plot, pacing, conflict } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
 
   return (
@@ -742,32 +745,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           </Panel>
         </div>
       </section>
-    </div>
-  );
-}
 
-function SectionTitle({ children }: { children: ReactNode }) {
-  return (
-    <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wide mb-3">
-      {children}
-    </h3>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="p-3 bg-surface-alt rounded-lg border border-gray-700">
-      <p className="text-xs text-text-muted">{label}</p>
-      <p className="text-xl font-semibold mt-1 tabular-nums">{value}</p>
-    </div>
-  );
-}
-
-function Panel({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="p-4 bg-surface-alt rounded-lg border border-gray-700">
-      <h4 className="text-sm font-medium text-text-muted mb-3">{title}</h4>
-      {children}
+      {/* Conflict analysis */}
+      <ConflictSection conflict={conflict} />
     </div>
   );
 }

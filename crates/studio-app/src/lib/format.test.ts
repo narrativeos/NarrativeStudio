@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { T0Stats } from "../types";
 import {
   arcShapeLabel,
+  conflictTypeLabel,
+  conflictVerdictLabel,
+  conflictVerdictStyle,
   entityTotal,
   formatFixed,
   formatInt,
@@ -142,5 +145,39 @@ describe("pacing verdict helpers", () => {
 
   it("falls back to the warning style for an unknown verdict", () => {
     expect(pacingVerdictStyle("wave")).toBe(pacingVerdictStyle("flat"));
+  });
+});
+
+describe("conflict helpers", () => {
+  it("localizes every family the analysis can emit", () => {
+    expect(conflictTypeLabel("interpersonal")).toBe("人际");
+    expect(conflictTypeLabel("internal")).toBe("内心");
+    expect(conflictTypeLabel("societal")).toBe("社会");
+    expect(conflictTypeLabel("survival")).toBe("生存");
+  });
+
+  it("names the empty family as 无 rather than hiding it", () => {
+    expect(conflictTypeLabel("")).toBe("无");
+  });
+
+  it("passes an unknown family through instead of hiding it", () => {
+    expect(conflictTypeLabel("cosmic")).toBe("cosmic");
+  });
+
+  it("localizes every verdict the analysis can emit", () => {
+    expect(conflictVerdictLabel("none")).toBe("未见用词");
+    expect(conflictVerdictLabel("thin")).toBe("偏少");
+    expect(conflictVerdictLabel("present")).toBe("适中");
+    expect(conflictVerdictLabel("heavy")).toBe("密集");
+  });
+
+  it("keeps 未见用词 neutral: no vocabulary is not the same as no conflict", () => {
+    expect(conflictVerdictStyle("none")).toContain("text-text-muted");
+    expect(conflictVerdictStyle("thin")).toContain("text-amber-400");
+    expect(conflictVerdictStyle("present")).toContain("text-emerald-400");
+  });
+
+  it("falls back to the neutral style for an unknown verdict", () => {
+    expect(conflictVerdictStyle("wave")).toBe(conflictVerdictStyle("none"));
   });
 });
