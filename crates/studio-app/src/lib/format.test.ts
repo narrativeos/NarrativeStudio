@@ -8,6 +8,8 @@ import {
   formatInt,
   formatPercent,
   formatScore,
+  plotShapeLabel,
+  plotShapeStyle,
   scoreColor,
   severityLabel,
   severityStyle,
@@ -91,5 +93,30 @@ describe("arcShapeLabel", () => {
 
   it("passes unknown shapes through instead of hiding them", () => {
     expect(arcShapeLabel("wave")).toBe("wave");
+  });
+});
+
+describe("plot shape helpers", () => {
+  it("localizes every shape the analysis can emit", () => {
+    expect(plotShapeLabel("sustained")).toBe("贯穿");
+    expect(plotShapeLabel("intermittent")).toBe("断续");
+    expect(plotShapeLabel("burst")).toBe("集中");
+    expect(plotShapeLabel("setup_only")).toBe("仅铺垫");
+    expect(plotShapeLabel("late_arrival")).toBe("迟到");
+    expect(plotShapeLabel("minor")).toBe("次要");
+  });
+
+  it("passes unknown shapes through instead of hiding them", () => {
+    expect(plotShapeLabel("wave")).toBe("wave");
+  });
+
+  it("marks the two shapes that ask for a rewrite as warnings", () => {
+    expect(plotShapeStyle("setup_only")).toContain("text-red-400");
+    expect(plotShapeStyle("late_arrival")).toContain("text-red-400");
+    expect(plotShapeStyle("sustained")).toContain("text-emerald-400");
+  });
+
+  it("falls back to the neutral style for unknown shapes", () => {
+    expect(plotShapeStyle("wave")).toBe(plotShapeStyle("minor"));
   });
 });

@@ -85,6 +85,57 @@ export interface T1Stats {
   entity_cooccurrences: [string, number][];
 }
 
+/** One appearance of a thread: a section, how strongly it is present there, and how
+ *  many sections it had been absent for. */
+export interface PlotlineStage {
+  section: string;
+  mentions: number;
+  gap_before: number;
+}
+
+/** A plotline: one thread carried by a recurring entity or domain term. */
+export interface Plotline {
+  subject: string;
+  /** Entity category (`PERSON`, `LOCATION`, …) or `SIGNAL` for a noun signal. */
+  kind: string;
+  mentions: number;
+  sections_touched: number;
+  /** Fraction of the document's sections this thread appears in (0-1). */
+  coverage: number;
+  first_section: string;
+  last_section: string;
+  stages: PlotlineStage[];
+  /** Longest run of consecutive sections where the thread is absent. */
+  longest_gap: number;
+  shape: string;
+  is_main: boolean;
+}
+
+/** A section where the set of active threads changes sharply. */
+export interface TurningPoint {
+  section: string;
+  /** 0-1: how different the active threads are from the previous section. */
+  change: number;
+  appeared: string[];
+  dropped: string[];
+}
+
+export interface PlotStats {
+  plotlines: Plotline[];
+  /** Threads that cleared the mention threshold, including unlisted ones. */
+  thread_count: number;
+  main_plotlines: string[];
+  sub_plotlines: string[];
+  turning_points: TurningPoint[];
+  /** Threads mentioned in a single section: setup with no payoff, or noise. */
+  unresolved_threads: string[];
+  /** Threads first appearing in the last fifth of the document. */
+  late_arrivals: string[];
+  /** 0-100. */
+  coherence_score: number;
+  section_count: number;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -121,6 +172,7 @@ export interface ProjectAnalysis {
   name: string;
   t0: T0Stats;
   t1: T1Stats;
+  plot: PlotStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

@@ -77,3 +77,41 @@ const ARC_SHAPE_LABELS: Record<string, string> = {
 export function arcShapeLabel(shape: string): string {
   return ARC_SHAPE_LABELS[shape] ?? shape;
 }
+
+/**
+ * Localized label for a plotline shape.
+ *
+ * Mirrors `plot_shape_label` in `studio-report::markdown` so the screen and the
+ * exported report name the same thread the same way. Unknown shapes fall through
+ * verbatim, exactly as for the arc.
+ */
+const PLOT_SHAPE_LABELS: Record<string, string> = {
+  sustained: "贯穿",
+  intermittent: "断续",
+  burst: "集中",
+  setup_only: "仅铺垫",
+  late_arrival: "迟到",
+  minor: "次要",
+};
+
+export function plotShapeLabel(shape: string): string {
+  return PLOT_SHAPE_LABELS[shape] ?? shape;
+}
+
+/**
+ * Badge classes for a plotline shape: the two shapes that ask for a rewrite
+ * (setup dropped early, a thread arriving in the last fifth) read as warnings, a
+ * thread that runs through the document reads as the healthy case.
+ */
+const PLOT_SHAPE_STYLES: Record<string, string> = {
+  sustained: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  intermittent: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  burst: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  setup_only: "bg-red-500/15 text-red-400 border-red-500/30",
+  late_arrival: "bg-red-500/15 text-red-400 border-red-500/30",
+  minor: "bg-gray-500/15 text-text-muted border-gray-500/30",
+};
+
+export function plotShapeStyle(shape: string): string {
+  return PLOT_SHAPE_STYLES[shape] ?? PLOT_SHAPE_STYLES.minor;
+}

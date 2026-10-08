@@ -10,6 +10,8 @@ import {
   formatInt,
   formatPercent,
   formatScore,
+  plotShapeLabel,
+  plotShapeStyle,
   scoreColor,
   scoreTextColor,
   severityLabel,
@@ -23,10 +25,10 @@ interface AnalysisProps {
 }
 
 /**
- * Single-project analysis view. Runs T0 (statistical) + T1 (structural)
- * analysis plus a rule-based assessment for the selected project, and
- * presents the full portrait grouped by dimension: overview, assessment,
- * statistics, text diagnostics, structure, and narrative.
+ * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
+ * analysis plus a rule-based assessment for the selected project, and presents
+ * the full portrait grouped by dimension: overview, assessment, statistics, text
+ * diagnostics, structure, narrative, and plot.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -105,7 +107,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (!data) return null;
 
-  const { t0, t1 } = data;
+  const { t0, t1, plot } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
 
   return (
@@ -450,6 +452,151 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                 </table>
               </div>
             )}
+          </Panel>
+        </div>
+      </section>
+
+      {/* Plot analysis */}
+      <section>
+        <SectionTitle>情节分析</SectionTitle>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="情节连贯性" value={`${formatScore(plot.coherence_score)} / 100`} />
+          <StatCard label="情节线" value={formatInt(plot.thread_count)} />
+          <StatCard
+            label="主线 / 支线"
+            value={`${plot.main_plotlines.length} / ${plot.sub_plotlines.length}`}
+          />
+          <StatCard label="转折点" value={formatInt(plot.turning_points.length)} />
+        </div>
+
+        <div className="mt-4">
+          <Panel
+            title={`情节线（显示 ${plot.plotlines.length} / 共 ${plot.thread_count} 条 · ${plot.section_count} 个章节）`}
+          >
+            {plot.plotlines.length === 0 ? (
+              <p className="text-xs text-text-muted">
+                未识别到情节线：没有实体或名词信号达到 3 次的提及门槛。
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-text-muted border-b border-gray-700">
+                      <th className="text-left py-1.5 font-medium">线索</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">类型</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">形态</th>
+                      <th className="text-right py-1.5 font-medium">提及</th>
+                      <th className="text-right py-1.5 font-medium">覆盖</th>
+                      <th className="text-right py-1.5 font-medium">最长中断</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">首次 → 末次</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plot.plotlines.map((p) => (
+                      <tr key={p.subject} className="border-b border-gray-700/40">
+                        <td className="py-1.5 font-medium">
+                          {p.is_main && (
+                            <span className="text-accent mr-1" title="主线">
+                              ★
+                            </span>
+                          )}
+                          {p.subject}
+                        </td>
+                        <td className="py-1.5 pl-4 text-text-muted">{p.kind}</td>
+                        <td className="py-1.5 pl-4">
+                          <span
+                            className={`px-1.5 py-0.5 rounded border text-[11px] whitespace-nowrap ${plotShapeStyle(p.shape)}`}
+                            title={`触达 ${p.sections_touched} 个章节 · 最长中断 ${p.longest_gap} 个章节`}
+                          >
+                            {plotShapeLabel(p.shape)}
+                          </span>
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">{p.mentions}</td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {formatPercent(p.coverage)}
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">{p.longest_gap}</td>
+                        <td className="py-1.5 pl-4 text-text-muted">
+                          <span
+                            className="inline-block truncate max-w-[140px] align-bottom"
+                            title={p.first_section}
+                          >
+                            {p.first_section || "(root)"}
+                          </span>
+                          {" → "}
+                          <span
+                            className="inline-block truncate max-w-[140px] align-bottom"
+                            title={p.last_section}
+                          >
+                            {p.last_section || "(root)"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        <div className="mt-4 grid md:grid-cols-2 gap-4">
+          <Panel title={`转折点（${plot.turning_points.length}）`}>
+            {plot.turning_points.length === 0 ? (
+              <p className="text-xs text-text-muted">章节之间的活跃线索没有明显变化。</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-text-muted border-b border-gray-700">
+                      <th className="text-left py-1.5 font-medium">章节</th>
+                      <th className="text-right py-1.5 font-medium">变化</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">登场</th>
+                      <th className="text-left py-1.5 pl-4 font-medium">退场</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plot.turning_points.map((t) => (
+                      <tr key={t.section} className="border-b border-gray-700/40">
+                        <td className="py-1.5 truncate max-w-[160px]" title={t.section}>
+                          {t.section || "(root)"}
+                        </td>
+                        <td className="py-1.5 text-right text-text-muted tabular-nums">
+                          {formatPercent(t.change)}
+                        </td>
+                        <td className="py-1.5 pl-4 text-emerald-400">
+                          {t.appeared.join("、") || "—"}
+                        </td>
+                        <td className="py-1.5 pl-4 text-red-400">{t.dropped.join("、") || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="需要处理的线索">
+            <div className="space-y-3 text-xs">
+              <div>
+                <p className="text-text-muted">铺垫未回收（{plot.unresolved_threads.length}）</p>
+                <p className="mt-1 break-words">
+                  {plot.unresolved_threads.length === 0
+                    ? "无"
+                    : plot.unresolved_threads.join("、")}
+                </p>
+              </div>
+              <div>
+                <p className="text-text-muted">结尾登场（{plot.late_arrivals.length}）</p>
+                <p className="mt-1 break-words">
+                  {plot.late_arrivals.length === 0 ? "无" : plot.late_arrivals.join("、")}
+                </p>
+              </div>
+              <p className="text-text-muted pt-2 border-t border-gray-700/60">
+                连贯性从 100 起扣：铺垫未回收或结尾登场各 −8，中断满 3 个章节 −5，没有线索贯穿全文
+                −15；少于 3 个章节不参与评分。
+              </p>
+            </div>
           </Panel>
         </div>
       </section>
