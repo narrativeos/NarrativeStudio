@@ -301,6 +301,107 @@ export interface ThemeStats {
   theme_score: number | null;
 }
 
+/** One segment of the environment curve. */
+export interface SettingPoint {
+  section: string;
+  char_count: number;
+  /** Environment vocabulary hits in the segment. */
+  env_hits: number;
+  /** Hits per 1000 visible characters. */
+  density: number;
+  /** 0-100 on the absolute scale, so two projects' curves can be compared. */
+  intensity: number;
+  /** Distinct places named in the segment. */
+  place_count: number;
+  /** The place named most often here; empty when the segment names none. */
+  dominant_place: string;
+}
+
+/** One named place and how far it reaches. */
+export interface Place {
+  name: string;
+  /** `LOCATION` or `FACILITY`. */
+  kind: string;
+  /** Blocks that name it. */
+  mentions: number;
+  sections_touched: number;
+  /** Fraction of the document's segments this place appears in (0-1). */
+  coverage: number;
+  first_section: string;
+  last_section: string;
+  /** Longest run of segments where the place is absent between two appearances. */
+  longest_absence: number;
+  /** Times it comes back after three or more absent segments. */
+  returns: number;
+  /** Blocks naming it per segment, aligned with the other curves' X axis. */
+  curve: number[];
+}
+
+/** A scene: a run of consecutive blocks that stays at one place. */
+export interface Scene {
+  /** Zero-based position in document order. */
+  index: number;
+  /** The segment where the scene starts. */
+  section: string;
+  /** The place the scene is at; empty when the text never says. */
+  anchor: string;
+  /** `LOCATION` / `FACILITY`, empty with no anchor. */
+  anchor_kind: string;
+  blocks: number;
+  char_count: number;
+  env_hits: number;
+  /** Environment hits per 1000 visible characters in the scene. */
+  env_density: number;
+  /** Share of the scene's characters inside quotation marks. */
+  dialogue_share: number;
+  /** The scene carries a date expression — usually a time jump. */
+  time_mark: boolean;
+  /** People present, busiest first (`name, mentions`). */
+  persons: [string, number][];
+}
+
+/** Something the setting does for the reader, or fails to do. */
+export interface SettingIssue {
+  /** `unanchored` | `crowded` | `long_absence` | `thin_environment`. */
+  kind: string;
+  section: string;
+  detail: string;
+}
+
+export interface SettingStats {
+  points: SettingPoint[];
+  segment_count: number;
+  /** True when the segments are block chunks rather than sections. */
+  chunked: boolean;
+  /** Reported scenes, document order. */
+  scenes: Scene[];
+  /** All scenes, including unreported ones. */
+  scene_count: number;
+  /** Scenes that name no place and describe too little to stand in for one. */
+  unanchored_scenes: number;
+  /** Share of scenes left without an anchor. */
+  unanchored_share: number;
+  places: Place[];
+  /** Distinct places named anywhere in the document. */
+  place_count: number;
+  /** Places named in at least three blocks. */
+  recurring_places: number;
+  total_env_hits: number;
+  /** Environment hits per 1000 visible characters across the document. */
+  env_density: number;
+  /** Busiest environment terms across the document, most first. */
+  top_env_terms: [string, number][];
+  /** `none` | `thin` | `present` | `heavy` — description vocabulary, not quality. */
+  verdict: "none" | "thin" | "present" | "heavy";
+  dominant_place: string;
+  peak_section: string;
+  peak_intensity: number;
+  issues: SettingIssue[];
+  longest_absence: number;
+  /** 0-100, or null when the document names no place and carries no description. */
+  setting_score: number | null;
+}
+
 export interface DimensionScore {
   key: string;
   label: string;
@@ -341,6 +442,7 @@ export interface ProjectAnalysis {
   pacing: PacingStats;
   conflict: ConflictStats;
   theme: ThemeStats;
+  setting: SettingStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

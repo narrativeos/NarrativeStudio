@@ -271,3 +271,77 @@ const THEME_CONCENTRATION_LABELS: Record<string, string> = {
 export function themeConcentrationLabel(concentration: string): string {
   return THEME_CONCENTRATION_LABELS[concentration] ?? concentration;
 }
+
+/**
+ * Localized label for how much environment vocabulary a document carries.
+ *
+ * `none` says no setting *vocabulary*, not no setting: a scene can be anchored by
+ * a name the entity model caught, or by description, or by neither. Mirrors
+ * `setting_verdict_label` in `studio-report::markdown`.
+ */
+const SETTING_VERDICT_LABELS: Record<string, string> = {
+  none: "未见用词",
+  thin: "偏少",
+  present: "适中",
+  heavy: "密集",
+};
+
+export function settingVerdictLabel(verdict: string): string {
+  return SETTING_VERDICT_LABELS[verdict] ?? verdict;
+}
+
+/**
+ * Badge classes for an environment verdict. Thin description is the case worth a
+ * look; "no vocabulary found" is neutral, because the engine cannot tell a bare
+ * scene from one it has no words for.
+ */
+const SETTING_VERDICT_STYLES: Record<string, string> = {
+  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  thin: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  present: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  heavy: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+};
+
+export function settingVerdictStyle(verdict: string): string {
+  return SETTING_VERDICT_STYLES[verdict] ?? SETTING_VERDICT_STYLES.none;
+}
+
+/** Localized label for the kind of place the importer found. */
+const PLACE_KIND_LABELS: Record<string, string> = {
+  LOCATION: "地点",
+  FACILITY: "场所",
+};
+
+export function placeKindLabel(kind: string): string {
+  return PLACE_KIND_LABELS[kind] ?? kind;
+}
+
+/**
+ * Localized label for what the setting gave the reader, or withheld. Mirrors
+ * `setting_issue_label` in `studio-report::markdown`.
+ */
+const SETTING_ISSUE_LABELS: Record<string, string> = {
+  unanchored: "无地点锚点",
+  crowded: "地点过密",
+  long_absence: "长时间离开地点",
+  thin_environment: "环境描写偏少",
+};
+
+export function settingIssueLabel(kind: string): string {
+  return SETTING_ISSUE_LABELS[kind] ?? kind;
+}
+
+/**
+ * Badge classes for a scene issue: a scene that never says where it is the case
+ * that loses a reader, a place left for a while is only worth a look.
+ */
+const SETTING_ISSUE_STYLES: Record<string, string> = {
+  unanchored: "bg-red-500/15 text-red-400 border-red-500/30",
+  crowded: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  long_absence: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  thin_environment: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+};
+
+export function settingIssueStyle(kind: string): string {
+  return SETTING_ISSUE_STYLES[kind] ?? SETTING_ISSUE_STYLES.long_absence;
+}

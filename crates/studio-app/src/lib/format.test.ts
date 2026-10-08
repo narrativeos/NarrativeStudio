@@ -14,11 +14,16 @@ import {
   formatScore,
   pacingVerdictLabel,
   pacingVerdictStyle,
+  placeKindLabel,
   plotShapeLabel,
   plotShapeStyle,
   scoreColor,
   severityLabel,
   severityStyle,
+  settingIssueLabel,
+  settingIssueStyle,
+  settingVerdictLabel,
+  settingVerdictStyle,
   themeConcentrationLabel,
   themeReachLabel,
   themeReachStyle,
@@ -232,5 +237,46 @@ describe("theme labels", () => {
     expect(themeSourceLabel("embeddings")).toBe("embeddings");
     expect(themeReachLabel("weekly")).toBe("weekly");
     expect(themeConcentrationLabel("sideways")).toBe("sideways");
+  });
+});
+
+describe("setting labels", () => {
+  it("localizes every environment verdict the analysis can emit", () => {
+    expect(settingVerdictLabel("none")).toBe("未见用词");
+    expect(settingVerdictLabel("thin")).toBe("偏少");
+    expect(settingVerdictLabel("present")).toBe("适中");
+    expect(settingVerdictLabel("heavy")).toBe("密集");
+  });
+
+  it("keeps 未见用词 neutral: no vocabulary is not the same as no setting", () => {
+    expect(settingVerdictStyle("none")).toContain("text-text-muted");
+    expect(settingVerdictStyle("thin")).toContain("text-amber-400");
+    expect(settingVerdictStyle("present")).toContain("text-emerald-400");
+  });
+
+  it("falls back to the neutral style for an unknown verdict", () => {
+    expect(settingVerdictStyle("sparse")).toBe(settingVerdictStyle("none"));
+  });
+
+  it("names the kind of place the importer found", () => {
+    expect(placeKindLabel("LOCATION")).toBe("地点");
+    expect(placeKindLabel("FACILITY")).toBe("场所");
+    expect(placeKindLabel("ORGANIZATION")).toBe("ORGANIZATION");
+  });
+
+  it("localizes every scene issue the analysis can emit", () => {
+    expect(settingIssueLabel("unanchored")).toBe("无地点锚点");
+    expect(settingIssueLabel("crowded")).toBe("地点过密");
+    expect(settingIssueLabel("long_absence")).toBe("长时间离开地点");
+    expect(settingIssueLabel("thin_environment")).toBe("环境描写偏少");
+  });
+
+  it("reads a scene that never says where it is as the case to fix", () => {
+    expect(settingIssueStyle("unanchored")).toContain("text-red-400");
+    expect(settingIssueStyle("long_absence")).toContain("text-sky-400");
+  });
+
+  it("falls back to the neutral issue style for an unknown kind", () => {
+    expect(settingIssueStyle("drifting")).toBe(settingIssueStyle("long_absence"));
   });
 });

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Panel, SectionTitle, StatCard } from "../components/Cards";
 import ConflictSection from "../components/analysis/ConflictSection";
+import SettingSection from "../components/analysis/SettingSection";
 import ThemeSection from "../components/analysis/ThemeSection";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
@@ -32,10 +33,10 @@ interface AnalysisProps {
 
 /**
  * Single-project analysis view. Runs T0 (statistical) + T1 (structural) + plot
- * + pacing + conflict + theme analysis plus a rule-based assessment for the
- * selected project, and presents the full portrait grouped by dimension:
- * overview, assessment, statistics, text diagnostics, structure, narrative,
- * plot, pacing, conflict, and theme.
+ * + pacing + conflict + theme + setting analysis plus a rule-based assessment for
+ * the selected project, and presents the full portrait grouped by dimension:
+ * overview, assessment, statistics, text diagnostics, structure, narrative, plot,
+ * pacing, conflict, theme, and setting.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -114,7 +115,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (!data) return null;
 
-  const { t0, t1, plot, pacing, conflict, theme } = data;
+  const { t0, t1, plot, pacing, conflict, theme, setting } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
   // Pacing, conflict and theme all segment the document the same way, so one list
   // of section names labels every curve's X axis.
@@ -757,6 +758,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
       {/* Theme analysis */}
       <ThemeSection theme={theme} segmentLabels={segmentLabels} />
+
+      {/* Setting analysis */}
+      <SettingSection setting={setting} />
     </div>
   );
 }
