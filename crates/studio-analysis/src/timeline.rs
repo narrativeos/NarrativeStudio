@@ -424,8 +424,11 @@ fn starts_with(chars: &[char], at: usize, word: &[char]) -> bool {
 }
 
 /// The longest bucket entry sitting at `at`, as (table index, end offset).
+///
+/// Bounds-safe: a caller that has just consumed a count word can hand over the offset one
+/// past the text, and a word table tried at nothing matches nothing.
 fn match_buckets(buckets: &Buckets, chars: &[char], at: usize) -> Option<(usize, usize)> {
-    let entries = buckets.get(&chars[at])?;
+    let entries = buckets.get(chars.get(at)?)?;
     for (idx, word) in entries {
         if starts_with(chars, at, word) {
             return Some((*idx, at + word.len()));
@@ -877,6 +880,16 @@ fn term_table() -> Vec<(&'static str, &'static str)> {
     out
 }
 
+/// 周 is a dynasty, a surname and a turning before it is a week. A weekday word that opens
+/// with 周 is refused when the character in front of it belongs to a dynasty name: 西周末期
+/// is the end of the Western Zhou and 后周末期 the end of the Later Zhou, neither is a
+/// weekend. The surname case (周三多 as an author) cannot be told apart this way, which is
+/// what the 字面识别 note is for.
+fn dynasty_zhou(chars: &[char], pos: usize) -> bool {
+    const DYNASTY_BEFORE: [char; 7] = ['东', '西', '南', '北', '前', '后', '战'];
+    pos > 0 && DYNASTY_BEFORE.contains(&chars[pos - 1])
+}
+
 /// The era table as buckets, valued by the row each name sits on.
 fn era_buckets() -> Buckets {
     let rows: Vec<(&'static str, usize)> = calendar::ERAS
@@ -956,6 +969,12 @@ fn scan_block(chars: &[char], lex: &Lexicons) -> Vec<Found> {
             continue;
         }
         if let Some((idx, end)) = match_buckets(&lex.terms, chars, pos) {
+            if lex.term_precisions[idx] == "weekday" && dynasty_zhou(chars, pos) {
+                // 西周末期 is the end of a dynasty, 后周末期 the end of another one. The
+                // word inside them is not a week.
+                pos += 1;
+                continue;
+            }
             found.push(Found {
                 start: pos,
                 end,
@@ -1364,14 +1383,15 @@ fn build_findings(
     let named_terms = stats
         .markers
         .iter()
-        .filter(|m| m.precision == "solar_term" || m.precision == "festival")
+        .filter(|m| matches!(m.precision.as_str(), "solar_term" | "festival" | "weekday"))
         .count();
     if named_terms > 0 {
         issues.push(TimelineIssue {
             kind: "term_collision".into(),
             section: String::new(),
             detail: format!(
-                "{named_terms} 处节气或节日词按字面识别：同样的字也可能是人名（清明、白露都可能用作名字）"
+                "{named_terms} 处节气、节日与星期词按字面识别：同样的字也可能是人名或书名\
+                 （清明、白露都可能用作名字，清明上河图不是清明，周三多也可能是作者）"
             ),
         });
     }
@@ -1916,6 +1936,33 @@ mod tests {
         let both = scan("上元二年，他下了第。");
         assert_eq!(both.len(), 1);
         assert_eq!(both[0].kind, "partial", "675 or 761: the number fits both");
+    }
+
+    #[test]
+    fn test_text_that_ends_on_a_count_word_does_not_reach_past_the_end() {
+        // A real book found this: a block whose text ends with 六. The unit table is tried
+        // one character after the count, which there is no character at.
+        for text in ["他说了六", "再过三", "那年乾", "二〇二"] {
+            let _ = scan(text);
+        }
+        assert_eq!(
+            scan("他说了六").len(),
+            0,
+            "a bare count is a count, not a date"
+        );
+    }
+
+    #[test]
+    fn test_a_dynasty_is_not_a_week() {
+        // 周末 inside 西周末期 is the end of a dynasty; the same two characters after a
+        // demonstrative are a weekend.
+        for text in ["西周末期，人们改用竹简。", "后周末期，他南下投军。"] {
+            assert!(scan(text).is_empty(), "{text} says nothing about a week");
+        }
+        let weekend = scan("这个周末他回了家。");
+        assert_eq!(weekend.len(), 1);
+        assert_eq!(weekend[0].precision, "weekday");
+        assert_eq!(weekend[0].kind, "vague");
     }
 
     #[test]

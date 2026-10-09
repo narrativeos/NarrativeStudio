@@ -15,7 +15,7 @@ use crate::Result;
 /// The fingerprint covers the *input*, not the code that reads it, so a new
 /// analysis algorithm must invalidate existing cache rows by changing this
 /// salt. Bump it in the same commit that changes analysis output.
-pub const ANALYSIS_VERSION: &str = "m2-v5";
+pub const ANALYSIS_VERSION: &str = "m2-v6";
 
 /// SHA-256 (lowercase hex) of the analysed content of a document.
 ///

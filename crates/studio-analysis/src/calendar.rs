@@ -1634,7 +1634,9 @@ pub const HOUR_PERIODS: &[&str] = &[
     "三更", "四更", "五更", "一更",
 ];
 
-/// Weekday words: a place in the week, anchored to no date.
+/// Weekday words: a place in the week, anchored to no date. The ones opening with 周 are
+/// the risky ones — 周 is also a dynasty and a surname — so the matcher refuses them next
+/// to a dynasty name (西周末期 is not a weekend).
 pub const WEEKDAYS: &[&str] = &[
     "周一",
     "周二",
