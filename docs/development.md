@@ -787,6 +787,7 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 - **年号只在带位年数时读作日期**：`正统十四年` 是日期，`正统的观点` 不是。禁止把裸年号名当标记。
 - **同名年号用候选集，不用首命中**：`era_candidates` 返回所有对得上的年份，多于一个时标为 partial + `ambiguous_era`（`至元三年` 可能是 1266 或 1337），绝不静默取第一个。
 - **一个年号被几个政权沿用，只算一段**：起始年相同、或被另一段整个包含的（`长兴` 在 后唐 到 934、在 吴越 到 933、在 荆南 到 932）合成一段，免得中途沿用它被当成第二个元年；只是相接的（后晋 `天福` 936-944 与后汉 `天福` 944-945）仍是两段。`era_candidates` 再把落在同一年份的重复候选去掉。
+- **词表里的字也可能不是时间**：`周` 既是星期也是朝代——`西周末期` 不是周末，前一字是朝代限定词（东/西/南/北/前/后/战）时星期词一律拒读；`清明` 可能是《清明上河图》，`周三多` 可能是作者，这类分不出来。凡是只能按字面识别的（节气 / 节日 / 星期），报告必须把它们数出来并说明（`term_collision`），不能装作确定。
 - **新词表不得与既有词表重叠**：一个词落在两张表里，取哪个精度就取决于调用顺序。`calendar::tests::the_term_tables_do_not_overlap_each_other` 钉住这一点；确实同名的（`上元` 既是年号也是节日）靠「有没有位年数」分开，并有测试。
 - **改词表或匹配器就 bump `ANALYSIS_VERSION`**（`studio-analysis/src/hash.rs`）：词库变了而文档没变，旧缓存必须失效。报告里的「分析版本」是渲染出来的，改版本要一并改 `studio-report` 的 golden 测试。
 
@@ -846,7 +847,35 @@ cd crates/studio-app && pnpm test:watch   # 前端 watch 模式
 cargo llvm-cov --workspace                # 覆盖率（尚未纳入 CI 门禁）
 ```
 
-### 7.4 CI 测试门禁
+### 7.4 真实数据冒烟（`#[ignore]` 测试）
+
+仓库内的 fixture 只有 12 块，证明不了规模，也证明不了误报。`crates/studio-app/src-tauri/tests/timeline_scale.rs`
+用本机真实 TraceView 导出跑时间线，**不进 CI**：
+
+```bash
+# 单本：耗时 + 全部历法读数（年号/干支/农历/节气/节日/星期）连上下文
+NARRATIVE_TEST_FILE=~/.TraceView/<书>/semantic/semantic_result.json \
+  cargo test -p studio-app --test timeline_scale -- --ignored --nocapture
+
+# 整个目录：逐本跑一遍，把每一处历法读数打出来供人眼判读
+NARRATIVE_TEST_DIR=~/.TraceView \
+  cargo test -p studio-app --test timeline_scale -- --ignored --nocapture
+```
+
+两者都断言 T1 预算（单遍分析 < 2s；JSON 解析归导入，不算在这里），并把来自词表的
+读数连上下文一并打印——**误报只能靠人眼看**，所以上下文是测试输出的一部分。
+
+实测（本机 26 份可读导出 · 814 万字，最慢一本 174 万字 · 7258 块）：
+
+| 口径 | 最慢一本 | 结论 |
+|------|---------|------|
+| dev profile（`cargo test`） | 1.1–1.4 s | 在 2s 预算内，但只剩 1.4× 余量 |
+| release profile | 88–155 ms | 比 dev 快约 10×，发布口径下余量 13× 以上 |
+
+真实数据找到的两处问题都已进单元测试：块文本以数量词结尾时 `match_buckets` 越界
+（现在边界安全），以及 `西周末期` 被 `周末` 命中（见 6.7 的朝代规则）。
+
+### 7.5 CI 测试门禁
 
 下表已在 `.github/workflows/ci.yml` 中生效：
 
