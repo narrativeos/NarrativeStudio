@@ -14,3 +14,4 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 sha2 = { workspace = true }
+lunar-lite = { workspace = true }

@@ -13,11 +13,13 @@
 //! - Explicit: what a reader might want warned about, and how strong the words are
 //! - Structure: which classic shape the document's own landmarks fit
 //! - Timeline: where the text says when, and whether its dates agree
+//!   (with 历法: the era table, the sexagenary wheel and the lunar conversion behind it)
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
 
 mod assessment;
+mod calendar;
 mod cliche;
 mod conflict;
 mod dialogue;

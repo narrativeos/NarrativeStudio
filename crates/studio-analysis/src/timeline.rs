@@ -18,6 +18,21 @@
 //!   not to any calendar date, so it never takes part in the ordering check.
 //! - **vague** — 春天, 傍晚, 那天. A flavour of when, with no position at all.
 //!
+//! The lexicon reaches past `2003年3月12日`, because a Chinese text keeps time in more than
+//! one calendar, and each of those needs a different promise:
+//!
+//! - 年号 and 民国 years (`乾隆三年`, `民国三十八年`) come out of a table of when each era
+//!   was proclaimed, and resolve to a Gregorian year — and no finer, because an era was
+//!   proclaimed in the middle of a year.
+//! - 干支 years (`庚子年`) are a position in a 60-year wheel, not a year. They are placed
+//!   only against dates the document itself already gives, and stay unplaced when that
+//!   still leaves more than one answer.
+//! - 农历 dates (`腊月初八`, `癸卯年八月十五`) are converted with an astronomical calendar
+//!   engine. A month and day that no calendar in that year held is refused rather than
+//!   repaired.
+//! - 节气, 节日, 时辰 and weekday words are counted as vague: they say roughly when, and
+//!   the same characters can be a person's name.
+//!
 //! The ordering check reports 时间倒回: a resolvable date earlier in the document lying
 //! later in the calendar than the one after it. That is offered as something to look at,
 //! never as a fault — a flashback is a legitimate device and the analysis cannot tell the
@@ -27,13 +42,14 @@
 //! Deterministic: the scan walks each block once, longest match first, never producing
 //! overlapping matches, and every list is in reading order.
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use studio_core::document::DocumentData;
 use studio_core::entity::EntityCategory;
 
+use crate::calendar;
 use crate::segment::plan_segments;
 use crate::text::visible_char_count;
 use crate::Result;
@@ -60,13 +76,17 @@ pub struct TimelineMarker {
     /// `absolute` | `partial` | `relative` | `vague`.
     pub kind: String,
     /// What the expression pins down: `year` | `month` | `day` | `month_day` | `offset` |
-    /// `deictic` | `season` | `time_of_day`.
+    /// `deictic` | `season` | `time_of_day` | `weekday` | `solar_term` | `festival` |
+    /// `era_year` | `era_day` | `ganzhi_year` | `ganzhi_day` | `lunar_month` |
+    /// `lunar_month_day` | `lunar_day`.
     pub precision: String,
     /// The segment the marker sits in, on the shared curve axis.
     pub section: String,
     /// Document fraction at the marker (0-1).
     pub position: f64,
-    /// The calendar date as `2003-03-12` / `2003-03` / `2003`; empty unless absolute.
+    /// The calendar date as `2003-03-12` / `2003-03` / `2003`; a 年号 or 干支 year as the
+    /// Gregorian year it resolves to (`乾隆三年` → `1738`); empty unless the expression
+    /// carries a year the analysis could place.
     pub resolved: String,
     /// Estimated signed distance in days for a relative marker (月≈30天, 年≈365天);
     /// 0 for anything that is not a distance.
@@ -92,7 +112,8 @@ pub struct TimelineStep {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimelineIssue {
     /// `no_markers` | `too_short` | `no_order` | `backstep` | `long_jump` |
-    /// `unmarked_stretch`.
+    /// `unmarked_stretch` | `unanchored_ganzhi` | `ambiguous_era` | `calendar_note` |
+    /// `term_collision`.
     pub kind: String,
     pub section: String,
     pub detail: String,
@@ -118,6 +139,11 @@ pub struct TimelineStats {
     pub partial_count: u32,
     pub relative_count: u32,
     pub vague_count: u32,
+    /// How the expressions are written, most common first: `day`, `month_day`, `offset`,
+    /// `season`, and the calendar-table forms — `era_year`, `ganzhi_year`,
+    /// `lunar_month_day`, `solar_term`, `festival`. A form is listed only when the text
+    /// really used it.
+    pub forms: Vec<(String, u32)>,
     /// How many `DATE` entities the import carries, which the scan does not read. It is
     /// kept as a cross-check: entities the NER pass marked and the scan could not parse
     /// mean the dates are written in a form outside the recognised range (a reign year,
@@ -348,6 +374,13 @@ const VAGUE: &[(&str, &str)] = &[
     ("当时", "deictic"),
 ];
 
+/// A 干支 year the scan cannot place yet: a position in the 60-year wheel, plus the lunar
+/// month and day that followed it, if any. The document's own dates anchor it later.
+struct GanzhiYear {
+    index: usize,
+    lunar: Option<(u32, u32, bool)>,
+}
+
 /// One expression found inside a block, before it is placed in the document.
 struct Found {
     start: usize,
@@ -361,6 +394,8 @@ struct Found {
     /// nothing in the text says which month that bare year meant.
     order_key: Option<NaiveDate>,
     offset_days: f64,
+    /// A 干支 year waiting for an anchor.
+    ganzhi: Option<GanzhiYear>,
 }
 
 /// A word table bucketed by first character, longest candidate first, so a pass over a
@@ -441,6 +476,7 @@ fn match_absolute(chars: &[char], at: usize) -> Option<Found> {
             resolved: format!("{year:04}-{month:02}-{day:02}"),
             order_key: Some(date),
             offset_days: 0.0,
+            ganzhi: None,
         });
     }
 
@@ -488,6 +524,7 @@ fn match_absolute(chars: &[char], at: usize) -> Option<Found> {
         resolved,
         order_key,
         offset_days: 0.0,
+        ganzhi: None,
     })
 }
 
@@ -513,6 +550,7 @@ fn match_month_day(chars: &[char], at: usize) -> Option<Found> {
         resolved: String::new(),
         order_key: None,
         offset_days: 0.0,
+        ganzhi: None,
     })
 }
 
@@ -534,6 +572,7 @@ fn match_relative(chars: &[char], at: usize, units: &Buckets) -> Option<Found> {
         resolved: String::new(),
         order_key: None,
         offset_days: sign * count * UNITS[unit_idx].1,
+        ganzhi: None,
     })
 }
 
@@ -559,6 +598,7 @@ fn match_month_only(chars: &[char], at: usize) -> Option<Found> {
         resolved: String::new(),
         order_key: None,
         offset_days: 0.0,
+        ganzhi: None,
     })
 }
 
@@ -585,14 +625,266 @@ fn match_day_only(chars: &[char], at: usize) -> Option<Found> {
         resolved: String::new(),
         order_key: None,
         offset_days: 0.0,
+        ganzhi: None,
     })
 }
 
-/// The three word tables, bucketed once per document.
+/// A month and day written right after a named year: `万历十五年三月十二`,
+/// `民国三十八年三月五日`.
+///
+/// Whether they are lunar is read off how they are written, which is the convention the
+/// writing itself keeps: 初三 / 廿三 / 十五 name a lunar day, a day carrying 日 or 号 is a
+/// solar one, and 正月 / 冬月 / 腊月 / 闰X月 are lunar names whatever follows them.
+struct TrailingDate {
+    month: u32,
+    day: u32,
+    leap: bool,
+    lunar: bool,
+    end: usize,
+}
+
+fn match_trailing_date(chars: &[char], at: usize) -> Option<TrailingDate> {
+    let (month, leap, after_month) = match calendar::lunar_month_name(chars, at) {
+        Some((month, leap, end)) => (month, leap, end),
+        None => {
+            let (month, after) = calendar::small_count(chars, at)?;
+            if !(1..=12).contains(&month) || chars.get(after) != Some(&'月') {
+                return None;
+            }
+            (month, false, after + 1)
+        }
+    };
+    if let Some((day, end)) = calendar::lunar_day_name(chars, after_month) {
+        return Some(TrailingDate {
+            month,
+            day,
+            leap,
+            lunar: true,
+            end,
+        });
+    }
+    let (day, end) = calendar::small_count(chars, after_month)?;
+    if (1..=31).contains(&day) && matches!(chars.get(end), Some('日') | Some('号')) {
+        return Some(TrailingDate {
+            month,
+            day,
+            leap,
+            lunar: false,
+            end: end + 1,
+        });
+    }
+    None
+}
+
+/// A named year and the month and day after it, as far as a calendar can place them.
+///
+/// A month and day that no calendar in that year held — 乾隆三年十二月三十 — keeps the
+/// year and loses the rest: the year is what the text asserted, the date is not.
+fn place_named_year(
+    year: i32,
+    trailing: Option<&TrailingDate>,
+) -> (&'static str, String, Option<NaiveDate>) {
+    let Some(t) = trailing else {
+        return ("era_year", format!("{year}"), None);
+    };
+    let date = if t.lunar {
+        calendar::lunar_to_solar_date(year, t.month, t.day, t.leap)
+    } else {
+        NaiveDate::from_ymd_opt(year, t.month, t.day)
+    };
+    match date {
+        Some(d) => (
+            if t.lunar { "lunar_day" } else { "era_day" },
+            d.format("%Y-%m-%d").to_string(),
+            Some(d),
+        ),
+        None => ("era_year", format!("{year}"), None),
+    }
+}
+
+/// `乾隆三年`, `万历十五年三月十二`, `民国三十八年`.
+///
+/// The regnal number sits between the name and 年, which is what keeps the era table from
+/// firing on ordinary words: 「正统的观点」 has no number and no 年, 「崇祯十七年」 has both.
+/// A regnal year the era never reached is refused outright.
+fn match_named_year(chars: &[char], at: usize, eras: &Buckets) -> Option<Found> {
+    let (idx, after_name) = match_buckets(eras, chars, at)?;
+    let (name, _, _) = calendar::ERAS[idx];
+    let (regnal, after_regnal) = if chars.get(after_name) == Some(&'元') {
+        (1, after_name + 1)
+    } else {
+        calendar::small_count(chars, after_name)?
+    };
+    if chars.get(after_regnal) != Some(&'年') {
+        return None;
+    }
+    let mut end = after_regnal + 1;
+    let trailing = match_trailing_date(chars, end);
+    if let Some(t) = &trailing {
+        end = t.end;
+    }
+
+    let candidates = calendar::era_candidates(name, regnal);
+    if candidates.is_empty() {
+        return None;
+    }
+    if candidates.len() > 1 {
+        // Two reigns used this name and the number fits both — 至元三年 is 1266 or 1337
+        // and the text does not say which. Counted, not placed.
+        return Some(Found {
+            start: at,
+            end,
+            kind: "partial",
+            precision: "era_year",
+            resolved: String::new(),
+            order_key: None,
+            offset_days: 0.0,
+            ganzhi: None,
+        });
+    }
+    let (precision, resolved, order_key) = place_named_year(candidates[0], trailing.as_ref());
+    Some(Found {
+        start: at,
+        end,
+        kind: "absolute",
+        precision,
+        resolved,
+        order_key,
+        offset_days: 0.0,
+        ganzhi: None,
+    })
+}
+
+/// `庚子年`, `癸卯年八月十五`.
+///
+/// A 干支 is a position in a 60-year wheel, not a year: 庚子 was 1840, 1900 and 1960. The
+/// marker is left unplaced here and anchored against the document's own dates afterwards;
+/// if that still leaves more than one answer, it stays unplaced.
+fn match_ganzhi_year(chars: &[char], at: usize) -> Option<Found> {
+    if chars.get(at + 2) != Some(&'年') {
+        return None;
+    }
+    let text: String = chars[at..at + 2].iter().collect();
+    let index = calendar::ganzhi_index(&text)?;
+    let mut end = at + 3;
+    let trailing = match_trailing_date(chars, end);
+    let lunar = match &trailing {
+        Some(t) if t.lunar => {
+            end = t.end;
+            Some((t.month, t.day, t.leap))
+        }
+        // A solar-looking day after a 干支 year is left to the other matchers rather than
+        // half-consumed here.
+        _ => None,
+    };
+    let precision = if lunar.is_some() {
+        "ganzhi_day"
+    } else {
+        "ganzhi_year"
+    };
+    Some(Found {
+        start: at,
+        end,
+        kind: "partial",
+        precision,
+        resolved: String::new(),
+        order_key: None,
+        offset_days: 0.0,
+        ganzhi: Some(GanzhiYear { index, lunar }),
+    })
+}
+
+/// `腊月初八`, `八月初三`, `八月十五`, `闰二月` — a lunar date with no year in front of
+/// it, so it is counted rather than placed.
+///
+/// A numbered month counts only when the day after it could not be anything but lunar:
+/// 八月初三 and 八月十五 are lunar, 八月十二 is a solar date another matcher reads.
+fn match_lunar_date(chars: &[char], at: usize) -> Option<Found> {
+    let named = calendar::lunar_month_name(chars, at);
+    let after_month = match named {
+        Some((_, _, end)) => end,
+        None => {
+            let (month, after) = calendar::small_count(chars, at)?;
+            if !(1..=12).contains(&month) || chars.get(after) != Some(&'月') {
+                return None;
+            }
+            after + 1
+        }
+    };
+    let day = calendar::lunar_day_name(chars, after_month);
+    let (precision, end) = match day {
+        Some((_, end)) => ("lunar_month_day", end),
+        // A month named in lunar terms is a month even with no day after it. A numbered
+        // month with no lunar day name is the solar matcher's business.
+        None => match named {
+            Some(_) => ("lunar_month", after_month),
+            None => return None,
+        },
+    };
+    Some(Found {
+        start: at,
+        end,
+        kind: "partial",
+        precision,
+        resolved: String::new(),
+        order_key: None,
+        offset_days: 0.0,
+        ganzhi: None,
+    })
+}
+
+/// `初八`, `廿三` on their own: a day of a month the reader already knows. Only 初 and 廿
+/// start these; a bare 三十 is more likely to be the number thirty.
+fn match_lunar_day_only(chars: &[char], at: usize) -> Option<Found> {
+    if !matches!(chars.get(at), Some('初') | Some('廿')) {
+        return None;
+    }
+    let (_, end) = calendar::lunar_day_name(chars, at)?;
+    Some(Found {
+        start: at,
+        end,
+        kind: "partial",
+        precision: "lunar_day",
+        resolved: String::new(),
+        order_key: None,
+        offset_days: 0.0,
+        ganzhi: None,
+    })
+}
+
+/// The word tables, bucketed once per document.
 struct Lexicons {
     units: Buckets,
     deictic: Buckets,
     vague: Buckets,
+    /// Reign era and 民国 names, valued by their row in the calendar table.
+    eras: Buckets,
+    /// 节气, 节日, 时辰 and weekday words, valued by their index into `term_precisions`.
+    terms: Buckets,
+    /// The precision of each term, in the order the term table was built.
+    term_precisions: Vec<&'static str>,
+}
+
+/// 节气, 节日, 时辰 and weekday words. They say roughly when and nothing about which year,
+/// so none of them is ever placed or ordered; they are kept apart from the other vague
+/// words only so the report can say which of them a text leans on.
+fn term_table() -> Vec<(&'static str, &'static str)> {
+    let mut out: Vec<(&'static str, &'static str)> = Vec::new();
+    out.extend(calendar::SOLAR_TERMS.iter().map(|w| (*w, "solar_term")));
+    out.extend(calendar::FESTIVALS.iter().map(|w| (*w, "festival")));
+    out.extend(calendar::HOUR_PERIODS.iter().map(|w| (*w, "time_of_day")));
+    out.extend(calendar::WEEKDAYS.iter().map(|w| (*w, "weekday")));
+    out
+}
+
+/// The era table as buckets, valued by the row each name sits on.
+fn era_buckets() -> Buckets {
+    let rows: Vec<(&'static str, usize)> = calendar::ERAS
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _, _))| (*name, i))
+        .collect();
+    build_buckets(&rows)
 }
 
 /// Surrounding characters for a match, with ellipses where they were cut.
@@ -615,16 +907,21 @@ fn excerpt(chars: &[char], start: usize, end: usize) -> String {
 /// The order the alternatives are tried in is the order they are more specific: a full
 /// date before a month-and-day before a bare month, and a relative expression before the
 /// bare unit it is built from, so `三个月后` reads as one distance rather than as a month
-/// plus a stray 后.
+/// plus a stray 后. A lunar month-and-day is tried before the bare month for the same
+/// reason: `八月初三` is one expression, not 八月 followed by something missed.
 fn scan_block(chars: &[char], lex: &Lexicons) -> Vec<Found> {
     let mut found: Vec<Found> = Vec::new();
     let mut pos = 0;
     while pos < chars.len() {
         let numeric = match_absolute(chars, pos)
             .or_else(|| match_month_day(chars, pos))
+            .or_else(|| match_named_year(chars, pos, &lex.eras))
+            .or_else(|| match_ganzhi_year(chars, pos))
+            .or_else(|| match_lunar_date(chars, pos))
             .or_else(|| match_relative(chars, pos, &lex.units))
             .or_else(|| match_month_only(chars, pos))
-            .or_else(|| match_day_only(chars, pos));
+            .or_else(|| match_day_only(chars, pos))
+            .or_else(|| match_lunar_day_only(chars, pos));
         if let Some(f) = numeric {
             pos = f.end.max(pos + 1);
             found.push(f);
@@ -639,6 +936,7 @@ fn scan_block(chars: &[char], lex: &Lexicons) -> Vec<Found> {
                 resolved: String::new(),
                 order_key: None,
                 offset_days: DEICTIC[idx].1,
+                ganzhi: None,
             });
             pos = end;
             continue;
@@ -652,6 +950,21 @@ fn scan_block(chars: &[char], lex: &Lexicons) -> Vec<Found> {
                 resolved: String::new(),
                 order_key: None,
                 offset_days: 0.0,
+                ganzhi: None,
+            });
+            pos = end;
+            continue;
+        }
+        if let Some((idx, end)) = match_buckets(&lex.terms, chars, pos) {
+            found.push(Found {
+                start: pos,
+                end,
+                kind: "vague",
+                precision: lex.term_precisions[idx],
+                resolved: String::new(),
+                order_key: None,
+                offset_days: 0.0,
+                ganzhi: None,
             });
             pos = end;
             continue;
@@ -693,16 +1006,28 @@ pub fn run_timeline_analysis(doc: &DocumentData) -> Result<TimelineStats> {
         .flat_map(|b| b.entities.iter())
         .filter(|e| e.category == EntityCategory::Date)
         .count() as u32;
+    let terms = term_table();
+    let term_precisions = terms.iter().map(|(_, precision)| *precision).collect();
     let lex = Lexicons {
         units: build_buckets(UNITS),
         deictic: build_buckets(DEICTIC),
         vague: build_buckets(VAGUE),
+        eras: era_buckets(),
+        terms: build_buckets(&terms),
+        term_precisions,
     };
 
-    let mut markers: Vec<TimelineMarker> = Vec::new();
-    // The dates that can be placed on a calendar: (segment label, as written, key).
-    let mut dated: Vec<(String, String, NaiveDate)> = Vec::new();
-    let mut per_segment = vec![0u32; plan.labels.len()];
+    // One pass to find the expressions, a second to place them: a 干支 year cannot be
+    // placed until the document's own dated anchors are known.
+    struct Scan {
+        segment: Option<usize>,
+        label: String,
+        position: f64,
+        text: String,
+        excerpt: String,
+        found: Found,
+    }
+    let mut scans: Vec<Scan> = Vec::new();
     let mut cursor: u64 = 0;
 
     for (block_idx, block) in doc.blocks.iter().enumerate() {
@@ -710,32 +1035,100 @@ pub fn run_timeline_analysis(doc: &DocumentData) -> Result<TimelineStats> {
         let block_chars = visible_char_count(&block.content) as u64;
         let segment = plan.segment_of.get(block_idx).copied();
         let label = segment.map_or_else(String::new, |s| plan.labels[s].clone());
-        for f in scan_block(&chars, &lex) {
-            if markers.len() >= MAX_MARKERS {
+        for found in scan_block(&chars, &lex) {
+            if scans.len() >= MAX_MARKERS {
                 break;
             }
-            if let Some(s) = segment {
-                per_segment[s] += 1;
-            }
-            if let Some(key) = f.order_key {
-                dated.push((label.clone(), f.resolved.clone(), key));
-            }
-            markers.push(TimelineMarker {
-                text: chars[f.start..f.end].iter().collect(),
-                kind: f.kind.to_string(),
-                precision: f.precision.to_string(),
-                section: label.clone(),
+            scans.push(Scan {
+                segment,
+                label: label.clone(),
                 position: if char_count > 0 {
-                    (cursor + f.start as u64) as f64 / char_count as f64
+                    (cursor + found.start as u64) as f64 / char_count as f64
                 } else {
                     0.0
                 },
-                resolved: f.resolved,
-                offset_days: f.offset_days,
-                excerpt: excerpt(&chars, f.start, f.end),
+                text: chars[found.start..found.end].iter().collect(),
+                excerpt: excerpt(&chars, found.start, found.end),
+                found,
             });
         }
         cursor += block_chars;
+    }
+
+    // The years the document states outright, with where in the reading each one sits.
+    let anchors: Vec<(usize, i32)> = scans
+        .iter()
+        .enumerate()
+        .filter_map(|(i, scan)| match scan.found.order_key {
+            Some(date) => Some((i, date.year())),
+            None => scan
+                .found
+                .resolved
+                .parse::<i32>()
+                .ok()
+                .map(|year| (i, year)),
+        })
+        .collect();
+
+    // Anchor a 干支 year to the nearest dated anchor in the reading, then to the wheel
+    // position inside a 60-year window around it: 29 years below and 30 above holds
+    // exactly one, so the answer is forced rather than chosen. With no anchor, or with an
+    // anchor too far from any single cycle position, it stays unplaced.
+    let mut unanchored: Vec<String> = Vec::new();
+    for (i, scan) in scans.iter_mut().enumerate() {
+        let Some(ganzhi) = scan.found.ganzhi.take() else {
+            continue;
+        };
+        let placed = anchors
+            .iter()
+            .filter(|(at, _)| *at != i)
+            .min_by_key(|(at, _)| (i as i64 - *at as i64).abs())
+            .and_then(|(_, year)| {
+                let candidates = calendar::ganzhi_years(ganzhi.index, year - 29, year + 30);
+                (candidates.len() == 1).then_some(candidates[0])
+            });
+        if let Some(year) = placed {
+            let (precision, resolved, order_key) = match ganzhi.lunar {
+                Some((month, day, leap)) => {
+                    match calendar::lunar_to_solar_date(year, month, day, leap) {
+                        Some(date) => {
+                            ("lunar_day", date.format("%Y-%m-%d").to_string(), Some(date))
+                        }
+                        None => ("ganzhi_year", format!("{year}"), None),
+                    }
+                }
+                None => ("ganzhi_year", format!("{year}"), None),
+            };
+            scan.found.kind = "absolute";
+            scan.found.precision = precision;
+            scan.found.resolved = resolved;
+            scan.found.order_key = order_key;
+        } else {
+            unanchored.push(scan.text.clone());
+        }
+    }
+
+    let mut markers: Vec<TimelineMarker> = Vec::new();
+    // The dates that can be placed on a calendar: (segment label, as written, key).
+    let mut dated: Vec<(String, String, NaiveDate)> = Vec::new();
+    let mut per_segment = vec![0u32; plan.labels.len()];
+    for scan in scans {
+        if let Some(s) = scan.segment {
+            per_segment[s] += 1;
+        }
+        if let Some(key) = scan.found.order_key {
+            dated.push((scan.label.clone(), scan.found.resolved.clone(), key));
+        }
+        markers.push(TimelineMarker {
+            text: scan.text,
+            kind: scan.found.kind.to_string(),
+            precision: scan.found.precision.to_string(),
+            section: scan.label,
+            position: scan.position,
+            resolved: scan.found.resolved,
+            offset_days: scan.found.offset_days,
+            excerpt: scan.excerpt,
+        });
     }
 
     let curve: Vec<TimelinePoint> = plan
@@ -749,6 +1142,15 @@ pub fn run_timeline_analysis(doc: &DocumentData) -> Result<TimelineStats> {
         .collect();
 
     let count_kind = |kind: &str| markers.iter().filter(|m| m.kind == kind).count() as u32;
+    // How the expressions are written, most common first. This is where a form that only
+    // exists because of a calendar table becomes visible: 年号, 干支, 农历.
+    let mut form_counts: HashMap<String, u32> = HashMap::new();
+    for marker in &markers {
+        *form_counts.entry(marker.precision.clone()).or_default() += 1;
+    }
+    let mut forms: Vec<(String, u32)> = form_counts.into_iter().collect();
+    forms.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
     let mut unmarked_stretches: Vec<(String, String, u32)> = Vec::new();
     let mut run_start: Option<usize> = None;
     for (i, point) in curve.iter().enumerate() {
@@ -779,6 +1181,7 @@ pub fn run_timeline_analysis(doc: &DocumentData) -> Result<TimelineStats> {
         partial_count: count_kind("partial"),
         relative_count: count_kind("relative"),
         vague_count: count_kind("vague"),
+        forms,
         entity_date_count,
         markers,
         curve,
@@ -795,7 +1198,7 @@ pub fn run_timeline_analysis(doc: &DocumentData) -> Result<TimelineStats> {
         readable,
         note,
     };
-    build_findings(&mut stats, &dated, &unmarked_stretches);
+    build_findings(&mut stats, &dated, &unmarked_stretches, &unanchored);
     Ok(stats)
 }
 
@@ -805,12 +1208,13 @@ fn build_findings(
     stats: &mut TimelineStats,
     dated: &[(String, String, NaiveDate)],
     stretches: &[(String, String, u32)],
+    unanchored: &[String],
 ) {
     let mut issues: Vec<TimelineIssue> = Vec::new();
     if stats.markers.is_empty() {
         let detail = if stats.entity_date_count > 0 {
             format!(
-                "扫描没有读到可解析的时间表达，可导入的实体标注里有 {} 处日期：写法不在识别范围内（年号、农历、外文日期都可能）",
+                "扫描没有读到可解析的时间表达，可导入的实体标注里有 {} 处日期：写法不在识别范围内（外文日期、生造的写法，或根本不是日期）",
                 stats.entity_date_count
             )
         } else {
@@ -906,6 +1310,72 @@ fn build_findings(
             ),
         });
     }
+
+    // What the calendar tables could not settle, said as plainly as the rest.
+    if !unanchored.is_empty() {
+        let listed = unanchored
+            .iter()
+            .take(3)
+            .map(|t| format!("「{t}」"))
+            .collect::<Vec<_>>()
+            .join("、");
+        issues.push(TimelineIssue {
+            kind: "unanchored_ganzhi".into(),
+            section: String::new(),
+            detail: format!(
+                "{listed} 是干支纪年，六十年一轮回；文中没有可靠的年份可靠近，只记下未定年"
+            ),
+        });
+    }
+    let shared_eras: Vec<&str> = stats
+        .markers
+        .iter()
+        .filter(|m| m.precision == "era_year" && m.resolved.is_empty())
+        .map(|m| m.text.as_str())
+        .collect();
+    if !shared_eras.is_empty() {
+        let listed = shared_eras
+            .iter()
+            .take(3)
+            .map(|t| format!("「{t}」"))
+            .collect::<Vec<_>>()
+            .join("、");
+        issues.push(TimelineIssue {
+            kind: "ambiguous_era".into(),
+            section: String::new(),
+            detail: format!("{listed} 这个年号不止一位皇帝用过，在位年数两段都对得上，无法定年"),
+        });
+    }
+    let converted = stats
+        .markers
+        .iter()
+        .filter(|m| m.precision == "lunar_day")
+        .count();
+    if converted > 0 {
+        issues.push(TimelineIssue {
+            kind: "calendar_note".into(),
+            section: String::new(),
+            detail: format!(
+                "{converted} 处月日按农历换算成公历：年号与干支后面的月日按农历读，\
+                 换算出自开源历法引擎，改元之年只精确到年"
+            ),
+        });
+    }
+    let named_terms = stats
+        .markers
+        .iter()
+        .filter(|m| m.precision == "solar_term" || m.precision == "festival")
+        .count();
+    if named_terms > 0 {
+        issues.push(TimelineIssue {
+            kind: "term_collision".into(),
+            section: String::new(),
+            detail: format!(
+                "{named_terms} 处节气或节日词按字面识别：同样的字也可能是人名（清明、白露都可能用作名字）"
+            ),
+        });
+    }
+
     if dated.len() < 2 {
         let detail = if stats.absolute_count == 0 {
             let base = format!(
@@ -969,10 +1439,14 @@ mod tests {
     /// Scan one sentence on its own: the parser questions are about the parser, and
     /// wrapping them in a document only adds noise.
     fn scan(text: &str) -> Vec<Found> {
+        let terms = term_table();
         let lex = Lexicons {
             units: build_buckets(UNITS),
             deictic: build_buckets(DEICTIC),
             vague: build_buckets(VAGUE),
+            eras: era_buckets(),
+            term_precisions: terms.iter().map(|(_, precision)| *precision).collect(),
+            terms: build_buckets(&terms),
         };
         scan_block(&text.chars().collect::<Vec<char>>(), &lex)
     }
@@ -1255,5 +1729,205 @@ mod tests {
         assert!(stats.issues[0].detail.contains("实体标注"));
         assert!(!stats.issues[0].detail.contains("不靠日期推进"));
         assert!(stats.note.contains("导入数据"));
+    }
+
+    #[test]
+    fn test_a_reign_year_becomes_a_gregorian_year() {
+        let found = scan("乾隆三年，他第一次进宫。");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].kind, "absolute");
+        assert_eq!(found[0].precision, "era_year");
+        assert_eq!(found[0].resolved, "1738");
+        // A year on its own is still not something to order.
+        assert!(found[0].order_key.is_none());
+    }
+
+    #[test]
+    fn test_a_reign_year_and_a_lunar_day_become_one_date() {
+        let found = scan("乾隆三年三月初五，他第一次进宫。");
+        assert_eq!(
+            found.len(),
+            1,
+            "the year and the lunar day are one expression"
+        );
+        assert_eq!(found[0].precision, "lunar_day");
+        assert_eq!(found[0].resolved, "1738-04-23");
+        assert!(found[0].order_key.is_some());
+    }
+
+    #[test]
+    fn test_a_reign_year_the_era_never_reached_is_refused() {
+        assert!(scan("乾隆七十一年，他还在进宫。").is_empty());
+    }
+
+    #[test]
+    fn test_an_era_name_without_a_reign_year_is_not_a_date() {
+        // 正统 is an era name and an ordinary word; only the number in front of 年 tells
+        // them apart.
+        assert!(scan("他批评这份抄本不够正统。").is_empty());
+        assert!(scan("乾隆年间的事，没人记得。").is_empty());
+    }
+
+    #[test]
+    fn test_an_era_shared_by_two_reigns_is_counted_not_placed() {
+        let found = scan("至元三年，船从泉州出发。");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].kind, "partial");
+        assert!(
+            found[0].resolved.is_empty(),
+            "1266 or 1337: the text does not say which"
+        );
+    }
+
+    #[test]
+    fn test_a_minguo_year_reads_as_a_solar_date() {
+        let found = scan("民国三十八年3月5日，他上了船。");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].precision, "era_day");
+        assert_eq!(found[0].resolved, "1949-03-05");
+    }
+
+    #[test]
+    fn test_a_lunar_day_is_counted_without_a_year() {
+        let found = scan("腊月初八，粥是凉的。");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].kind, "partial");
+        assert_eq!(found[0].precision, "lunar_month_day");
+        assert!(found[0].resolved.is_empty());
+    }
+
+    #[test]
+    fn test_a_lunar_day_name_makes_the_month_lunar() {
+        // 八月初三 can only be a lunar day; 八月十二日 is a solar date, and the other
+        // matcher keeps that one.
+        let lunar = scan("八月初三，他回来了。");
+        assert_eq!(lunar.len(), 1);
+        assert_eq!(lunar[0].precision, "lunar_month_day");
+        let solar = scan("八月十二日，他回来了。");
+        assert_eq!(solar.len(), 1);
+        assert_eq!(solar[0].precision, "month_day");
+    }
+
+    #[test]
+    fn test_solar_terms_and_festivals_stay_vague() {
+        let found = scan("冬至那天，她提到了中秋。");
+        let terms: Vec<&str> = found.iter().map(|f| f.precision).collect();
+        assert!(terms.contains(&"solar_term"), "got {terms:?}");
+        assert!(terms.contains(&"festival"), "got {terms:?}");
+        for f in &found {
+            if matches!(f.precision, "solar_term" | "festival") {
+                assert_eq!(f.kind, "vague");
+                assert!(f.resolved.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn test_a_ganzhi_year_is_anchored_to_the_documents_dates() {
+        let doc = doc_of(vec![
+            para("上部", &long_body("1900年5月3日，河开了冻。")),
+            para("下部", &long_body("庚子年八月十五，月亮很亮。")),
+        ]);
+        let stats = run_timeline_analysis(&doc).unwrap();
+        let marker = stats
+            .markers
+            .iter()
+            .find(|m| m.text == "庚子年八月十五")
+            .expect("the ganzhi year is a marker");
+        assert_eq!(marker.kind, "absolute");
+        assert_eq!(marker.resolved, "1900-09-08");
+        // Both dates can be placed now, and the lunar one is the later of the two.
+        assert_eq!(stats.last_date, "1900-09-08");
+        assert!(stats.backsteps.is_empty());
+    }
+
+    #[test]
+    fn test_a_ganzhi_year_without_an_anchor_stays_unplaced() {
+        let doc = doc_of(vec![para("上部", &long_body("庚子年，河开了冻。"))]);
+        let stats = run_timeline_analysis(&doc).unwrap();
+        let marker = stats
+            .markers
+            .iter()
+            .find(|m| m.text == "庚子年")
+            .expect("the ganzhi year is a marker");
+        assert_eq!(marker.kind, "partial");
+        assert!(marker.resolved.is_empty());
+        let issue = stats
+            .issues
+            .iter()
+            .find(|i| i.kind == "unanchored_ganzhi")
+            .expect("not being able to place it is worth saying");
+        assert!(issue.detail.contains("六十年"));
+    }
+
+    #[test]
+    fn test_the_lunar_conversion_says_so() {
+        let doc = doc_of(vec![para(
+            "上部",
+            &long_body("乾隆三年三月初五，他第一次进宫。"),
+        )]);
+        let stats = run_timeline_analysis(&doc).unwrap();
+        let issue = stats
+            .issues
+            .iter()
+            .find(|i| i.kind == "calendar_note")
+            .expect("a conversion by table and engine is a claim worth labelling");
+        assert!(issue.detail.contains("农历"));
+    }
+
+    #[test]
+    fn test_eras_from_the_wider_table_are_read() {
+        // 蜀汉 late, 东晋, 南朝, 后周: names a chronicle keeps and a shortlist missed.
+        for (text, year) in [
+            ("景耀六年，他出城投降。", "263"),
+            ("义熙十四年，他回来了。", "418"),
+            ("中大通六年，寺里重修。", "534"),
+            ("广顺三年，他受了禅。", "953"),
+        ] {
+            let found = scan(text);
+            assert_eq!(found.len(), 1, "{text}");
+            assert_eq!(found[0].kind, "absolute", "{text}");
+            assert_eq!(found[0].precision, "era_year", "{text}");
+            assert_eq!(found[0].resolved, year, "{text}");
+        }
+    }
+
+    #[test]
+    fn test_a_word_that_is_both_an_era_and_a_festival_follows_the_text() {
+        // 上元 names a reign and the fifteenth of the first month. Only the number in
+        // front of 年 makes it a reign, and only that number says which reign it means.
+        let festival = scan("上元节那晚，街上全是灯。");
+        let lights: Vec<&Found> = festival
+            .iter()
+            .filter(|f| f.precision == "festival")
+            .collect();
+        assert_eq!(lights.len(), 1);
+        assert_eq!(
+            (lights[0].start, lights[0].end),
+            (0, 2),
+            "just the two characters"
+        );
+
+        let reign = scan("开元十三年，他下了第。");
+        assert_eq!(reign.len(), 1);
+        assert_eq!(reign[0].kind, "absolute");
+        assert_eq!(reign[0].resolved, "725");
+
+        let both = scan("上元二年，他下了第。");
+        assert_eq!(both.len(), 1);
+        assert_eq!(both[0].kind, "partial", "675 or 761: the number fits both");
+    }
+
+    #[test]
+    fn test_the_forms_are_counted() {
+        let doc = doc_of(vec![para(
+            "上部",
+            &long_body("2003年3月12日出发，腊月初八回来，冬至又下雪。"),
+        )]);
+        let stats = run_timeline_analysis(&doc).unwrap();
+        let has = |name: &str| stats.forms.iter().any(|(form, _)| form == name);
+        assert!(has("day"), "forms: {:?}", stats.forms);
+        assert!(has("lunar_month_day"), "forms: {:?}", stats.forms);
+        assert!(has("solar_term"), "forms: {:?}", stats.forms);
     }
 }

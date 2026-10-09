@@ -1,0 +1,41 @@
+NarrativeStudio
+Copyright 2026 NarrativeStudio contributors
+
+This product includes data and software from third parties. The Apache License
+2.0 (see `LICENSE`) covers the source of this product; it does not relicense the
+third-party material below, and some of it carries attribution obligations that
+travel with any redistribution.
+
+1. Reign-era table (年号表)
+
+   Location: `crates/studio-analysis/src/calendar.rs`, `const ERAS`.
+
+   A transcription of the publicly maintained 中国年号列表, licensed CC BY-SA 4.0 and
+   following 李崇智《中国历代年号考》: every era name the source dates in the Common Era,
+   from 新莽 to 民国 — about 700 era names in roughly a thousand rows, because several
+   names were used by more than one reign.
+
+   The individual facts recorded here — an era name and the years it ran — are
+   not themselves copyrightable. The selection and arrangement of the table were
+   adapted from a CC BY-SA 4.0 source, so that table is offered under CC BY-SA
+   4.0 and is not relicensed under the Apache License 2.0. Anyone redistributing
+   or adapting it must credit the source and share adaptations under the same
+   license:
+
+     https://zh.wikipedia.org/wiki/%E4%B8%AD%E5%9B%BD%E5%B9%B4%E5%8F%B7%E5%88%97%E8%A1%A8
+     https://zh.wikisource.org/wiki/%E5%94%90%E6%9C%9D%E5%B9%B4%E8%99%9F%E5%88%97%E8%A1%A8
+
+   The names recorded there are also cited in the report and in the Timeline
+   panel's boundary note, so the credit reaches a reader of the analysis, not
+   only a reader of the source.
+
+2. lunar-lite 1.3.0 — MIT
+
+   https://github.com/JinyangWang27/lunar-lite-rs
+
+   Used for lunar↔Gregorian conversion and for the 干支 of a lunar year. Its
+   astronomical backend adapts `6tail/tyme4rs` (MIT, Copyright (c) 2024 6tail);
+   both notices are carried by the crate (`LICENSE`,
+   `THIRD_PARTY_LICENSES.md`) and must be kept when it is redistributed.
+
+   The crate is used as published on crates.io and is unmodified.
