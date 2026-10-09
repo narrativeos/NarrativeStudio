@@ -586,10 +586,23 @@ describe("time line labels", () => {
     expect(timelinePrecisionLabel("unknown")).toBe("unknown");
   });
 
+  it("names the calendars an expression can come from", () => {
+    // Each of these only exists because the analysis reads a calendar table or an
+    // engine; the label says which calendar and how far the reading reaches.
+    expect(timelinePrecisionLabel("era_year")).toBe("年号·到年");
+    expect(timelinePrecisionLabel("era_day")).toBe("年号·到日");
+    expect(timelinePrecisionLabel("ganzhi_year")).toBe("干支·到年");
+    expect(timelinePrecisionLabel("lunar_month_day")).toBe("农历月日");
+    expect(timelinePrecisionLabel("solar_term")).toBe("节气");
+    expect(timelinePrecisionLabel("festival")).toBe("节日");
+  });
+
   it("names what the dimension found, or could not do", () => {
     expect(timelineIssueLabel("backstep")).toBe("时间倒回");
     expect(timelineIssueLabel("no_order")).toBe("无法排序");
     expect(timelineIssueLabel("unmarked_stretch")).toBe("长时间无标记");
+    expect(timelineIssueLabel("unanchored_ganzhi")).toBe("干支未定年");
+    expect(timelineIssueLabel("calendar_note")).toBe("历法换算");
     expect(timelineIssueLabel("unknown")).toBe("unknown");
   });
 
@@ -598,6 +611,10 @@ describe("time line labels", () => {
     expect(timelineIssueStyle("backstep")).toContain("text-rose-400");
     expect(timelineIssueStyle("long_jump")).toContain("text-amber-400");
     expect(timelineIssueStyle("no_markers")).toContain("text-text-muted");
+    // A 干支 the document could not anchor is a limit on the reading, not a fault.
+    expect(timelineIssueStyle("unanchored_ganzhi")).toContain("text-amber-400");
+    // A note about how the conversion was done describes the method, not the story.
+    expect(timelineIssueStyle("calendar_note")).toContain("text-text-muted");
     expect(timelineIssueStyle("unknown_note")).toBe(timelineIssueStyle("no_order"));
   });
 

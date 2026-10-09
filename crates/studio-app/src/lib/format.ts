@@ -820,6 +820,16 @@ const TIMELINE_PRECISION_LABELS: Record<string, string> = {
   deictic: "指示",
   season: "季节",
   time_of_day: "时段",
+  weekday: "星期",
+  solar_term: "节气",
+  festival: "节日",
+  era_year: "年号·到年",
+  era_day: "年号·到日",
+  ganzhi_year: "干支·到年",
+  ganzhi_day: "干支·到日",
+  lunar_month: "农历月",
+  lunar_month_day: "农历月日",
+  lunar_day: "农历日",
 };
 
 export function timelinePrecisionLabel(precision: string): string {
@@ -834,6 +844,10 @@ const TIMELINE_ISSUE_LABELS: Record<string, string> = {
   backstep: "时间倒回",
   long_jump: "大跳跃",
   unmarked_stretch: "长时间无标记",
+  unanchored_ganzhi: "干支未定年",
+  ambiguous_era: "年号重名",
+  calendar_note: "历法换算",
+  term_collision: "字面识别",
 };
 
 export function timelineIssueLabel(kind: string): string {
@@ -843,12 +857,17 @@ export function timelineIssueLabel(kind: string): string {
 /**
  * Badge classes for a time-line note. Rose is the one finding the calendar settles —
  * the dates really do go backwards. Amber marks the readings about distance and
- * coverage; gray marks the three cases where the reading itself was impossible.
+ * coverage; gray marks the cases where the reading itself was impossible or where the
+ * note describes the method rather than the story.
  */
 const TIMELINE_ISSUE_STYLES: Record<string, string> = {
   backstep: "bg-rose-500/15 text-rose-400 border-rose-500/30",
   long_jump: "bg-amber-500/15 text-amber-400 border-amber-500/30",
   unmarked_stretch: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  unanchored_ganzhi: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  ambiguous_era: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  calendar_note: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  term_collision: "bg-gray-500/15 text-text-muted border-gray-500/30",
   no_markers: "bg-gray-500/15 text-text-muted border-gray-500/30",
   too_short: "bg-gray-500/15 text-text-muted border-gray-500/30",
   no_order: "bg-gray-500/15 text-text-muted border-gray-500/30",

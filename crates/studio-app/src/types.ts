@@ -783,13 +783,16 @@ export interface TimelineMarker {
   /** `absolute` | `partial` | `relative` | `vague`. */
   kind: string;
   /** `year` | `month` | `day` | `month_day` | `offset` | `deictic` | `season` |
-   *  `time_of_day`. */
+   *  `time_of_day` | `weekday` | `solar_term` | `festival` | `era_year` | `era_day` |
+   *  `ganzhi_year` | `ganzhi_day` | `lunar_month` | `lunar_month_day` | `lunar_day`. */
   precision: string;
   /** The segment the marker sits in, on the shared curve axis. */
   section: string;
   /** Document fraction at the marker (0-1). */
   position: number;
-  /** The calendar date as `2003-03-12` / `2003-03` / `2003`; empty unless absolute. */
+  /** The calendar date as `2003-03-12` / `2003-03` / `2003`; a 年号 or 干支 year as the
+   *  Gregorian year it resolves to (`乾隆三年` → `1738`); empty unless the expression
+   *  carries a year the analysis could place. */
   resolved: string;
   /** Estimated signed distance in days for a relative marker (月≈30天, 年≈365天). */
   offset_days: number;
@@ -810,7 +813,8 @@ export interface TimelineStep {
 /** A finding about the document's timekeeping. */
 export interface TimelineIssue {
   /** `no_markers` | `too_short` | `no_order` | `backstep` | `long_jump` |
-   *  `unmarked_stretch`. */
+   *  `unmarked_stretch` | `unanchored_ganzhi` | `ambiguous_era` | `calendar_note` |
+   *  `term_collision`. */
   kind: string;
   section: string;
   detail: string;
@@ -835,6 +839,11 @@ export interface TimelineStats {
   partial_count: number;
   relative_count: number;
   vague_count: number;
+  /** How the expressions are written, most common first: `day`, `month_day`, `offset`,
+   *  `season`, and the calendar-table forms — `era_year`, `ganzhi_year`,
+   *  `lunar_month_day`, `solar_term`, `festival`. A form is listed only when the text
+   *  really used it. */
+  forms: [string, number][];
   /** `DATE` entities the import carries, which the scan does not read. The gap between
    *  this and the counts above is dates written in a form the scan cannot read. */
   entity_date_count: number;

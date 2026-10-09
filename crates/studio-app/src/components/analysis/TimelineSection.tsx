@@ -41,6 +41,13 @@ const MAX_ROWS = 20;
  * they are counted and never ordered; a bare year is too coarse to order either. A
  * backstep is offered as something to look at — flashback is legitimate and nothing here
  * can tell the two apart — and an unmarked stretch is not a claim that time stood still.
+ *
+ * The text may keep time in more than one calendar, and each answers to a different
+ * promise: a 年号 year resolves to a Gregorian year and no finer, because an era was
+ * proclaimed in the middle of one; a 干支 year is a position in a 60-year wheel and is
+ * placed only when the document's own dates force a single answer; a 农历 month and day
+ * is converted by an astronomical engine and refused when that year's calendar had no
+ * such day. Where any of that fails, the section says so rather than guessing.
  */
 function TimelineSection({ timeline }: TimelineSectionProps) {
   const dated = timeline.markers.filter((m) => m.resolved !== "");
@@ -68,11 +75,12 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
           {timeline.entity_date_count > 0 && (
             <p className="text-xs text-text-muted mt-2">
               导入的实体标注里有 {formatInt(timeline.entity_date_count)} 处日期，文本扫描没有读取它们；
-              两处数字相差多少，说明有多少日期是用本文不认的写法写的（年号、农历、外文日期都可能）。
+              两处数字相差多少，说明有多少日期是用本文不认的写法写的（外文日期、生造的写法，或根本不是日期）。
             </p>
           )}
           <p className="text-xs text-text-muted mt-2">
-            识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达和常见的季节、时段词。
+            识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达、季节与时段词、
+            节气与节日、星期，以及年号纪年（乾隆三年）、民国纪年、干支纪年（庚子年）与农历月日（腊月初八）。
           </p>
         </Panel>
       )}
@@ -117,6 +125,27 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
                   </span>
                   <span>100%</span>
                 </div>
+              </Panel>
+            </div>
+          )}
+
+          {timeline.forms.length > 0 && (
+            <div className="mt-4">
+              <Panel title="写法分布">
+                <div className="flex flex-wrap gap-2">
+                  {timeline.forms.slice(0, 10).map(([form, count]) => (
+                    <span
+                      key={form}
+                      className="px-2 py-0.5 rounded border border-gray-700 bg-gray-800/60 text-xs text-text-muted"
+                    >
+                      {timelinePrecisionLabel(form)} {formatInt(count)} 处
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-text-muted">
+                  年号、干支与农历的写法只在文本真的用了时出现；年号与干支后面的月日按农历读，
+                  换算成公历后与其余日期排在同一条线上。
+                </p>
               </Panel>
             </div>
           )}
@@ -319,7 +348,10 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
           )}
 
           <p className="mt-2 text-xs text-text-muted">
-            年号、农历、干支和外文日期不在识别范围内；月按 30 天、年按 365 天估算；只到年份的日期粒度太粗，不参与排序。
+            年号表取自公开的历代年号对照（CC BY-SA，据李崇智《中国历代年号考》），农历与公历的换算来自开源历法引擎
+            lunar-lite（MIT）。年号只到年，因为改元落在年中；干支六十年一轮回，只有本文自己的年份能唯一框定时才定年；
+            该年该月没有那天的农历日期一律拒绝，不做修补。外文日期仍不在范围内。月按 30 天、年按 365 天估算；
+            只到年份的日期粒度太粗，不参与排序。
             {timeline.chunked &&
               "本文的章节少于三段，位置落在按字数等分的块上，是算术结果而非作者自己的分段。"}
           </p>
