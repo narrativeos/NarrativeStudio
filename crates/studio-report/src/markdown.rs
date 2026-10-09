@@ -1269,6 +1269,16 @@ fn write_timeline(out: &mut String, timeline: &TimelineStats) {
     }
     out.push('\n');
 
+    if !timeline.forms.is_empty() {
+        let listed: Vec<String> = timeline
+            .forms
+            .iter()
+            .take(8)
+            .map(|(form, n)| format!("{} {} 处", timeline_precision_label(form), n))
+            .collect();
+        out.push_str(&format!("### 写法分布\n\n{}\n\n", listed.join(" · ")));
+    }
+
     out.push_str(&format!("### 日期（{} 个，按出现顺序）\n\n", dated));
     if dated < 2 {
         out.push_str("可排序的日期不足两个，先后无从判断。\n\n");
@@ -1405,6 +1415,16 @@ fn timeline_precision_label(precision: &str) -> String {
         "deictic" => "指示",
         "season" => "季节",
         "time_of_day" => "时段",
+        "weekday" => "星期",
+        "solar_term" => "节气",
+        "festival" => "节日",
+        "era_year" => "年号·到年",
+        "era_day" => "年号·到日",
+        "ganzhi_year" => "干支·到年",
+        "ganzhi_day" => "干支·到日",
+        "lunar_month" => "农历月",
+        "lunar_month_day" => "农历月日",
+        "lunar_day" => "农历日",
         other => other,
     }
     .to_string()
@@ -1418,6 +1438,10 @@ fn timeline_issue_label(kind: &str) -> String {
         "backstep" => "时间倒回",
         "long_jump" => "大跳跃",
         "unmarked_stretch" => "长时间无标记",
+        "unanchored_ganzhi" => "干支未定年",
+        "ambiguous_era" => "年号重名",
+        "calendar_note" => "历法换算",
+        "term_collision" => "字面识别",
         other => other,
     }
     .to_string()
@@ -1425,7 +1449,7 @@ fn timeline_issue_label(kind: &str) -> String {
 
 fn timeline_limits(timeline: &TimelineStats) -> String {
     let mut note = String::from(
-        "_本维度不给出评分：不写日期的故事不比写满日期的故事差。识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达和常见的季节、时段词；年号、农历、干支和外文日期不在范围内。相对与模糊表达锚在叙述当下而不是日历，只统计不参与排序；只到年份的日期粒度太粗，同样不参与排序。月按 30 天、年按 365 天估算。_\n\n",
+        "_本维度不给出评分：不写日期的故事不比写满日期的故事差。识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达、季节与时段词、节气与节日、星期，以及年号纪年（乾隆三年）、民国纪年、干支纪年（庚子年）与农历月日（腊月初八）。年号表取自公开的历代年号对照（CC BY-SA，据李崇智《中国历代年号考》），农历与公历的换算来自开源历法引擎 lunar-lite（MIT）。三条边界跟着走：年号只到年，因为改元在年中；干支六十年一轮回，只有文档自己给出的年份能唯一框定时才定年，否则只记下不定年；农历日期若该年该月没有那天就拒绝，不做修补。外文日期仍不在范围内。相对与模糊表达锚在叙述当下而不是日历，只统计不参与排序；只到年份的日期粒度太粗，同样不参与排序。月按 30 天、年按 365 天估算。_\n\n",
     );
     if timeline.entity_date_count > 0 {
         note.push_str(&format!(
@@ -2133,6 +2157,7 @@ mod tests {
             partial_count: 0,
             relative_count: 0,
             vague_count: 0,
+            forms: vec![],
             entity_date_count: 0,
             first_date: String::new(),
             last_date: String::new(),
@@ -2237,7 +2262,7 @@ mod tests {
 # 测试项目 · 叙事分析报告
 
 - 生成时间：2026-01-01 08:30 UTC
-- 分析版本：m2-v3
+- 分析版本：m2-v5
 
 ## 总体评估
 
@@ -2400,7 +2425,7 @@ _本维度不给出评分：契合三幕不是优点，有意拒绝这个形状�
 
 全文没有读到任何时间表达。本次不做时间排序。
 
-_本维度不给出评分：不写日期的故事不比写满日期的故事差。识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达和常见的季节、时段词；年号、农历、干支和外文日期不在范围内。相对与模糊表达锚在叙述当下而不是日历，只统计不参与排序；只到年份的日期粒度太粗，同样不参与排序。月按 30 天、年按 365 天估算。_
+_本维度不给出评分：不写日期的故事不比写满日期的故事差。识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达、季节与时段词、节气与节日、星期，以及年号纪年（乾隆三年）、民国纪年、干支纪年（庚子年）与农历月日（腊月初八）。年号表取自公开的历代年号对照（CC BY-SA，据李崇智《中国历代年号考》），农历与公历的换算来自开源历法引擎 lunar-lite（MIT）。三条边界跟着走：年号只到年，因为改元在年中；干支六十年一轮回，只有文档自己给出的年份能唯一框定时才定年，否则只记下不定年；农历日期若该年该月没有那天就拒绝，不做修补。外文日期仍不在范围内。相对与模糊表达锚在叙述当下而不是日历，只统计不参与排序；只到年份的日期粒度太粗，同样不参与排序。月按 30 天、年按 365 天估算。_
 
 ---
 
@@ -3998,6 +4023,10 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             absolute_count: 2,
             partial_count: 0,
             relative_count: 1,
+            forms: vec![
+                ("day".into(), 2),
+                ("offset".into(), 1),
+            ],
             vague_count: 0,
             entity_date_count: 0,
             first_date: "2011-05-01".into(),
@@ -4054,5 +4083,36 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let md = render_timeline_with(&timeline);
         assert!(md.contains("本次不做时间排序"));
         assert!(md.contains("导入的实体标注里有 19 处日期"));
+    }
+
+    #[test]
+    fn test_timeline_section_shows_the_calendar_forms() {
+        let mut timeline = dated_timeline();
+        timeline.markers.push(TimelineMarker {
+            text: "乾隆三年三月初五".into(),
+            kind: "absolute".into(),
+            precision: "lunar_day".into(),
+            section: "第三章".into(),
+            position: 0.8,
+            resolved: "1738-04-23".into(),
+            offset_days: 0.0,
+            excerpt: String::new(),
+        });
+        timeline.absolute_count = 3;
+        timeline.forms.push(("lunar_day".into(), 1));
+        timeline.issues.push(TimelineIssue {
+            kind: "calendar_note".into(),
+            section: String::new(),
+            detail: "1 处月日按农历换算成公历：年号与干支后面的月日按农历读，换算出自开源历法引擎，改元之年只精确到年".into(),
+        });
+        let md = render_timeline_with(&timeline);
+        assert!(md.contains("### 写法分布"));
+        assert!(md.contains("农历日 1 处"));
+        assert!(md.contains("| 80% | 第三章 | 1738-04-23 | 农历日 |"));
+        assert!(md.contains("- **历法换算**（全文）— 1 处月日按农历换算成公历"));
+        // The scope note now names the calendars it reads and where they stop.
+        assert!(md.contains("年号纪年（乾隆三年）"));
+        assert!(md.contains("lunar-lite（MIT）"));
+        assert!(md.contains("干支六十年一轮回"));
     }
 }
