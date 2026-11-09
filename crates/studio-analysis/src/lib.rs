@@ -15,12 +15,14 @@
 //! - Timeline: where the text says when, and whether its dates agree
 //!   (with 历法: the era table, the sexagenary wheel and the lunar conversion behind it)
 //! - Voice: how the text is written — its rhythm, marks, function words and stance
+//! - Checklist: the 最终审查清单 — every number that still needs a decision, in one list
 //! - Assessment: rule-based dimension scores and recommendations
 
 pub use studio_core::error::Result;
 
 mod assessment;
 mod calendar;
+mod checklist;
 mod cliche;
 mod conflict;
 mod dialogue;
@@ -40,6 +42,9 @@ mod timeline;
 mod voice;
 
 pub use assessment::{run_assessment, Assessment, DimensionScore, Recommendation};
+pub use checklist::{
+    run_review_checklist, ChecklistItem, ChecklistSource, ReviewChecklist, CHECKLIST_GROUPS,
+};
 pub use cliche::{
     run_cliche_analysis, ClicheHit, ClicheIssue, ClichePhrase, ClichePoint, ClicheStats,
 };

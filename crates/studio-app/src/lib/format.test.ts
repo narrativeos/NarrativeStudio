@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { T0Stats } from "../types";
 import {
   arcShapeLabel,
+  checklistBadgeStyle,
+  checklistGroupLabel,
   clicheCategoryLabel,
   clicheIssueLabel,
   clicheIssueStyle,
@@ -669,6 +671,26 @@ describe("voice labels", () => {
 
   it("wears a badge that cannot turn into a fault", () => {
     const badge = voiceBadgeStyle();
+    expect(badge).toContain("text-text-muted");
+    expect(badge).not.toMatch(/bad|warn|good|firm/);
+  });
+});
+
+describe("checklist labels", () => {
+  it("names every group the rule engine writes", () => {
+    // The keys come from studio_analysis::checklist::CHECKLIST_GROUPS; a rename on
+    // either side has to fail here rather than print a raw key.
+    for (const group of ["consistency", "structure", "language", "advisory"]) {
+      expect(checklistGroupLabel(group), group).not.toBe(group);
+    }
+    expect(checklistGroupLabel("consistency")).toBe("一致性与设定");
+    expect(checklistGroupLabel("advisory")).toBe("读者提示");
+    // An unknown group says what it is rather than going blank.
+    expect(checklistGroupLabel("brand_new")).toBe("brand_new");
+  });
+
+  it("wears the voice badge: a question has no severity colour", () => {
+    const badge = checklistBadgeStyle();
     expect(badge).toContain("text-text-muted");
     expect(badge).not.toMatch(/bad|warn|good|firm/);
   });

@@ -940,3 +940,28 @@ export function voiceBadgeStyle(): string {
   return "bg-fill-strong/15 text-text-muted border-line-strong/30";
 }
 
+/**
+ * Which pass a checklist item belongs to. The four groups are fixed in
+ * `studio_analysis::checklist::CHECKLIST_GROUPS`; an unknown key falls through so a
+ * new group on the Rust side shows up rather than disappearing.
+ */
+const CHECKLIST_GROUP_LABELS: Record<string, string> = {
+  consistency: "一致性与设定",
+  structure: "结构与完整",
+  language: "语言",
+  advisory: "读者提示",
+};
+
+export function checklistGroupLabel(group: string): string {
+  return CHECKLIST_GROUP_LABELS[group] ?? group;
+}
+
+/**
+ * The badge a checklist group wears. It is the voice badge on purpose: neither
+ * dimension grades anything, so no item can turn into a fault colour. Severity only
+ * orders the list, and is not printed.
+ */
+export function checklistBadgeStyle(): string {
+  return voiceBadgeStyle();
+}
+

@@ -58,6 +58,7 @@ pub(crate) async fn report_generate(
         structure: &analysis.structure,
         timeline: &analysis.timeline,
         voice: &analysis.voice,
+        checklist: &analysis.checklist,
         assessment: &analysis.assessment,
     });
 

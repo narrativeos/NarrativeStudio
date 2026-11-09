@@ -145,6 +145,7 @@ NarrativeStudio/
 │   │       ├── plot.rs  pacing.rs  conflict.rs
 │   │       ├── theme.rs  setting.rs  structure.rs  timeline.rs
 │   │       ├── dialogue.rs  cliche.rs  explicit.rs  voice.rs
+│   │       ├── checklist.rs        # 最终审查清单：只汇总其余维度的数字，不测量
 │   │       └── assessment.rs       # 规则评估与建议
 │   │
 │   ├── studio-storage/             # DuckDB 持久化
@@ -169,7 +170,7 @@ NarrativeStudio/
 │       │   ├── main.tsx  App.tsx  types.ts
 │       │   ├── pages/              # Home / Analysis / Compare
 │       │   ├── components/         # 卡片与手写 SVG 图表
-│       │   └── lib/                # format / graph / radar（纯函数，可单测）
+│       │   └── lib/                # format / graph / radar / checklist（纯函数，可单测）
 │       └── src-tauri/              # Tauri 后端入口
 │           ├── Cargo.toml
 │           ├── tauri.conf.json
@@ -360,7 +361,7 @@ Tauri Commands 按领域分组在 `studio-app/src-tauri/src/commands/`（`projec
 | `create_project` | `{ name }` | `Project` | 创建项目 |
 | `delete_project` | `{ project_id }` | - | 删除项目及其级联数据 |
 | `import_project` | `{ project_path }` | `Project` | 导入 TraceView 项目目录（`spawn_blocking` + `import-progress` 事件） |
-| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 冲突 + 主题 + 场景/设定 + 陈词滥调 + 对话/叙事比例 + 显式语言 + 故事结构 + 时间线 + 作者声音 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
+| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 冲突 + 主题 + 场景/设定 + 陈词滥调 + 对话/叙事比例 + 显式语言 + 故事结构 + 时间线 + 作者声音 + 最终审查清单 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
 | `analyze_projects` | `{ project_ids }` | `Vec<ProjectAnalysis>` | 多项目对比，始终读缓存 |
 | `analyze_t0` / `analyze_t1` | `{ file_path }` | `T0Stats` / `T1Stats` | 直接分析 `semantic_result.json`，调试用，不走缓存 |
 | `list_documents` | `{ project_id }` | `Vec<(doc_id, title)>` | 项目下的文档 |
@@ -599,7 +600,7 @@ mod tests {
 
 ### 6.2 LLM 任务实现模板
 
-> 未实现，也没有计划中的实现位置：当前 13 个维度全部是确定性规则计算
+> 未实现，也没有计划中的实现位置：当前所有维度（13 个度量 + 规则评估 + 由它们派生的审查清单）全部是确定性规则计算
 > （`run_xxx_analysis(&doc)`），不存在 LLM 通道。若未来引入 T2 层，必须先
 > 解决"同一输入两次结果不同"与缓存键的关系，再考虑落点。
 
@@ -653,7 +654,7 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 
 分析是纯函数（同一文档 → 同一结果），所以结果按输入指纹持久化，二次打开项目直接读缓存而不重算。
 
-**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit, structure, timeline, voice, assessment}`。情节线在 `score` 列存 `coherence_score`、节奏在 `score` 列存 `pace_score`、冲突在 `score` 列存 `conflict_score`、主题在 `score` 列存 `theme_score`、场景在 `score` 列存 `setting_score`、陈词滥调在 `score` 列存 `cliche_score`（未检测到冲突用词、没有可用名词词汇、既没有点名地点也没有环境用词、或全文不足 1000 字不足以按万字密度评分时该列为 NULL——缺席本身也要被记住，读回来仍然是「未评分」而不是 0）；对话/叙事比例、显式语言、故事结构、时间线与作者声音则**永远没有分数**：比例不是评级，30% 对白并不比 5% 更好或更坏；内容也不是评级，一部战争题材并不比田园题材更差；形状更不是评级，契合三幕不是优点，有意拒绝这个形状也不是缺点；时间也不是评级，一部从不写日期的故事并不比每页挂一份日历的故事差；写法同样不是评级，长句不比短句好，留余地的叙述也不比下断言的叙述差。所以这五个维度的 `score` 恒为 NULL 而不是 0。这样分析历史不必解开 payload 也能横向比较。新增维度不需要改 `ANALYSIS_VERSION`：旧库缺少该维度的行，读取时天然 miss，会重算并补齐全部维度。
+**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit, structure, timeline, voice, checklist, assessment}`。情节线在 `score` 列存 `coherence_score`、节奏在 `score` 列存 `pace_score`、冲突在 `score` 列存 `conflict_score`、主题在 `score` 列存 `theme_score`、场景在 `score` 列存 `setting_score`、陈词滥调在 `score` 列存 `cliche_score`（未检测到冲突用词、没有可用名词词汇、既没有点名地点也没有环境用词、或全文不足 1000 字不足以按万字密度评分时该列为 NULL——缺席本身也要被记住，读回来仍然是「未评分」而不是 0）；对话/叙事比例、显式语言、故事结构、时间线、作者声音与最终审查清单则**永远没有分数**：比例不是评级，30% 对白并不比 5% 更好或更坏；内容也不是评级，一部战争题材并不比田园题材更差；形状更不是评级，契合三幕不是优点，有意拒绝这个形状也不是缺点；时间也不是评级，一部从不写日期的故事并不比每页挂一份日历的故事差；写法同样不是评级，长句不比短句好，留余地的叙述也不比下断言的叙述差；清单更不是评级，每一项是一个待回答的问题，而问题没有分数。所以这六个维度的 `score` 恒为 NULL 而不是 0。这样分析历史不必解开 payload 也能横向比较。新增维度不需要改 `ANALYSIS_VERSION`：旧库缺少该维度的行，读取时天然 miss，会重算并补齐全部维度。清单是**派生行**（由其余维度的结果算出，不读正文），改它的规则或阈值要 bump `ANALYSIS_VERSION`，否则同一份缓存里会出现新清单配旧数字（见 §6.9）。
 
 `input_hash = SHA-256(ANALYSIS_VERSION ‖ 每个 block 的字节长度 ‖ block 的 JSON)`（`studio-analysis/src/hash.rs`）：
 
@@ -676,6 +677,8 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 - **导出**：`report_export` 读取**已入库**的 markdown 写盘并记录 `exported_path`。分成两步是为了「导出的是已入库的那一份」：之后重新分析再导出，不会悄悄换一套数字。
 - **写文件在 Rust 侧**完成，前端只用 dialog `save()` 取路径，因此 webview 不需要 filesystem 权限。
 - **长列表截断**：词表 15 项、其余列表 20 项，并写明「另有 N 项未列出」；表格单元格转义 `|` 与换行，避免被分析的文本破坏表格。
+- **最后一节是最终审查清单**：每项渲染成 `- [ ]`（Markdown 原生复选框）加一行触发它的数字，四组恒全列出。它不新增措辞来源，
+  因此 HTML/PDF 无需第二套渲染器就带上这一节；知识球导出是图而不是报告章节，作者声音与清单都不在其中（见 §6.9）。
 - **PDF 走 HTML**：`studio_report::render_html(&markdown)` 是纯函数，把**已入库的那份 Markdown**
   转成自包含的打印就绪 HTML（`@page` A4、CJK 字体栈、跨页重复表头、表格行不跨页，屏幕上提示按 ⌘P）。
   它**不是第二套渲染器**：报告的措辞只活在 `markdown.rs` 一处，HTML 只是那份文本的另一种排版——
@@ -729,6 +732,30 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 读者不同意界线时能自己看数。`MIN_CHARS_FOR_FINDINGS = 600` 之下只报 `too_short` 并立刻返回：一页纸可以有任何风格。
 
 改词表或阈值要 bump `ANALYSIS_VERSION`（见 §6.7 最后一条）：文档没变而口径变了，旧缓存必须失效。
+
+### 6.9 最终审查清单的口径
+
+`studio-analysis/src/checklist.rs` 不测量任何东西：它的输入是其余维度的结果（`ChecklistSource` 只借引用，不读正文），
+输出是「这些数字还需要人决定什么」。因此它没有评分函数，`ReviewChecklist` 里没有任何 `score` 字段，缓存行的 `score`
+恒为 NULL——一个问题是问题，不是分数。`severity` 只决定同一组内谁排在前面，UI 与报告都不把它画成严重度。
+
+四条口径决定这份清单能不能被信任：
+
+- **没有数字就不出现**：每条规则都从某个维度已有的计数派生（未收束的线索、日历倒回、无锚点场景、张力持平的长段、
+  连续无冲突段、陈词滥调命中、引号未配对……），detail 必须把那个数字写全。规则不新算任何东西，也不从别的规则再推一层。
+- **空清单要说明它不能证明什么**：`items` 为空时报告与 UI 都写「只说明被计到的东西不需要决定，不说明稿子已经好」。
+  清单永远不可能完整——没被计到的东西不会出现在这里，这句话因此不能省。
+- **组是固定的**（`CHECKLIST_GROUPS`：consistency / structure / language / advisory），四组恒全列出，空组写「这一组没有
+  需要确认的项」。UI 一组一面板，所以一个组悄悄消失会是 bug 而不是干净的结果。
+- **`id` 是勾选的存储键**：改文案可以，改 `id` 会把读者已打的勾落到别的行上。新增项只在末尾追加，顺序即检查顺序。
+
+勾选状态是**阅读进度**而不是分析数据，存在浏览器 `localStorage`（`lib/checklist.ts`，键
+`narrativestudio.checklist.{project_id}`，只存 `true`），与主题选择同一处；数据库里没有它，重分析也不会动它。
+导出侧不需要新渲染器：Markdown 用 `- [ ]`，HTML/PDF 是那份 Markdown 的另一种排版，知识球导出是另一种产品（图，
+不是报告章节），因此作者声音与清单都不在其中。
+
+改规则里的阈值（`UNANCHORED_SHARE`、`ABSENT_RUN_SEGMENTS`、`ADVERB_OVERUSE`、`READABILITY_FLOOR`）与加/删规则都要
+bump `ANALYSIS_VERSION`：清单是派生行，但它跟着源维度一起失效才不会与同一份缓存里的其他数字说不同的话。
 
 ---
 

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Panel, SectionTitle, StatCard } from "../components/Cards";
 import ClicheSection from "../components/analysis/ClicheSection";
+import ChecklistSection from "../components/analysis/ChecklistSection";
 import ConflictSection from "../components/analysis/ConflictSection";
 import DialogueSection from "../components/analysis/DialogueSection";
 import ExplicitSection from "../components/analysis/ExplicitSection";
@@ -44,8 +45,8 @@ interface AnalysisProps {
  * + story structure + time line analysis plus a rule-based assessment for the
  * selected project, and presents the full portrait grouped by dimension: overview,
  * assessment, statistics, text diagnostics, structure, narrative, plot, pacing,
- * conflict, theme, setting, cliché, dialogue, explicit language, story structure
- * and time line.
+ * conflict, theme, setting, cliché, dialogue, explicit language, story structure,
+ * time line, author voice and the final review checklist.
  */
 function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
@@ -195,6 +196,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
     structure,
     timeline,
     voice,
+    checklist,
   } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
   // Pacing, conflict and theme all segment the document the same way, so one list
@@ -880,6 +882,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
       {/* Author voice: how the text is written, never a score */}
       <VoiceSection voice={voice} />
+
+      {/* Final review checklist: the numbers above that still need a decision */}
+      <ChecklistSection checklist={checklist} projectId={projectId} />
     </div>
   );
 }

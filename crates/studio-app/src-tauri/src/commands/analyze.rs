@@ -6,10 +6,11 @@ use serde::Serialize;
 use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
     run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
-    run_setting_analysis, run_structure_analysis, run_t0_analysis, run_t1_analysis,
-    run_theme_analysis, run_timeline_analysis, run_voice_analysis, Assessment, ClicheStats,
-    ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats,
-    StructureStats, T0Stats, T1Stats, ThemeStats, TimelineStats, VoiceStats,
+    run_review_checklist, run_setting_analysis, run_structure_analysis, run_t0_analysis,
+    run_t1_analysis, run_theme_analysis, run_timeline_analysis, run_voice_analysis, Assessment,
+    ChecklistSource, ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats,
+    PlotStats, ReviewChecklist, SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats,
+    TimelineStats, VoiceStats,
 };
 use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
@@ -42,7 +43,7 @@ pub(crate) fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
 
 /// Analysis result for a single project (T0 + T1 + plot + pacing + conflict +
 /// theme + setting + cliché + dialogue + explicit language + story structure +
-/// time line + author voice + rule-based assessment).
+/// time line + author voice + the final review checklist + rule-based assessment).
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectAnalysis {
     pub project_id: String,
@@ -60,6 +61,8 @@ pub struct ProjectAnalysis {
     pub structure: StructureStats,
     pub timeline: TimelineStats,
     pub voice: VoiceStats,
+    /// The numbers that still need a decision, gathered from the dimensions above.
+    pub checklist: ReviewChecklist,
     pub assessment: Assessment,
     /// True when the numbers came from the persisted cache instead of being
     /// recomputed, so the UI can say where the result came from.
@@ -150,6 +153,9 @@ pub(crate) fn analyze_project_inner(
             .map_err(|e| e.to_string())?;
         let voice = load_cached::<VoiceStats>(&storage.conn, pid, "voice", &input_hash)
             .map_err(|e| e.to_string())?;
+        let checklist =
+            load_cached::<ReviewChecklist>(&storage.conn, pid, "checklist", &input_hash)
+                .map_err(|e| e.to_string())?;
         let assessment = load_cached::<Assessment>(&storage.conn, pid, "assessment", &input_hash)
             .map_err(|e| e.to_string())?;
         if let (
@@ -166,10 +172,11 @@ pub(crate) fn analyze_project_inner(
             Some(structure),
             Some(timeline),
             Some(voice),
+            Some(checklist),
             Some(assessment),
         ) = (
             t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit, structure,
-            timeline, voice, assessment,
+            timeline, voice, checklist, assessment,
         ) {
             return Ok(ProjectAnalysis {
                 project_id: pid.to_string(),
@@ -187,6 +194,7 @@ pub(crate) fn analyze_project_inner(
                 structure,
                 timeline,
                 voice,
+                checklist,
                 assessment,
                 cached: true,
             });
@@ -208,6 +216,20 @@ pub(crate) fn analyze_project_inner(
     let structure = run_structure_analysis(&doc, &pacing, &plot).map_err(|e| e.to_string())?;
     let timeline = run_timeline_analysis(&doc).map_err(|e| e.to_string())?;
     let voice = run_voice_analysis(&doc).map_err(|e| e.to_string())?;
+    // The checklist reads what the passes above already counted; it measures nothing.
+    let checklist = run_review_checklist(&ChecklistSource {
+        t0: &t0,
+        plot: &plot,
+        pacing: &pacing,
+        conflict: &conflict,
+        setting: &setting,
+        cliche: &cliche,
+        dialogue: &dialogue,
+        explicit: &explicit,
+        structure: &structure,
+        timeline: &timeline,
+        voice: &voice,
+    });
     let assessment = run_assessment(&t0, &t1);
 
     let analysis = ProjectAnalysis {
@@ -226,6 +248,7 @@ pub(crate) fn analyze_project_inner(
         structure,
         timeline,
         voice,
+        checklist,
         assessment,
         cached: false,
     };
@@ -240,7 +263,7 @@ pub(crate) fn analyze_project_inner(
 }
 
 /// Persist the fourteen computed dimensions under `input_hash`, plus the
-/// assessment's recommendations as queryable concern rows.
+/// checklist and the assessment's recommendations as queryable rows.
 ///
 /// The recommendation rows are what let a later feature (report export) list a
 /// project's concerns without re-running the analysis.
@@ -256,10 +279,11 @@ pub(crate) fn persist_analysis(
     // Their scores are stored so the analysis history can be compared without unpacking the
     // payload; conflict, theme, setting and cliché have no score when the text offers
     // nothing for them to measure, and dialogue, explicit language, story structure, time
-    // line and author voice never have one at all — 30% speech is neither better nor worse than 5%, a war
+    // line, author voice and the review checklist never have one at all — 30% speech is neither better nor worse than 5%, a war
     // novel is not worse than a pastoral for carrying violence, a story that refuses
     // three-act shape may be refusing it on purpose, a story that never writes a date is
-    // not keeping time badly, and long sentences are not better or worse than short ones.
+    // not keeping time badly, long sentences are not better or worse than short ones, and
+    // a list of questions has no number to carry.
     // The row keeps that absence instead of inventing a 0.
     let dimensions: Vec<(&str, &str, Option<f32>, String)> = vec![
         (
@@ -339,6 +363,12 @@ pub(crate) fn persist_analysis(
             "t1",
             None,
             serde_json::to_string(&analysis.voice).map_err(|e| e.to_string())?,
+        ),
+        (
+            "checklist",
+            "t1",
+            None,
+            serde_json::to_string(&analysis.checklist).map_err(|e| e.to_string())?,
         ),
     ];
     for (dimension, tier, score, data) in dimensions {

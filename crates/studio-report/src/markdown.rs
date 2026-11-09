@@ -8,9 +8,10 @@
 use chrono::{DateTime, Utc};
 
 use studio_analysis::{
-    Assessment, ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats,
-    SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats, TimelineIssue, TimelineStats,
-    VoiceMark, VoiceStats, ANALYSIS_VERSION,
+    Assessment, ChecklistItem, ClicheStats, ConflictStats, DialogueStats, ExplicitStats,
+    PacingStats, PlotStats, ReviewChecklist, SettingStats, StructureStats, T0Stats, T1Stats,
+    ThemeStats, TimelineIssue, TimelineStats, VoiceMark, VoiceStats, ANALYSIS_VERSION,
+    CHECKLIST_GROUPS,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -31,6 +32,7 @@ pub struct ReportInput<'a> {
     pub structure: &'a StructureStats,
     pub timeline: &'a TimelineStats,
     pub voice: &'a VoiceStats,
+    pub checklist: &'a ReviewChecklist,
     pub assessment: &'a Assessment,
 }
 
@@ -59,6 +61,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_story_structure(&mut out, input.structure);
     write_timeline(&mut out, input.timeline);
     write_voice(&mut out, input.voice);
+    write_checklist(&mut out, input.checklist);
     write_footer(&mut out);
     out
 }
@@ -1625,6 +1628,49 @@ fn write_voice(out: &mut String, voice: &VoiceStats) {
     out.push_str(&voice_limits(voice));
 }
 
+/// 最终审查清单 — the last section, because it is what is left to do.
+///
+/// Every line repeats a number another section already printed, phrased as a
+/// question. `- [ ]` is Markdown's own checkbox, so the exported file can be worked
+/// through in any editor and the analysis page shows the same items tickable.
+/// No score and no severity wording that reads as a fault: 需要确认 is not 有错.
+fn write_checklist(out: &mut String, checklist: &ReviewChecklist) {
+    out.push_str("## 最终审查清单\n\n");
+    if checklist.items.is_empty() {
+        out.push_str("共 0 项：以上各维度的数字都没有触发这里的任何一条规则。\n\n");
+        out.push_str(
+            "_空清单只说明被计到的东西不需要决定，不说明稿子已经好——这里没有计的东西，\
+             也不会出现在清单里。_\n\n",
+        );
+        return;
+    }
+    out.push_str(&format!(
+        "共 {} 项，按维度归组；每项后面是触发它的数字。\n\n",
+        checklist.items.len()
+    ));
+    for (key, label) in CHECKLIST_GROUPS {
+        let items: Vec<&ChecklistItem> =
+            checklist.items.iter().filter(|i| i.group == *key).collect();
+        out.push_str(&format!("### {label}（{} 项）\n\n", items.len()));
+        if items.is_empty() {
+            out.push_str("这一组没有需要确认的项。\n\n");
+            continue;
+        }
+        for item in items {
+            out.push_str(&format!(
+                "- [ ] **{}**\n  - {}\n",
+                esc(&item.label),
+                esc(&item.detail)
+            ));
+        }
+        out.push('\n');
+    }
+    out.push_str(
+        "_清单不给评分：每一项是一个问题，不是一个缺点。勾选只是阅读进度，存在本机，\
+         不会改变任何分析结果。_\n\n",
+    );
+}
+
 /// What the numbers were measured with, and where they stop.
 fn voice_limits(voice: &VoiceStats) -> String {
     let mut note = String::from(
@@ -2380,6 +2426,7 @@ mod tests {
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -2418,6 +2465,7 @@ mod tests {
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let expected = "\
@@ -2593,6 +2641,12 @@ _本维度不给出评分：不写日期的故事不比写满日期的故事差�
 
 没有可统计的文本。
 
+## 最终审查清单
+
+共 0 项：以上各维度的数字都没有触发这里的任何一条规则。
+
+_空清单只说明被计到的东西不需要决定，不说明稿子已经好——这里没有计的东西，也不会出现在清单里。_
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -2641,6 +2695,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2663,6 +2718,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 故事结构",
             "## 时间线",
             "## 作者声音",
+            "## 最终审查清单",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -2674,8 +2730,8 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }
         assert_eq!(
             md.matches("\n## ").count(),
-            17,
-            "exactly seventeen H2 sections"
+            18,
+            "exactly eighteen H2 sections"
         );
     }
 
@@ -2726,6 +2782,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2773,6 +2830,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2834,6 +2892,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2896,6 +2955,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2982,6 +3042,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3063,6 +3124,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3160,6 +3222,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3212,6 +3275,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3293,6 +3357,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3342,6 +3407,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3451,6 +3517,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3590,6 +3657,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         });
 
@@ -3715,6 +3783,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &assessment,
         });
         // The all-narrative wording is only for text where no speech was detected.
@@ -3778,6 +3847,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         });
 
@@ -3902,6 +3972,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         });
 
@@ -3955,6 +4026,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &structure,
             timeline: &timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         });
 
@@ -4106,6 +4178,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure,
             timeline,
             voice: &VoiceStats::default(),
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         })
     }
@@ -4139,6 +4212,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             structure: &empty_structure(),
             timeline: &empty_timeline(),
             voice,
+            checklist: &ReviewChecklist::default(),
             assessment: &a,
         })
     }
@@ -4413,5 +4487,97 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         assert!(md.contains("年号纪年（乾隆三年）"));
         assert!(md.contains("lunar-lite（MIT）"));
         assert!(md.contains("干支六十年一轮回"));
+    }
+
+    /// The same, for the final review checklist section.
+    fn render_checklist_with(list: &ReviewChecklist) -> String {
+        let t0 = empty_t0();
+        let t1 = empty_t1();
+        let plot = empty_plot();
+        let pacing = empty_pacing();
+        let conflict = empty_conflict();
+        let theme = empty_theme();
+        let setting = empty_setting();
+        let cliche = empty_cliche();
+        let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
+        let a = clean_assessment();
+        render_markdown(&ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            dialogue: &dialogue,
+            explicit: &explicit,
+            structure: &empty_structure(),
+            timeline: &empty_timeline(),
+            voice: &VoiceStats::default(),
+            checklist: list,
+            assessment: &a,
+        })
+    }
+
+    fn item(id: &str, group: &str, label: &str, detail: &str) -> ChecklistItem {
+        ChecklistItem {
+            id: id.into(),
+            group: group.into(),
+            label: label.into(),
+            detail: detail.into(),
+            severity: "high".into(),
+        }
+    }
+
+    #[test]
+    fn test_checklist_section_renders_every_group_as_checkboxes() {
+        let list = ReviewChecklist {
+            items: vec![
+                item(
+                    "plot-unresolved",
+                    "consistency",
+                    "确认只出现一次的线索是有意留白，不是漏掉的伏笔",
+                    "1 条线索只在单个章节出现（共收集 7 条）：铜钥匙",
+                ),
+                item(
+                    "cliche-hits",
+                    "language",
+                    "逐条确认陈词滥调是留着还是换掉",
+                    "4 处命中，涉及 3 个短语",
+                ),
+            ],
+            groups: vec![
+                ("consistency".into(), 1),
+                ("structure".into(), 0),
+                ("language".into(), 1),
+                ("advisory".into(), 0),
+            ],
+        };
+        let md = render_checklist_with(&list);
+        assert!(md.contains("## 最终审查清单"));
+        assert!(md.contains("共 2 项"));
+        // All four groups are printed, including the empty ones: a group that
+        // vanished would look like a bug rather than a clean pass.
+        assert!(md.contains("### 一致性与设定（1 项）"));
+        assert!(md.contains("### 结构与完整（0 项）"));
+        assert!(md.contains("这一组没有需要确认的项"));
+        // Markdown's own checkbox, so the exported file is workable in any editor.
+        assert!(md.contains("- [ ] **确认只出现一次的线索是有意留白，不是漏掉的伏笔**"));
+        assert!(md.contains("  - 1 条线索只在单个章节出现（共收集 7 条）：铜钥匙"));
+        // And the section says what it is not.
+        assert!(md.contains("清单不给评分"));
+    }
+
+    #[test]
+    fn test_empty_checklist_says_what_it_does_not_prove() {
+        let md = render_checklist_with(&ReviewChecklist::default());
+        assert!(md.contains("## 最终审查清单"));
+        assert!(md.contains("共 0 项"));
+        assert!(md.contains("不说明稿子已经好"));
+        assert!(!md.contains("- [ ]"));
     }
 }

@@ -593,6 +593,26 @@ export interface VoiceIssue {
   detail: string;
 }
 
+/** One thing to confirm before the text is called done. */
+export interface ChecklistItem {
+  /** Stable key; the tick is stored under it. */
+  id: string;
+  /** `consistency` | `structure` | `language` | `advisory`. */
+  group: string;
+  label: string;
+  /** The number behind the item — an item is never shown without one. */
+  detail: string;
+  /** `high` | `medium` | `low`: where the item sits in its group, not a fault. */
+  severity: string;
+}
+
+/** The final review checklist. No score: an item is a question, not a grade. */
+export interface ReviewChecklist {
+  items: ChecklistItem[];
+  /** Counts per group, always all four in the fixed order. */
+  groups: [string, number][];
+}
+
 /** Author voice. There is no score: a long sentence is not better than a short one. */
 export interface VoiceStats {
   points: VoicePoint[];
@@ -999,6 +1019,8 @@ export interface ProjectAnalysis {
   structure: StructureStats;
   timeline: TimelineStats;
   voice: VoiceStats;
+  /** The numbers that still need a decision, gathered from the dimensions above. */
+  checklist: ReviewChecklist;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

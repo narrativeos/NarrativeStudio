@@ -17,16 +17,18 @@
 //! 14. Run explicit language analysis
 //! 15. Run story structure analysis
 //! 16. Run author voice analysis
+//! 17. Roll the numbers that still need a decision into the review checklist
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
 use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
     run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
-    run_setting_analysis, run_structure_analysis, run_t0_analysis, run_t1_analysis,
-    run_theme_analysis, run_timeline_analysis, run_voice_analysis, Assessment, ClicheStats,
-    ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats,
-    StructureStats, T0Stats, T1Stats, ThemeStats, TimelineStats, VoiceStats,
+    run_review_checklist, run_setting_analysis, run_structure_analysis, run_t0_analysis,
+    run_t1_analysis, run_theme_analysis, run_timeline_analysis, run_voice_analysis, Assessment,
+    ChecklistSource, ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats,
+    PlotStats, ReviewChecklist, SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats,
+    TimelineStats, VoiceStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -223,6 +225,19 @@ fn test_analysis_cache_roundtrip() {
         run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
     let timeline = run_timeline_analysis(&loaded).expect("time line analysis failed");
     let voice = run_voice_analysis(&loaded).expect("author voice analysis failed");
+    let checklist = run_review_checklist(&ChecklistSource {
+        t0: &t0,
+        plot: &plot,
+        pacing: &pacing,
+        conflict: &conflict,
+        setting: &setting,
+        cliche: &cliche,
+        dialogue: &dialogue,
+        explicit: &explicit,
+        structure: &structure,
+        timeline: &timeline,
+        voice: &voice,
+    });
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -363,6 +378,18 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&voice).unwrap(),
     )
     .expect("save voice");
+    // The review checklist carries no score either: an item is a question to answer,
+    // and a question cannot be graded.
+    save_result(
+        &conn,
+        project.project_id,
+        "checklist",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&checklist).unwrap(),
+    )
+    .expect("save checklist");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -624,6 +651,47 @@ fn test_analysis_cache_roundtrip() {
         stored_voice_score.is_none(),
         "author voice must not be cached with a score"
     );
+    let cached_checklist =
+        load_cached::<ReviewChecklist>(&conn, project.project_id, "checklist", &hash)
+            .unwrap()
+            .expect("checklist cache hit");
+    assert_eq!(
+        serde_json::to_string(&cached_checklist).unwrap(),
+        serde_json::to_string(&checklist).unwrap(),
+        "cached checklist must round-trip exactly"
+    );
+    // Every item belongs to a named group, and the group counts add up: the UI
+    // renders one section per group, so a stray group would silently vanish.
+    for item in &cached_checklist.items {
+        assert!(
+            cached_checklist
+                .groups
+                .iter()
+                .any(|(group, _)| group == &item.group),
+            "item {} sits in unknown group {}",
+            item.id,
+            item.group
+        );
+    }
+    assert_eq!(
+        cached_checklist
+            .groups
+            .iter()
+            .map(|(_, c)| *c as usize)
+            .sum::<usize>(),
+        cached_checklist.items.len()
+    );
+    let stored_checklist_score: Option<f32> = conn
+        .query_row(
+            "SELECT score FROM analysis_results WHERE dimension = 'checklist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("checklist row");
+    assert!(
+        stored_checklist_score.is_none(),
+        "a list of questions must not be cached with a score"
+    );
     // The fixture's CJK is a 1:1 substitution, so every date unit in it was scrambled: the
     // dimension has to report that dates exist without pretending it can order them.
     assert_eq!(cached_timeline.entity_date_count, 19);
@@ -643,7 +711,7 @@ fn test_analysis_cache_roundtrip() {
         "the time line must not be cached with a score"
     );
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/structure/timeline/voice/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} markers, {} sentences at CV {}, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/structure/timeline/voice/checklist/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} markers, {} sentences at CV {}, {} checklist items, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
@@ -656,6 +724,7 @@ fn test_analysis_cache_roundtrip() {
         timeline.markers.len(),
         voice.sentence_count,
         voice.sentence_cv,
+        checklist.items.len(),
         assessment.recommendations.len()
     );
 
@@ -671,9 +740,9 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: thirteen dimensions plus the
+    // "重新分析" clears everything for the project: fourteen dimensions plus the
     // assessment derived from them.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 14);
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 15);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -681,6 +750,88 @@ fn test_analysis_cache_roundtrip() {
     );
     assert!(list_concerns(&conn, project.project_id).unwrap().is_empty());
     println!("✓ invalidate_project clears results and concerns");
+}
+
+/// A project analysed before a dimension existed must keep every cached row it
+/// already has and miss only the new one. This is what makes adding a dimension a
+/// non-event: no migration, no version bump, no forced re-analysis.
+#[test]
+fn test_an_older_project_misses_only_the_new_dimension() {
+    let content = std::fs::read_to_string(test_file_path()).expect("Failed to read test file");
+    let doc = parse_semantic_result(&content).expect("Failed to parse semantic result");
+
+    let conn = Connection::open_in_memory().expect("Failed to open in-memory DuckDB");
+    run_migrations(&conn).expect("Failed to run migrations");
+    let project = create(&conn, &Project::new("Upgraded Project")).expect("create project");
+    save_document(&conn, project.project_id, &doc, None).expect("save document");
+
+    let loaded = load_document(&conn, doc.doc_id).expect("load document");
+    let hash = document_hash(&loaded).expect("hash document");
+
+    // What an older library holds: the dimensions that existed then, no checklist.
+    let t0 = run_t0_analysis(&loaded).expect("T0 failed");
+    let t1 = run_t1_analysis(&loaded).expect("T1 failed");
+    for (dimension, tier, data) in [
+        ("t0", "t0", serde_json::to_string(&t0).unwrap()),
+        ("t1", "t1", serde_json::to_string(&t1).unwrap()),
+    ] {
+        save_result(
+            &conn,
+            project.project_id,
+            dimension,
+            tier,
+            &hash,
+            None,
+            &data,
+        )
+        .expect("save dimension");
+    }
+
+    // The rows that exist still hit, so opening such a project costs nothing extra.
+    assert!(
+        load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
+            .unwrap()
+            .is_some(),
+        "an existing dimension must still hit the cache"
+    );
+    assert!(
+        load_cached::<T1Stats>(&conn, project.project_id, "t1", &hash)
+            .unwrap()
+            .is_some(),
+        "an existing dimension must still hit the cache"
+    );
+    // The dimension added later misses by construction, and recomputing it stores a
+    // row beside the old ones — which is the whole upgrade path.
+    assert!(
+        load_cached::<ReviewChecklist>(&conn, project.project_id, "checklist", &hash)
+            .unwrap()
+            .is_none(),
+        "a dimension the old library never wrote must miss, not fail"
+    );
+    save_result(
+        &conn,
+        project.project_id,
+        "checklist",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&ReviewChecklist::default()).unwrap(),
+    )
+    .expect("save the recomputed checklist");
+    assert!(
+        load_cached::<ReviewChecklist>(&conn, project.project_id, "checklist", &hash)
+            .unwrap()
+            .is_some(),
+        "the recomputed dimension must be readable afterwards"
+    );
+    // And the old rows are untouched by that write.
+    assert!(
+        load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
+            .unwrap()
+            .is_some(),
+        "writing the new dimension must not evict the old ones"
+    );
+    println!("✓ a project predating a dimension keeps its cache and fills the gap");
 }
 
 /// Report export end to end: analyse the fixture, render it to Markdown, persist
@@ -711,6 +862,19 @@ fn test_report_generation_and_export() {
         run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
     let timeline = run_timeline_analysis(&loaded).expect("time line analysis failed");
     let voice = run_voice_analysis(&loaded).expect("author voice analysis failed");
+    let checklist = run_review_checklist(&ChecklistSource {
+        t0: &t0,
+        plot: &plot,
+        pacing: &pacing,
+        conflict: &conflict,
+        setting: &setting,
+        cliche: &cliche,
+        dialogue: &dialogue,
+        explicit: &explicit,
+        structure: &structure,
+        timeline: &timeline,
+        voice: &voice,
+    });
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -730,6 +894,7 @@ fn test_report_generation_and_export() {
         structure: &structure,
         timeline: &timeline,
         voice: &voice,
+        checklist: &checklist,
         assessment: &assessment,
     });
 
@@ -753,6 +918,7 @@ fn test_report_generation_and_export() {
         "## 故事结构",
         "## 时间线",
         "## 作者声音",
+        "## 最终审查清单",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -770,6 +936,12 @@ fn test_report_generation_and_export() {
         voice.avg_sentence_chars
     )));
     assert!(markdown.contains("长句不比短句好"));
+    // Every checklist item reaches the report as exactly one checkbox.
+    assert_eq!(
+        markdown.matches("- [ ] ").count(),
+        checklist.items.len(),
+        "the checklist must reach the report whole"
+    );
     assert!(markdown.contains(&format!(
         "情节连贯性：**{:.1} / 100**",
         plot.coherence_score
