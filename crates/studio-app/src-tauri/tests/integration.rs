@@ -30,7 +30,9 @@ use studio_analysis::{
 use studio_core::concern::Severity;
 use studio_core::project::Project;
 use studio_import::parse_semantic_result;
-use studio_report::{render_knowsphere, render_markdown, KnowsphereInput, ReportInput};
+use studio_report::{
+    render_html, render_knowsphere, render_markdown, KnowsphereInput, ReportInput,
+};
 use studio_storage::{
     create, entity_stats_for_project, get_report, invalidate_project, list, list_concerns,
     load_cached, load_document, mark_exported, run_migrations, save_concerns, save_document,
@@ -946,8 +948,55 @@ fn test_report_generation_and_export() {
     assert_eq!(on_disk, markdown, "file must match the stored report");
     let after = get_report(&conn, report.report_id).unwrap().unwrap();
     assert_eq!(after.exported_path.as_deref(), path.to_str());
+
+    // Print-ready HTML — the PDF path. It is rendered from the stored Markdown at
+    // export time rather than from the analysis: the same text the Markdown file
+    // holds, so the two exports can never disagree about a number.
+    let html_path =
+        std::env::temp_dir().join(format!("narrativestudio_report_{}.html", report.report_id));
+    std::fs::write(&html_path, render_html(&stored.markdown)).expect("write html file");
+    let html = std::fs::read_to_string(&html_path).expect("read html file");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(
+        html.contains("叙事分析报告</title>"),
+        "the report title has to become the document title"
+    );
+    assert!(
+        html.contains("@page { size: A4"),
+        "the paper is set in the file"
+    );
+    for section in markdown.lines().filter_map(|line| line.strip_prefix("## ")) {
+        assert!(
+            html.contains(&format!("<h2>{}</h2>", section.trim())),
+            "section missing from the HTML: {section}"
+        );
+    }
+    assert_eq!(
+        html.matches("<table>").count(),
+        html.matches("</table>").count(),
+        "a table was left open"
+    );
+    assert!(
+        html.matches("<table>").count() > 10,
+        "the tables did not survive"
+    );
+    assert!(
+        !html.contains("| --- |"),
+        "Markdown table markers must not reach the HTML"
+    );
+    assert_eq!(
+        html,
+        render_html(&stored.markdown),
+        "the same Markdown must render to the same bytes"
+    );
+
     std::fs::remove_file(&path).ok();
-    println!("✓ report exported to {} and path recorded", path.display());
+    std::fs::remove_file(&html_path).ok();
+    println!(
+        "✓ report exported to {} and path recorded; print HTML is {} bytes",
+        path.display(),
+        html.len()
+    );
 }
 
 /// End-to-end Knowsphere export: import → registry-issued stable ids →

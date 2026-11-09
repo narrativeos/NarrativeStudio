@@ -1,9 +1,11 @@
-//! Report generation, Markdown export, and the Knowsphere export — the
-//! machine-readable product consumed by NarratSphere.
+//! Report generation, Markdown and print-HTML export, and the Knowsphere
+//! export — the machine-readable product consumed by NarratSphere.
 
 use serde::Serialize;
 use studio_analysis::document_hash;
-use studio_report::{render_knowsphere, render_markdown, KnowsphereInput, ReportInput};
+use studio_report::{
+    render_html, render_knowsphere, render_markdown, KnowsphereInput, ReportInput,
+};
 use studio_storage::{
     entity_stats_for_project, get_report, mark_exported, save_report, StoredReport,
 };
@@ -102,6 +104,36 @@ pub(crate) async fn report_export(
     };
 
     std::fs::write(&path, markdown).map_err(|e| format!("写入报告失败：{e}"))?;
+
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    mark_exported(&storage.conn, rid, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Write the print-ready HTML of a stored report — the file the user prints to
+/// PDF.
+///
+/// The HTML is rendered from the **stored Markdown** rather than stored beside
+/// it: `render_html` is a pure function of that text, so a second column would
+/// only be a second copy that can rot. The numbers in the printed file are
+/// therefore still the ones persisted when the report was generated — printing
+/// after a re-analysis cannot quietly pick up new ones.
+#[tauri::command]
+pub(crate) async fn report_export_html(
+    state: State<'_, AppState>,
+    report_id: String,
+    path: String,
+) -> Result<String, String> {
+    let rid = Uuid::parse_str(&report_id).map_err(|e| e.to_string())?;
+    let markdown = {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        get_report(&storage.conn, rid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("报告不存在：{report_id}"))?
+            .markdown
+    };
+
+    std::fs::write(&path, render_html(&markdown)).map_err(|e| format!("写入报告失败：{e}"))?;
 
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
     mark_exported(&storage.conn, rid, &path).map_err(|e| e.to_string())?;

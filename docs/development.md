@@ -367,6 +367,7 @@ Tauri Commands 按领域分组在 `studio-app/src-tauri/src/commands/`（`projec
 | `load_document_cmd` | `{ doc_id }` | `DocumentData` | 按 ID 载入文档 |
 | `report_generate` | `{ project_id }` | `ReportMeta` | 生成 Markdown 报告并入库（复用分析缓存，见 §6.6） |
 | `report_export` | `{ report_id, path }` | `path` | 把已入库的报告写到指定路径并记录 |
+| `report_export_html` | `{ report_id, path }` | `path` | 把已入库报告的 Markdown 现渲染成打印就绪 HTML 写盘并记录路径（A4 排版，浏览器 ⌘P 存 PDF，见 §6.6） |
 | `export_knowsphere` | `{ project_id, path }` | `path` | 渲染 `.knowsphere.json`（供 NarratSphere 消费）、按 schema 契约自检后写入指定路径（见 product-design.md §Knowsphere 导出契约） |
 
 > 上表是**已实现**的命令面。设计稿中的异步任务合约（`analyze_cancel` / `analyze_status` / `settings_get` / `settings_update`）尚未实现：当前分析命令同步返回结果（用 `async fn` + `spawn_blocking` 保证不阻塞 UI 线程），没有 `TaskId` + 事件流。
@@ -650,6 +651,11 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 - **导出**：`report_export` 读取**已入库**的 markdown 写盘并记录 `exported_path`。分成两步是为了「导出的是已入库的那一份」：之后重新分析再导出，不会悄悄换一套数字。
 - **写文件在 Rust 侧**完成，前端只用 dialog `save()` 取路径，因此 webview 不需要 filesystem 权限。
 - **长列表截断**：词表 15 项、其余列表 20 项，并写明「另有 N 项未列出」；表格单元格转义 `|` 与换行，避免被分析的文本破坏表格。
+- **PDF 走 HTML**：`studio_report::render_html(&markdown)` 是纯函数，把**已入库的那份 Markdown**
+  转成自包含的打印就绪 HTML（`@page` A4、CJK 字体栈、跨页重复表头、表格行不跨页，屏幕上提示按 ⌘P）。
+  它**不是第二套渲染器**：报告的措辞只活在 `markdown.rs` 一处，HTML 只是那份文本的另一种排版——
+  两处渲染必然漂移，第二列存储必然腐坏。`report_export_html` 在导出时现渲染，所以打印出来的数字
+  仍是生成那一份，之后重新分析也换不掉。真正一键产出 `.pdf` 需要内嵌 CJK 字体的排版引擎，留给 M4。
 
 ### 6.7 词库与外部数据出处
 

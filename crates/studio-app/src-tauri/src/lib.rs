@@ -145,6 +145,7 @@ pub fn run() {
             commands::analyze::load_document_cmd,
             commands::report::report_generate,
             commands::report::report_export,
+            commands::report::report_export_html,
             commands::report::export_knowsphere
         ])
         .run(tauri::generate_context!())

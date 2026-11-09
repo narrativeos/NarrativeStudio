@@ -56,6 +56,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
   const [force, setForce] = useState(false);
   // Report export: `exporting` guards the button, `exportNote` confirms the path.
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingKnowsphere, setExportingKnowsphere] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
 
@@ -106,6 +107,34 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       setError(String(e));
     } finally {
       setExporting(false);
+    }
+  }
+
+  /**
+   * Export the report as print-ready HTML — the PDF path.
+   *
+   * The backend renders the HTML from the Markdown it already stored, so the
+   * printed file carries the same numbers as the file next to it. The paper is
+   * set to A4 in the file itself: opening it and pressing ⌘P is all that is
+   * left, which is why no print dialog is opened from here.
+   */
+  async function exportPdf() {
+    setExportingPdf(true);
+    setExportNote(null);
+    try {
+      const report = await invoke<ReportMeta>("report_generate", { projectId });
+      const target = await save({
+        title: "导出打印就绪 HTML（用浏览器打开后 ⌘P 存为 PDF）",
+        defaultPath: `${report.title}.html`,
+        filters: [{ name: "HTML", extensions: ["html"] }],
+      });
+      if (!target) return; // user cancelled the dialog
+      await invoke("report_export_html", { reportId: report.report_id, path: target });
+      setExportNote(`已导出打印就绪 HTML：${target}（浏览器打开后按 ⌘P 存为 PDF）`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -206,6 +235,14 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             title="生成 Markdown 报告并选择保存位置"
           >
             {exporting ? "生成中…" : "导出报告"}
+          </button>
+          <button
+            onClick={exportPdf}
+            disabled={exportingPdf}
+            className="px-3 py-1.5 text-sm rounded-md bg-accent/20 text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
+            title="导出打印就绪 HTML：A4 排版，用浏览器打开后按 ⌘P 存为 PDF"
+          >
+            {exportingPdf ? "生成中…" : "导出 PDF"}
           </button>
           <button
             onClick={exportKnowsphere}
