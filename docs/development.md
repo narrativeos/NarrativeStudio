@@ -848,9 +848,14 @@ cd crates/studio-app && pnpm dev  # http://localhost:5173
 
 ### 9.4 数据目录结构
 
+当前实现：数据库在 `app_data_dir`（macOS 下 `~/Library/Application Support/`）里的
+`narrative_studio.duckdb`，正文与实体全部在库内；`projects.source_path` 原位指向 TraceView
+项目文件夹，**不复制**源文件。下面的 `projects/{project_id}/` 与 `logs/` 是目标形态（见
+product-design §10.2 的未完成项），还没有代码创建它们。
+
 ```
 ~/.NarrativeStudio/
-├── studio.duckdb              # 主数据库
+├── narrative_studio.duckdb    # 主数据库
 ├── projects/
 │   └── {project_id}/
 │       ├── project.json       # 项目元数据

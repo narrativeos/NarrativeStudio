@@ -1490,21 +1490,31 @@ studio-app (Tauri 入口)
 
 ### 10.1 M0：项目脚手架（第 1-2 周）
 
-- [ ] 初始化 Rust workspace + Tauri 2.x 项目
-- [ ] 前端 React + TypeScript + Tailwind 脚手架
-- [ ] DuckDB 集成 + 表结构迁移
-- [ ] 项目 CRUD（创建/打开/删除）
-- [ ] 基础 UI 布局（左侧导航 + 右侧内容）
-- [ ] CI/CD 配置（GitHub Actions）
+- [x] 初始化 Rust workspace + Tauri 2.x 项目（`Cargo.toml` workspace + 6 个 crate，
+  `crates/studio-app/src-tauri`）
+- [x] 前端 React + TypeScript + Tailwind 脚手架（Tailwind v4 走 `@tailwindcss/postcss`）
+- [x] DuckDB 集成 + 表结构迁移（`duckdb` bundled，`migration.rs` 已到 v13，迁移幂等）
+- [x] 项目 CRUD（创建/打开/删除）——`list_projects` / `create_project` / `delete_project`，
+  「打开」是前端导航到分析页，数据全部来自 DuckDB
+- [x] 基础 UI 布局（左侧导航 + 右侧内容）——`App.tsx` 的 `Sidebar` + `main`
+- [x] CI/CD 配置（GitHub Actions）——`.github/workflows/ci.yml`
 
 ### 10.2 M1：数据导入（第 3-4 周）
 
-- [ ] TraceView `semantic_result.json` 解析
-- [ ] TraceView `popo_result.json` 解析
-- [ ] 数据写入 DuckDB
+- [x] TraceView `semantic_result.json` 解析（`studio-import::semantic`：blocks / tokens /
+  entities / noun signals；章节 TOC 与领域术语从另外两个文件补）
+- [x] TraceView `popo_result.json` 解析（取章节 TOC，文件缺失时按无 TOC 继续）
+- [x] 数据写入 DuckDB（`save_document` 在一个事务里写 documents / semantic_blocks / tokens /
+  entities / noun_signals，实体先经 registry 取稳定 id，任一步失败整体回滚；带进度事件）
 - [ ] 原始文档导入（Markdown / TXT）
+  - ⏳ 目前唯一入口是 TraceView 项目文件夹导入；直接读 Markdown / TXT 未做
 - [ ] 项目文件管理（自包含文件夹）
+  - ⏳ 现状是 `projects.source_path` 原位引用 TraceView 文件夹，正文与实体全部落
+    DuckDB（`app_data_dir`/`narrative_studio.duckdb`）；没有把源文件复制进
+    `projects/{project_id}/`，development.md §9.4 的目录树是目标形态而不是现状
 - [ ] 数据校验与完整性检查
+  - ⏳ 导入侧只校验 `project.json` 与 `semantic_result.json` 存在且可解析，
+    知识球导出在写盘前跑 `validate()`；文档与实体之间的一致性检查未做
 
 ### 10.3 M2：P0 分析维度（第 5-8 周）
 
