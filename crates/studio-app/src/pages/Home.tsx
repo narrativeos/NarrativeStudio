@@ -94,7 +94,7 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
       </div>
 
       {error && (
-        <div className="text-red-400 mb-4">
+        <div className="text-bad mb-4">
           <p>Import failed:</p>
           <pre className="text-xs mt-2">{error}</pre>
         </div>
@@ -108,7 +108,7 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
           </div>
           {progress && progress.total > 0 && (
             <div className="mt-1">
-              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+              <div className="w-full h-2 bg-fill rounded-full overflow-hidden">
                 <div
                   className="h-full bg-accent transition-all duration-200"
                   style={{

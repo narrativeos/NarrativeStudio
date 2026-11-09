@@ -87,7 +87,7 @@ function DialogueSection({ dialogue }: DialogueSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="#38bdf8" fill="rgba(56, 189, 248, 0.15)" />
+            <LineChart points={curve} color="var(--color-dim-dialogue)" />
           )}
           {dialogue.chunked && (
             <p className="text-xs text-text-muted mt-2">
@@ -107,7 +107,7 @@ function DialogueSection({ dialogue }: DialogueSectionProps) {
                 label: `${label} 字`,
                 value,
               }))}
-              colorClass="bg-sky-400"
+              colorClass="bg-info"
             />
           )}
         </Panel>
@@ -157,7 +157,7 @@ function DialogueSection({ dialogue }: DialogueSectionProps) {
           <p className="text-xs text-text-muted">
             对白按两种信号识别：引号（“ ” 「 」 『 』）内的文字，以及以——开头的行。引号在换行处收口，所以跨段的长对白不会把中间的叙述也算成对白；已被引号覆盖的破折号行不重复计数。
           </p>
-          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-line/60">
             原文不用引号时这里会漏判：未见对白不等于没有人说话。引号本身计入叙述一侧。
           </p>
         </Panel>

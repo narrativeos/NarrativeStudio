@@ -47,7 +47,7 @@ function RelationshipGraph({ characters, limit = 12 }: RelationshipGraphProps) {
               y1={a.y}
               x2={b.x}
               y2={b.y}
-              stroke="#818cf8"
+              stroke="var(--color-chart)"
               strokeOpacity={0.45}
               strokeWidth={edgeWidth(edge.weight, graph.maxWeight)}
             >
@@ -59,14 +59,14 @@ function RelationshipGraph({ characters, limit = 12 }: RelationshipGraphProps) {
           const label = labelPosition(node);
           return (
             <g key={node.name}>
-              <circle cx={node.x} cy={node.y} r={node.r} fill="#22d3ee" fillOpacity={0.85}>
+              <circle cx={node.x} cy={node.y} r={node.r} fill="var(--color-graph-node)" fillOpacity={0.85}>
                 <title>{`${node.name}: 提及 ${node.mentions} 次`}</title>
               </circle>
               <text
                 x={label.x}
                 y={label.y}
                 textAnchor={node.anchor}
-                className="fill-gray-300"
+                className="fill-text-muted"
                 fontSize="11"
               >
                 {shortName(node.name)}

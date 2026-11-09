@@ -2,7 +2,6 @@ interface LineChartProps {
   points: { label: string; value: number }[];
   height?: number;
   color?: string;
-  fill?: string;
 }
 
 /**
@@ -12,8 +11,7 @@ interface LineChartProps {
 function LineChart({
   points,
   height = 180,
-  color = "#818cf8",
-  fill = "rgba(129, 140, 248, 0.15)",
+  color = "var(--color-chart)",
 }: LineChartProps) {
   if (points.length === 0) {
     return <p className="text-xs text-text-muted">暂无数据</p>;
@@ -53,12 +51,13 @@ function LineChart({
           x2={width - padX}
           y1={y(g)}
           y2={y(g)}
-          stroke="#374151"
+          stroke="var(--color-line)"
           strokeWidth="0.5"
           strokeDasharray="3 3"
         />
       ))}
-      <path d={area} fill={fill} />
+      {/* The band under the line is the same hue, faint — one colour per series. */}
+      <path d={area} fill={color} fillOpacity={0.15} />
       <path
         d={path}
         fill="none"
@@ -78,7 +77,7 @@ function LineChart({
           x={x(i)}
           y={height - 8}
           textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"}
-          className="fill-gray-500"
+          className="fill-text-muted"
           fontSize="10"
         >
           {points[i].label.length > 10 ? `${points[i].label.slice(0, 10)}…` : points[i].label}

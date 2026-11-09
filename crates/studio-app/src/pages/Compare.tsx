@@ -91,7 +91,7 @@ function Compare({ selection }: CompareProps) {
         <>
           {loading && <div className="text-text-muted mb-4">Analyzing…</div>}
           {error && (
-            <div className="text-red-400 mb-4">
+            <div className="text-bad mb-4">
               <p>Comparison failed:</p>
               <pre className="text-xs mt-2">{error}</pre>
             </div>
@@ -102,13 +102,13 @@ function Compare({ selection }: CompareProps) {
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr>
-                      <th className="text-left px-3 py-2 text-text-muted font-medium border-b border-gray-700">
+                      <th className="text-left px-3 py-2 text-text-muted font-medium border-b border-line">
                         指标
                       </th>
                       {data.map((a) => (
                         <th
                           key={a.project_id}
-                          className="text-right px-3 py-2 text-accent font-medium border-b border-gray-700"
+                          className="text-right px-3 py-2 text-accent font-medium border-b border-line"
                         >
                           {a.name}
                         </th>
@@ -118,13 +118,13 @@ function Compare({ selection }: CompareProps) {
                   <tbody>
                     {metrics.map((m) => (
                       <tr key={m.label}>
-                        <td className="px-3 py-2 text-text-muted border-b border-gray-700/50">
+                        <td className="px-3 py-2 text-text-muted border-b border-line/50">
                           {m.label}
                         </td>
                         {data.map((a) => (
                           <td
                             key={a.project_id}
-                            className="px-3 py-2 text-right border-b border-gray-700/50"
+                            className="px-3 py-2 text-right border-b border-line/50"
                           >
                             {m.value(a)}
                           </td>

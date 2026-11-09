@@ -32,8 +32,8 @@ function Sidebar({
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   return (
-    <aside className="w-64 bg-surface-alt border-r border-gray-700 flex flex-col">
-      <div className="p-4 border-b border-gray-700">
+    <aside className="w-64 bg-surface-alt border-r border-line flex flex-col">
+      <div className="p-4 border-b border-line">
         <h1 className="text-lg font-bold text-accent">NarrativeStudio</h1>
         <p className="text-xs text-text-muted mt-1">Multi-dimensional Analysis</p>
       </div>
@@ -61,13 +61,13 @@ function Sidebar({
                 } ${
                   active
                     ? "bg-accent/20 text-accent"
-                    : "text-text-muted hover:text-text hover:bg-gray-700/50"
+                    : "text-text-muted hover:text-text hover:bg-fill/50"
                 }`}
               >
                 {isCompare && (
                   <span
                     className={`inline-flex w-4 h-4 shrink-0 items-center justify-center rounded border text-[10px] ${
-                      active ? "border-accent bg-accent text-surface" : "border-gray-500"
+                      active ? "border-accent bg-accent text-surface" : "border-line-strong"
                     }`}
                   >
                     {active ? "✓" : ""}
@@ -81,7 +81,7 @@ function Sidebar({
                     e.stopPropagation();
                     setConfirmId(p.project_id);
                   }}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-red-400 hover:bg-gray-700/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-bad hover:bg-fill/50 opacity-0 group-hover:opacity-100 transition-opacity"
                   title="删除项目"
                   aria-label="删除项目"
                 >
@@ -93,8 +93,8 @@ function Sidebar({
         })}
 
         {confirmId && (
-          <div className="mx-1 mt-2 p-2 rounded-md bg-red-900/30 border border-red-700/50 text-xs">
-            <p className="text-red-200 mb-2">
+          <div className="mx-1 mt-2 p-2 rounded-md bg-bad/15 border border-bad/40 text-xs">
+            <p className="text-bad mb-2">
               删除「{projects.find((p) => p.project_id === confirmId)?.name}」及其全部导入数据？此操作不可撤销。
             </p>
             <div className="flex gap-2">
@@ -104,13 +104,13 @@ function Sidebar({
                   setConfirmId(null);
                   onDeleteProject(id);
                 }}
-                className="flex-1 px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white"
+                className="flex-1 px-2 py-1 rounded bg-bad-solid hover:bg-bad/80 text-white"
               >
                 删除
               </button>
               <button
                 onClick={() => setConfirmId(null)}
-                className="flex-1 px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-text-muted"
+                className="flex-1 px-2 py-1 rounded bg-fill hover:bg-fill-strong text-text-muted"
               >
                 取消
               </button>
@@ -119,13 +119,13 @@ function Sidebar({
         )}
       </nav>
 
-      <div className="p-2 border-t border-gray-700 space-y-1">
+      <div className="p-2 border-t border-line space-y-1">
         <button
           onClick={isCompare ? onExitCompare : onEnterCompare}
           className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
             isCompare
               ? "bg-accent/20 text-accent"
-              : "text-text-muted hover:text-text hover:bg-gray-700/50"
+              : "text-text-muted hover:text-text hover:bg-fill/50"
           }`}
         >
           <span className="mr-2">⚖️</span>
@@ -136,14 +136,14 @@ function Sidebar({
           className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
             view === "settings"
               ? "bg-accent/20 text-accent"
-              : "text-text-muted hover:text-text hover:bg-gray-700/50"
+              : "text-text-muted hover:text-text hover:bg-fill/50"
           }`}
         >
           <span className="mr-2">⚙️</span>Settings
         </button>
       </div>
 
-      <div className="p-3 border-t border-gray-700 text-xs text-text-muted">v0.1.0</div>
+      <div className="p-3 border-t border-line text-xs text-text-muted">v0.1.0</div>
     </aside>
   );
 }

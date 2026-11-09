@@ -18,9 +18,9 @@ interface TimelineSectionProps {
 /** Ticks for the marker strip: the two kinds that carry a calendar date share a hue,
  *  and the two that do not are kept visibly apart from them. */
 const MARKER_TICK_COLORS: Record<string, string> = {
-  absolute: "bg-sky-400",
-  partial: "bg-sky-400/50",
-  relative: "bg-amber-400",
+  absolute: "bg-info",
+  partial: "bg-info/50",
+  relative: "bg-warn",
   vague: "bg-text-muted",
 };
 
@@ -90,7 +90,7 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
           {timeline.markers.length > 0 && (
             <div className="mt-4">
               <Panel title={`标记位置（${timeline.markers.length} 处）`}>
-                <div className="relative h-8 rounded bg-gray-800/60">
+                <div className="relative h-8 rounded bg-fill-soft/60">
                   {timeline.markers.map((m, idx) => (
                     <span
                       key={`${m.kind}-${m.text}-${idx}`}
@@ -136,7 +136,7 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
                   {timeline.forms.slice(0, 10).map(([form, count]) => (
                     <span
                       key={form}
-                      className="px-2 py-0.5 rounded border border-gray-700 bg-gray-800/60 text-xs text-text-muted"
+                      className="px-2 py-0.5 rounded border border-line bg-fill-soft/60 text-xs text-text-muted"
                     >
                       {timelinePrecisionLabel(form)} {formatInt(count)} 处
                     </span>
@@ -167,7 +167,7 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
                   </thead>
                   <tbody>
                     {dated.slice(0, MAX_ROWS).map((m, idx) => (
-                      <tr key={`${m.resolved}-${idx}`} className="border-b border-gray-700/40">
+                      <tr key={`${m.resolved}-${idx}`} className="border-b border-line/40">
                         <td className="py-1.5 text-right tabular-nums">
                           {formatPercent(m.position)}
                         </td>
@@ -206,13 +206,13 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
                     {timeline.backsteps.map((s, idx) => (
                       <tr
                         key={`${s.from_date}-${s.to_date}-${idx}`}
-                        className="border-b border-gray-700/40"
+                        className="border-b border-line/40"
                       >
                         <td className="py-1.5">{s.from_section || "(root)"}</td>
                         <td className="py-1.5 tabular-nums">{s.from_date}</td>
                         <td className="py-1.5">{s.to_section || "(root)"}</td>
                         <td className="py-1.5 tabular-nums">{s.to_date}</td>
-                        <td className="py-1.5 text-right text-rose-400 tabular-nums">
+                        <td className="py-1.5 text-right text-firm tabular-nums">
                           早 {timelineSpanLabel(s.days)}
                         </td>
                       </tr>
@@ -243,7 +243,7 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
                     {timeline.jumps.map((s, idx) => (
                       <tr
                         key={`${s.from_date}-${s.to_date}-${idx}`}
-                        className="border-b border-gray-700/40"
+                        className="border-b border-line/40"
                       >
                         <td className="py-1.5">{s.from_section || "(root)"}</td>
                         <td className="py-1.5 tabular-nums">{s.from_date}</td>
@@ -291,7 +291,7 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
                 </thead>
                 <tbody>
                   {timeline.markers.slice(0, MAX_ROWS).map((m, idx) => (
-                    <tr key={`${m.kind}-${m.text}-${idx}`} className="border-b border-gray-700/40">
+                    <tr key={`${m.kind}-${m.text}-${idx}`} className="border-b border-line/40">
                       <td className="py-1.5 text-right tabular-nums">{formatPercent(m.position)}</td>
                       <td className="py-1.5 font-medium" title={m.excerpt}>
                         {m.text}

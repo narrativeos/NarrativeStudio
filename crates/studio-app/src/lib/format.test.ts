@@ -102,25 +102,25 @@ describe("number formatting", () => {
 
 describe("scoreColor", () => {
   it("uses green at or above 80", () => {
-    expect(scoreColor(80)).toBe("bg-emerald-400");
-    expect(scoreColor(100)).toBe("bg-emerald-400");
+    expect(scoreColor(80)).toBe("bg-good");
+    expect(scoreColor(100)).toBe("bg-good");
   });
 
   it("uses amber between 60 and 79.99", () => {
-    expect(scoreColor(79.9)).toBe("bg-amber-400");
-    expect(scoreColor(60)).toBe("bg-amber-400");
+    expect(scoreColor(79.9)).toBe("bg-warn");
+    expect(scoreColor(60)).toBe("bg-warn");
   });
 
   it("uses red below 60", () => {
-    expect(scoreColor(59.9)).toBe("bg-red-400");
-    expect(scoreColor(0)).toBe("bg-red-400");
+    expect(scoreColor(59.9)).toBe("bg-bad");
+    expect(scoreColor(0)).toBe("bg-bad");
   });
 });
 
 describe("severity helpers", () => {
   it("maps known severities to badge classes and labels", () => {
-    expect(severityStyle("high")).toContain("bg-red-500/15");
-    expect(severityStyle("medium")).toContain("bg-amber-500/15");
+    expect(severityStyle("high")).toContain("bg-bad/15");
+    expect(severityStyle("medium")).toContain("bg-warn/15");
     expect(severityLabel("high")).toBe("高");
     expect(severityLabel("low")).toBe("低");
   });
@@ -159,9 +159,9 @@ describe("plot shape helpers", () => {
   });
 
   it("marks the two shapes that ask for a rewrite as warnings", () => {
-    expect(plotShapeStyle("setup_only")).toContain("text-red-400");
-    expect(plotShapeStyle("late_arrival")).toContain("text-red-400");
-    expect(plotShapeStyle("sustained")).toContain("text-emerald-400");
+    expect(plotShapeStyle("setup_only")).toContain("text-bad");
+    expect(plotShapeStyle("late_arrival")).toContain("text-bad");
+    expect(plotShapeStyle("sustained")).toContain("text-good");
   });
 
   it("falls back to the neutral style for unknown shapes", () => {
@@ -181,9 +181,9 @@ describe("pacing verdict helpers", () => {
   });
 
   it("marks a curve that never moves as the case to fix", () => {
-    expect(pacingVerdictStyle("flat")).toContain("text-red-400");
-    expect(pacingVerdictStyle("varied")).toContain("text-emerald-400");
-    expect(pacingVerdictStyle("spiky")).toContain("text-amber-400");
+    expect(pacingVerdictStyle("flat")).toContain("text-bad");
+    expect(pacingVerdictStyle("varied")).toContain("text-good");
+    expect(pacingVerdictStyle("spiky")).toContain("text-warn");
   });
 
   it("falls back to the warning style for an unknown verdict", () => {
@@ -216,8 +216,8 @@ describe("conflict helpers", () => {
 
   it("keeps 未见用词 neutral: no vocabulary is not the same as no conflict", () => {
     expect(conflictVerdictStyle("none")).toContain("text-text-muted");
-    expect(conflictVerdictStyle("thin")).toContain("text-amber-400");
-    expect(conflictVerdictStyle("present")).toContain("text-emerald-400");
+    expect(conflictVerdictStyle("thin")).toContain("text-warn");
+    expect(conflictVerdictStyle("present")).toContain("text-good");
   });
 
   it("falls back to the neutral style for an unknown verdict", () => {
@@ -250,8 +250,8 @@ describe("theme labels", () => {
   });
 
   it("reads a subject that runs through the document as the healthy case", () => {
-    expect(themeReachStyle("sustained")).toContain("text-emerald-400");
-    expect(themeReachStyle("episodic")).toContain("text-amber-400");
+    expect(themeReachStyle("sustained")).toContain("text-good");
+    expect(themeReachStyle("episodic")).toContain("text-warn");
     expect(themeReachStyle("occasional")).toContain("text-text-muted");
   });
 
@@ -283,8 +283,8 @@ describe("setting labels", () => {
 
   it("keeps 未见用词 neutral: no vocabulary is not the same as no setting", () => {
     expect(settingVerdictStyle("none")).toContain("text-text-muted");
-    expect(settingVerdictStyle("thin")).toContain("text-amber-400");
-    expect(settingVerdictStyle("present")).toContain("text-emerald-400");
+    expect(settingVerdictStyle("thin")).toContain("text-warn");
+    expect(settingVerdictStyle("present")).toContain("text-good");
   });
 
   it("falls back to the neutral style for an unknown verdict", () => {
@@ -305,8 +305,8 @@ describe("setting labels", () => {
   });
 
   it("reads a scene that never says where it is as the case to fix", () => {
-    expect(settingIssueStyle("unanchored")).toContain("text-red-400");
-    expect(settingIssueStyle("long_absence")).toContain("text-sky-400");
+    expect(settingIssueStyle("unanchored")).toContain("text-bad");
+    expect(settingIssueStyle("long_absence")).toContain("text-info");
   });
 
   it("falls back to the neutral issue style for an unknown kind", () => {
@@ -324,8 +324,8 @@ describe("cliché labels", () => {
 
   it("keeps 未见用词 neutral: an empty library hit is not a clean bill of health", () => {
     expect(clicheVerdictStyle("none")).toContain("text-text-muted");
-    expect(clicheVerdictStyle("light")).toContain("text-emerald-400");
-    expect(clicheVerdictStyle("heavy")).toContain("text-red-400");
+    expect(clicheVerdictStyle("light")).toContain("text-good");
+    expect(clicheVerdictStyle("heavy")).toContain("text-bad");
   });
 
   it("falls back to the neutral style for an unknown verdict", () => {
@@ -352,8 +352,8 @@ describe("cliché labels", () => {
   });
 
   it("reads repeating one phrase as the habit to fix first", () => {
-    expect(clicheIssueStyle("repeated")).toContain("text-red-400");
-    expect(clicheIssueStyle("speech_tags")).toContain("text-sky-400");
+    expect(clicheIssueStyle("repeated")).toContain("text-bad");
+    expect(clicheIssueStyle("speech_tags")).toContain("text-info");
   });
 
   it("falls back to the segment style for an unknown issue kind", () => {
@@ -371,7 +371,7 @@ describe("dialogue labels", () => {
 
   it("keeps every mix verdict off the red end: a ratio is not a grade", () => {
     for (const verdict of ["none", "sparse", "balanced", "heavy"]) {
-      expect(dialogueVerdictStyle(verdict)).not.toContain("text-red-400");
+      expect(dialogueVerdictStyle(verdict)).not.toContain("text-bad");
     }
     expect(dialogueVerdictStyle("none")).toContain("text-text-muted");
   });
@@ -397,8 +397,8 @@ describe("dialogue labels", () => {
   });
 
   it("reads unquoted speech as punctuation, not as a mistake", () => {
-    expect(dialogueIssueStyle("unquoted")).toContain("text-sky-400");
-    expect(dialogueIssueStyle("monologue")).toContain("text-amber-400");
+    expect(dialogueIssueStyle("unquoted")).toContain("text-info");
+    expect(dialogueIssueStyle("monologue")).toContain("text-warn");
     expect(dialogueIssueStyle("no_dialogue")).toContain("text-text-muted");
   });
 
@@ -462,10 +462,10 @@ describe("explicit language labels", () => {
     // Self-harm surfaces from one moderate mention and sexual violence from one strong
     // one, so neither may be dimmed next to a page of mild profanity; a dense segment
     // says where hits cluster, not what they are, and stays off the content scale.
-    expect(explicitIssueStyle("self_harm")).toContain("text-red-400");
-    expect(explicitIssueStyle("sexual_violence")).toContain("text-red-400");
-    expect(explicitIssueStyle("gore")).toContain("text-amber-400");
-    expect(explicitIssueStyle("dense_segment")).toContain("text-sky-400");
+    expect(explicitIssueStyle("self_harm")).toContain("text-bad");
+    expect(explicitIssueStyle("sexual_violence")).toContain("text-bad");
+    expect(explicitIssueStyle("gore")).toContain("text-warn");
+    expect(explicitIssueStyle("dense_segment")).toContain("text-info");
   });
 
   it("falls back to the density style for an unknown notice kind", () => {
@@ -514,8 +514,8 @@ describe("story structure labels", () => {
     expect(structureStatusLabel("found")).toBe("命中");
     expect(structureStatusLabel("displaced")).toBe("错位");
     expect(structureStatusLabel("missing")).toBe("未见");
-    expect(structureStatusStyle("found")).toContain("text-emerald-400");
-    expect(structureStatusStyle("displaced")).toContain("text-amber-400");
+    expect(structureStatusStyle("found")).toContain("text-good");
+    expect(structureStatusStyle("displaced")).toContain("text-warn");
     expect(structureStatusStyle("missing")).toContain("text-text-muted");
     expect(structureStatusStyle("missing")).not.toContain("red");
   });
@@ -562,7 +562,7 @@ describe("story structure labels", () => {
   it("marks a limit on the reading differently from a claim about the story", () => {
     // too_few_landmarks is about how little the signals showed, not about the document,
     // so it stays neutral while the five shape notes carry colour.
-    expect(structureIssueStyle("act_imbalance")).toContain("text-amber-400");
+    expect(structureIssueStyle("act_imbalance")).toContain("text-warn");
     expect(structureIssueStyle("too_few_landmarks")).toContain("text-text-muted");
     expect(structureIssueStyle("unknown_note")).toBe(structureIssueStyle("too_few_landmarks"));
   });
@@ -608,11 +608,11 @@ describe("time line labels", () => {
 
   it("separates the calendar's own finding from the limits of the reading", () => {
     // backstep is settled by the dates themselves; no_markers is about the scan.
-    expect(timelineIssueStyle("backstep")).toContain("text-rose-400");
-    expect(timelineIssueStyle("long_jump")).toContain("text-amber-400");
+    expect(timelineIssueStyle("backstep")).toContain("text-firm");
+    expect(timelineIssueStyle("long_jump")).toContain("text-warn");
     expect(timelineIssueStyle("no_markers")).toContain("text-text-muted");
     // A 干支 the document could not anchor is a limit on the reading, not a fault.
-    expect(timelineIssueStyle("unanchored_ganzhi")).toContain("text-amber-400");
+    expect(timelineIssueStyle("unanchored_ganzhi")).toContain("text-warn");
     // A note about how the conversion was done describes the method, not the story.
     expect(timelineIssueStyle("calendar_note")).toContain("text-text-muted");
     expect(timelineIssueStyle("unknown_note")).toBe(timelineIssueStyle("no_order"));

@@ -59,7 +59,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
       </div>
 
       {score === null && (
-        <p className="mt-2 text-xs text-amber-400">
+        <p className="mt-2 text-xs text-warn">
           未检测到冲突用词，因此不给出评分：文本可能不是叙事文本，也可能是词库尚未覆盖这种写法。
         </p>
       )}
@@ -69,7 +69,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到冲突曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="#f87171" fill="rgba(248, 113, 113, 0.15)" />
+            <LineChart points={curve} color="var(--color-dim-conflict)" />
           )}
           {conflict.chunked && (
             <p className="text-xs text-text-muted mt-2">
@@ -86,7 +86,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-text-muted border-b border-gray-700">
+                  <tr className="text-text-muted border-b border-line">
                     <th className="text-left py-1.5 font-medium">类型</th>
                     <th className="text-right py-1.5 font-medium">命中</th>
                     <th className="text-right py-1.5 font-medium">占比</th>
@@ -96,7 +96,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
                 </thead>
                 <tbody>
                   {conflict.types.map((t) => (
-                    <tr key={t.kind} className="border-b border-gray-700/40">
+                    <tr key={t.kind} className="border-b border-line/40">
                       <td className="py-1.5">{conflictTypeLabel(t.kind)}</td>
                       <td className="py-1.5 text-right tabular-nums">{t.hits}</td>
                       <td className="py-1.5 text-right text-text-muted tabular-nums">
@@ -136,7 +136,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
               ))}
             </ul>
           )}
-          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-line/60">
             冲突评分从 100 起扣：用词密度偏低最多 −30，单一类型占比超过 80% 最多 −15，连续无冲突区间每段
             −5（最多 −20），峰值在前三分之一而结尾三分之一不足其一半 −20，单段独占超过一半命中最多
             −15；未检测到用词时不评分。
@@ -154,7 +154,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-text-muted border-b border-gray-700">
+                  <tr className="text-text-muted border-b border-line">
                     <th className="text-left py-1.5 font-medium">段落</th>
                     <th className="text-right py-1.5 font-medium">强度</th>
                     <th className="text-right py-1.5 font-medium">命中</th>
@@ -165,7 +165,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
                 </thead>
                 <tbody>
                   {conflict.points.slice(0, 20).map((p) => (
-                    <tr key={p.section} className="border-b border-gray-700/40">
+                    <tr key={p.section} className="border-b border-line/40">
                       <td className="py-1.5 truncate max-w-[220px]" title={p.section}>
                         {p.section || "(root)"}
                       </td>

@@ -60,7 +60,7 @@ function SettingSection({ setting }: SettingSectionProps) {
       </div>
 
       {score === null && (
-        <p className="mt-2 text-xs text-amber-400">
+        <p className="mt-2 text-xs text-warn">
           既没有点名地点，也没有环境用词，因此不给出评分：文本可能不是叙事文本，也可能是导入结果里没有地点实体。
         </p>
       )}
@@ -75,7 +75,7 @@ function SettingSection({ setting }: SettingSectionProps) {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-text-muted border-b border-gray-700">
+                  <tr className="text-text-muted border-b border-line">
                     <th className="text-left py-1.5 font-medium">地点</th>
                     <th className="text-left py-1.5 font-medium">类型</th>
                     <th className="text-right py-1.5 font-medium">提及</th>
@@ -86,7 +86,7 @@ function SettingSection({ setting }: SettingSectionProps) {
                 </thead>
                 <tbody>
                   {setting.places.map((p) => (
-                    <tr key={p.name} className="border-b border-gray-700/40">
+                    <tr key={p.name} className="border-b border-line/40">
                       <td className="py-1.5 truncate max-w-[220px]" title={p.name}>
                         <span className="font-medium">{p.name}</span>
                       </td>
@@ -116,7 +116,7 @@ function SettingSection({ setting }: SettingSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到环境曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="#60a5fa" fill="rgba(96, 165, 250, 0.15)" />
+            <LineChart points={curve} color="var(--color-dim-setting)" />
           )}
           {setting.chunked && (
             <p className="text-xs text-text-muted mt-2">
@@ -136,7 +136,7 @@ function SettingSection({ setting }: SettingSectionProps) {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-text-muted border-b border-gray-700">
+                  <tr className="text-text-muted border-b border-line">
                     <th className="text-right py-1.5 font-medium">#</th>
                     <th className="text-left py-1.5 font-medium">段落</th>
                     <th className="text-left py-1.5 font-medium">地点</th>
@@ -149,7 +149,7 @@ function SettingSection({ setting }: SettingSectionProps) {
                 </thead>
                 <tbody>
                   {setting.scenes.slice(0, 20).map((s) => (
-                    <tr key={s.index} className="border-b border-gray-700/40">
+                    <tr key={s.index} className="border-b border-line/40">
                       <td className="py-1.5 text-right text-text-muted tabular-nums">
                         {s.index + 1}
                       </td>
@@ -161,7 +161,7 @@ function SettingSection({ setting }: SettingSectionProps) {
                         {s.anchor ? (
                           <span className="font-medium">{s.anchor}</span>
                         ) : (
-                          <span className="text-amber-400">（未点名）</span>
+                          <span className="text-warn">（未点名）</span>
                         )}
                       </td>
                       <td className="py-1.5 text-right text-text-muted tabular-nums">{s.blocks}</td>
@@ -218,7 +218,7 @@ function SettingSection({ setting }: SettingSectionProps) {
               {setting.top_env_terms.map(([term, count]) => `${term}×${count}`).join("、")}
             </p>
           )}
-          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-line/60">
             场景评分从 100 起扣：超过三成的场景没有地点锚点最多 −25，环境用词偏少最多 −20，
             既没有反复出现的地点也没有密集描写 −20，一段里挤进 4 个以上地点每个 −5（最多 −15）；
             地点与描写都没有时不评分。

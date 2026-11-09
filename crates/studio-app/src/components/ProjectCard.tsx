@@ -9,7 +9,7 @@ function ProjectCard({ project, onOpen }: ProjectCardProps) {
   return (
     <div
       onClick={() => onOpen(project.project_id)}
-      className="p-4 bg-surface-alt rounded-lg border border-gray-700 hover:border-accent/50 transition-colors cursor-pointer"
+      className="p-4 bg-surface-alt rounded-lg border border-line hover:border-accent/50 transition-colors cursor-pointer"
     >
       <h3 className="font-medium text-text">{project.name}</h3>
       <div className="flex gap-4 mt-2 text-xs text-text-muted">

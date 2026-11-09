@@ -59,7 +59,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
       </div>
 
       {score === null && (
-        <p className="mt-2 text-xs text-amber-400">
+        <p className="mt-2 text-xs text-warn">
           全文 {formatInt(cliche.char_count)} 字，不足 1000 字：按万字密度评分没有意义，因此不给出评分。下面的命中仍然列出。
         </p>
       )}
@@ -67,7 +67,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
       {cliche.categories.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {cliche.categories.map(([category, count]) => (
-            <span key={category} className="px-2 py-0.5 rounded bg-gray-500/15 text-xs">
+            <span key={category} className="px-2 py-0.5 rounded bg-fill-strong/15 text-xs">
               {clicheCategoryLabel(category)} {count}
             </span>
           ))}
@@ -85,7 +85,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-text-muted border-b border-gray-700">
+                  <tr className="text-text-muted border-b border-line">
                     <th className="text-left py-1.5 font-medium">短语</th>
                     <th className="text-left py-1.5 font-medium">类型</th>
                     <th className="text-right py-1.5 font-medium">次数</th>
@@ -97,7 +97,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
                 </thead>
                 <tbody>
                   {cliche.phrases.map((p) => (
-                    <tr key={p.phrase} className="border-b border-gray-700/40">
+                    <tr key={p.phrase} className="border-b border-line/40">
                       <td className="py-1.5">
                         <span className="font-medium">{p.phrase}</span>
                         {p.variants.length > 1 && (
@@ -134,7 +134,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="#f59e0b" fill="rgba(245, 158, 11, 0.15)" />
+            <LineChart points={curve} color="var(--color-dim-cliche)" />
           )}
           {cliche.chunked && (
             <p className="text-xs text-text-muted mt-2">
@@ -159,7 +159,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
                     （{h.section || "(root)"} · 第 {h.offset} 字）
                   </span>
                   {h.in_dialogue && (
-                    <span className="px-1.5 py-0.5 ml-1 rounded border text-xs bg-sky-500/15 text-sky-400 border-sky-500/30">
+                    <span className="px-1.5 py-0.5 ml-1 rounded border text-xs bg-info/15 text-info border-info/30">
                       对白内
                     </span>
                   )}
@@ -198,7 +198,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
             用词评分从 100 起扣：每万字超过 4 处的部分每处 −2.5（最多 −45），反复使用的短语每次命中
             −1（最多 −20），最常用的一句占去两成以上再 −10；不足 1000 字不评分。
           </p>
-          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-line/60">
             词库收录 {formatInt(cliche.lexicon_size)}
             个说法，只按字面匹配：命中只说明撞上库里常见的写法，不等于写得差。是否真的是陈词滥调、要不要改，由人来判断。
           </p>

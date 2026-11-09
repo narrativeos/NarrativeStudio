@@ -5,7 +5,6 @@ interface RadarChartProps {
   dimensions: { label: string; score: number }[];
   size?: number;
   color?: string;
-  fill?: string;
 }
 
 /**
@@ -18,8 +17,7 @@ interface RadarChartProps {
 function RadarChart({
   dimensions,
   size = 240,
-  color = "#818cf8",
-  fill = "rgba(129, 140, 248, 0.18)",
+  color = "var(--color-chart)",
 }: RadarChartProps) {
   if (dimensions.length < 3) {
     // Fewer than three axes cannot enclose an area; a bar list says the same thing.
@@ -39,7 +37,7 @@ function RadarChart({
           key={ring}
           points={radarPolygon(c, c, radius * ring, scores.map(() => 100))}
           fill="none"
-          stroke="#374151"
+          stroke="var(--color-line)"
           strokeWidth="0.5"
           strokeDasharray="3 3"
         />
@@ -55,7 +53,7 @@ function RadarChart({
             y1={c}
             x2={outer.x}
             y2={outer.y}
-            stroke="#374151"
+            stroke="var(--color-line)"
             strokeWidth="0.5"
           />
         );
@@ -64,7 +62,8 @@ function RadarChart({
       {/* The portrait itself */}
       <polygon
         points={radarPolygon(c, c, radius, scores)}
-        fill={fill}
+        fill={color}
+        fillOpacity={0.18}
         stroke={color}
         strokeWidth="2"
         strokeLinejoin="round"
@@ -89,7 +88,7 @@ function RadarChart({
             y={p.y}
             textAnchor={radarLabelAnchor(i, dimensions.length)}
             dominantBaseline="middle"
-            className="fill-gray-400"
+            className="fill-text-muted"
             fontSize="10"
           >
             {d.label} {Math.round(d.score)}

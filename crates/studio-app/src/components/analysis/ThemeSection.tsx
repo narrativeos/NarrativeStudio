@@ -53,7 +53,7 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="px-2 py-0.5 rounded border text-xs bg-gray-500/15 text-text-muted border-gray-500/30">
+        <span className="px-2 py-0.5 rounded border text-xs bg-fill-strong/15 text-text-muted border-line-strong/30">
           词汇来源：{themeSourceLabel(theme.source)}
         </span>
         <span className="text-xs text-text-muted">
@@ -65,17 +65,17 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
       </div>
 
       {theme.source === "none" && (
-        <p className="mt-2 text-xs text-amber-400">
+        <p className="mt-2 text-xs text-warn">
           没有可用于主题分析的词汇：导入结果里既没有名词信号也没有名词词性，或所有词都太短、太泛，因此不给出评分。
         </p>
       )}
       {theme.source === "noun_tokens" && (
-        <p className="mt-2 text-xs text-sky-400">
+        <p className="mt-2 text-xs text-info">
           导入结果没有名词信号，已改用词性标注中的名词：清单仍可用，但比导入器给出的名词信号更容易混入普通词。
         </p>
       )}
       {theme.source !== "none" && score === null && (
-        <p className="mt-2 text-xs text-amber-400">
+        <p className="mt-2 text-xs text-warn">
           没有任何词反复出现（达到 3 次并跨越 2 段以上），因此不给出评分：这可能不是叙事文本，也可能是用词过于分散。
         </p>
       )}
@@ -90,7 +90,7 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-text-muted border-b border-gray-700">
+                  <tr className="text-text-muted border-b border-line">
                     <th className="text-left py-1.5 font-medium">主题</th>
                     <th className="text-right py-1.5 font-medium">提及</th>
                     <th className="text-right py-1.5 font-medium">覆盖</th>
@@ -102,7 +102,7 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
                 </thead>
                 <tbody>
                   {theme.themes.map((t) => (
-                    <tr key={t.term} className="border-b border-gray-700/40">
+                    <tr key={t.term} className="border-b border-line/40">
                       <td className="py-1.5 truncate max-w-[220px]" title={t.term}>
                         <span className="font-medium">{t.term}</span>
                         {t.members.length > 1 && (
@@ -148,7 +148,7 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到主题，因此没有曲线。</p>
           ) : (
-            <LineChart points={curve} color="#34d399" fill="rgba(52, 211, 153, 0.15)" />
+            <LineChart points={curve} color="var(--color-dim-theme)" />
           )}
           <p className="text-xs text-text-muted mt-2">
             横轴与节奏、冲突曲线一致（{theme.section_count} 段）：同一位置可以横向对照。
@@ -158,9 +158,9 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
         <Panel title="主题体量">
           <BarList
             items={theme.themes.map((t) => ({ label: t.term, value: t.mentions }))}
-            colorClass="bg-emerald-400"
+            colorClass="bg-good"
           />
-          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-line/60">
             主题评分从 100 起扣：没有任何主题覆盖 20% 以上段落 −25，单一主题占比超过 35% 最多 −15，
             前三主题合计不足 12% 最多 −20，仅出现一次的词贡献超过 50% 最多 −25；没有可用名词词汇时不评分。
           </p>

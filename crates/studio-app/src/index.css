@@ -1,11 +1,97 @@
 @import "tailwindcss";
 
-@theme {
-  --color-surface: #1a1a2e;
-  --color-surface-alt: #16213e;
-  --color-accent: #4fc3f7;
-  --color-text: #e0e0e0;
-  --color-text-muted: #8892b0;
+/*
+ * Semantic colour tokens. Nothing in `src/` is allowed to name a palette colour
+ * (see `lib/theme.test.ts`): components name what a thing *means* — a hairline,
+ * a fill, a warning — and the palette lives here, in one place, per theme.
+ *
+ * The dark values are the palette utilities this code used before the tokens
+ * existed, so switching to tokens changed no pixel. Light values are the same
+ * meanings, re-aimed at a light page.
+ */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fill: var(--fill);
+  --color-fill-soft: var(--fill-soft);
+  --color-fill-strong: var(--fill-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-firm: var(--firm);
+  --color-info: var(--info);
+  --color-bad-solid: var(--bad-solid);
+}
+
+/*
+ * Identity hues. These name *which* thing a mark is — a part of speech, a chapter,
+ * a curve — not how healthy it is, so they are deliberately the same in every
+ * theme; only the state colours above switch. `static` keeps every one of them in
+ * the stylesheet even where no class names it, because the charts read these as
+ * `var(--color-…)` in SVG attributes, which the compiler cannot see being used.
+ */
+@theme static {
+  --color-cat-pos: #a78bfa;        /* 词性分布 */
+  --color-cat-sentence: #818cf8;   /* 句子长度分布 */
+  --color-cat-repeat: #f472b6;     /* 重复短语 */
+  --color-cat-adverb: #fb923c;     /* 高频副词 */
+  --color-cat-adjective: #a3e635;  /* 高频形容词 */
+  --color-cat-section: #2dd4bf;    /* 章节体量 */
+  --color-cat-cooccur: #22d3ee;    /* 实体共现 */
+  --color-graph-node: #22d3ee;     /* 关系图节点 */
+  --color-chart: #818cf8;          /* 默认曲线 / 雷达 / 关系边 */
+  --color-dim-conflict: #f87171;   /* 冲突曲线 */
+  --color-dim-dialogue: #38bdf8;   /* 对话曲线 */
+  --color-dim-theme: #34d399;      /* 主题曲线 */
+  --color-dim-explicit: #f43f5e;   /* 直白曲线 */
+  --color-dim-setting: #60a5fa;    /* 场景曲线 */
+  --color-dim-cliche: #f59e0b;     /* 陈词滥调曲线 */
+}
+
+:root,
+[data-theme="dark"] {
+  --surface: #1a1a2e;
+  --surface-alt: #16213e;
+  --line: var(--color-gray-700);
+  --line-strong: var(--color-gray-500);
+  --fill: var(--color-gray-700);
+  --fill-soft: var(--color-gray-800);
+  --fill-strong: var(--color-gray-600);
+  --text: #e0e0e0;
+  --text-muted: #8892b0;
+  --accent: #4fc3f7;
+  --good: var(--color-emerald-400);
+  --warn: var(--color-amber-400);
+  --bad: var(--color-red-400);
+  --firm: var(--color-rose-400);
+  --info: var(--color-sky-400);
+  --bad-solid: var(--color-red-600);
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --surface: #f4f6fb;
+  --surface-alt: #ffffff;
+  --line: #d3d9e4;
+  --line-strong: #aab3c5;
+  --fill: #e3e7f0;
+  --fill-soft: #edf0f7;
+  --fill-strong: #d7dcea;
+  --text: #1b2130;
+  --text-muted: #5a6478;
+  --accent: #0b6fa8;
+  --good: #047857;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --firm: #be123c;
+  --info: #075985;
+  --bad-solid: #dc2626;
+  color-scheme: light;
 }
 
 body {

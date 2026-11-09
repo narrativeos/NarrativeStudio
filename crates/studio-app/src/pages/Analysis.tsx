@@ -171,7 +171,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
   if (error) {
     return (
-      <div className="text-red-400">
+      <div className="text-bad">
         <p>分析失败：</p>
         <pre className="text-xs mt-2 whitespace-pre-wrap">{error}</pre>
       </div>
@@ -207,7 +207,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       <div className="flex items-center gap-3">
         <button
           onClick={onBack}
-          className="px-2 py-1 text-lg leading-none text-text-muted hover:text-text hover:bg-gray-700/50 rounded-md transition-colors"
+          className="px-2 py-1 text-lg leading-none text-text-muted hover:text-text hover:bg-fill/50 rounded-md transition-colors"
           title="返回项目列表"
         >
           ←
@@ -257,7 +257,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               setForce(true);
               setReload((n) => n + 1);
             }}
-            className="px-3 py-1.5 text-sm rounded-md bg-gray-700/60 hover:bg-gray-700 text-text transition-colors"
+            className="px-3 py-1.5 text-sm rounded-md bg-fill/60 hover:bg-fill text-text transition-colors"
             title="忽略缓存，重新计算并覆盖已保存的分析结果"
           >
             重新分析
@@ -296,7 +296,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                 {data.assessment.dimensions.map((d) => (
                   <div key={d.key} className="flex items-center gap-2 text-xs">
                     <span className="w-16 shrink-0 text-text">{d.label}</span>
-                    <div className="flex-1 h-4 bg-gray-800/60 rounded overflow-hidden">
+                    <div className="flex-1 h-4 bg-fill-soft/60 rounded overflow-hidden">
                       <div
                         className={`h-full rounded ${scoreColor(d.score)}`}
                         style={{ width: `${Math.max(2, d.score)}%` }}
@@ -352,20 +352,20 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             <BarList
               items={t0.top_entities.map(([label, value]) => ({ label, value }))}
               limit={15}
-              colorClass="bg-emerald-400"
+              colorClass="bg-good"
             />
           </Panel>
           <Panel title="领域术语（名词信号）Top 15">
             <BarList
               items={t0.top_noun_signals.map(([label, value]) => ({ label, value }))}
               limit={15}
-              colorClass="bg-amber-400"
+              colorClass="bg-warn"
             />
           </Panel>
           <Panel title="实体类别分布">
             <BarList
               items={t0.entity_counts.map(([label, value]) => ({ label, value }))}
-              colorClass="bg-sky-400"
+              colorClass="bg-info"
             />
           </Panel>
         </div>
@@ -374,7 +374,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             <BarList
               items={t0.pos_distribution.map(([label, value]) => ({ label, value }))}
               limit={12}
-              colorClass="bg-violet-400"
+              colorClass="bg-cat-pos"
             />
           </Panel>
         </div>
@@ -385,7 +385,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                 label: `${label} 字`,
                 value,
               }))}
-              colorClass="bg-indigo-400"
+              colorClass="bg-cat-sentence"
             />
           </Panel>
           <Panel title="可读性">
@@ -412,21 +412,21 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             <BarList
               items={t0.top_repeated_phrases.map((p) => ({ label: p.text, value: p.count }))}
               limit={15}
-              colorClass="bg-pink-400"
+              colorClass="bg-cat-repeat"
             />
           </Panel>
           <Panel title={`高频副词 Top 15（共 ${t0.adverb_count.toLocaleString()} 个）`}>
             <BarList
               items={t0.top_adverbs.map(([label, value]) => ({ label, value }))}
               limit={15}
-              colorClass="bg-orange-400"
+              colorClass="bg-cat-adverb"
             />
           </Panel>
           <Panel title={`高频形容词 Top 15（共 ${t0.adjective_count.toLocaleString()} 个）`}>
             <BarList
               items={t0.top_adjectives.map(([label, value]) => ({ label, value }))}
               limit={15}
-              colorClass="bg-lime-400"
+              colorClass="bg-cat-adjective"
             />
           </Panel>
         </div>
@@ -439,14 +439,14 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           <Panel title="块类型分布">
             <BarList
               items={t1.block_type_distribution.map(([label, value]) => ({ label, value }))}
-              colorClass="bg-rose-400"
+              colorClass="bg-firm"
             />
           </Panel>
           <Panel title="章节体量（按字数）">
             <BarList
               items={sectionsBySize.map((s) => ({ label: s.path || "(root)", value: s.char_count }))}
               limit={15}
-              colorClass="bg-teal-400"
+              colorClass="bg-cat-section"
             />
           </Panel>
         </div>
@@ -458,7 +458,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-text-muted border-b border-gray-700">
+                    <tr className="text-text-muted border-b border-line">
                       <th className="text-left py-1.5 font-medium">章节</th>
                       <th className="text-right py-1.5 font-medium">块数</th>
                       <th className="text-right py-1.5 font-medium">字数</th>
@@ -466,7 +466,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                   </thead>
                   <tbody>
                     {sectionsBySize.map((s) => (
-                      <tr key={s.path} className="border-b border-gray-700/40">
+                      <tr key={s.path} className="border-b border-line/40">
                         <td className="py-1.5 truncate max-w-md" title={s.path}>
                           {s.path || "(root)"}
                         </td>
@@ -506,7 +506,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             <BarList
               items={t1.entity_cooccurrences.map(([label, value]) => ({ label, value }))}
               limit={15}
-              colorClass="bg-cyan-400"
+              colorClass="bg-cat-cooccur"
             />
           </Panel>
         </div>
@@ -525,7 +525,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-text-muted border-b border-gray-700">
+                    <tr className="text-text-muted border-b border-line">
                       <th className="text-left py-1.5 font-medium">角色</th>
                       <th className="text-right py-1.5 font-medium">提及</th>
                       <th className="text-right py-1.5 font-medium">跨度</th>
@@ -536,7 +536,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                   </thead>
                   <tbody>
                     {t1.characters.map((c) => (
-                      <tr key={c.name} className="border-b border-gray-700/40">
+                      <tr key={c.name} className="border-b border-line/40">
                         <td className="py-1.5 font-medium">{c.name}</td>
                         <td className="py-1.5 text-right text-text-muted tabular-nums">
                           {c.mentions}
@@ -593,7 +593,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-text-muted border-b border-gray-700">
+                    <tr className="text-text-muted border-b border-line">
                       <th className="text-left py-1.5 font-medium">线索</th>
                       <th className="text-left py-1.5 pl-4 font-medium">类型</th>
                       <th className="text-left py-1.5 pl-4 font-medium">形态</th>
@@ -605,7 +605,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                   </thead>
                   <tbody>
                     {plot.plotlines.map((p) => (
-                      <tr key={p.subject} className="border-b border-gray-700/40">
+                      <tr key={p.subject} className="border-b border-line/40">
                         <td className="py-1.5 font-medium">
                           {p.is_main && (
                             <span className="text-accent mr-1" title="主线">
@@ -660,7 +660,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-text-muted border-b border-gray-700">
+                    <tr className="text-text-muted border-b border-line">
                       <th className="text-left py-1.5 font-medium">章节</th>
                       <th className="text-right py-1.5 font-medium">变化</th>
                       <th className="text-left py-1.5 pl-4 font-medium">登场</th>
@@ -669,17 +669,17 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                   </thead>
                   <tbody>
                     {plot.turning_points.map((t) => (
-                      <tr key={t.section} className="border-b border-gray-700/40">
+                      <tr key={t.section} className="border-b border-line/40">
                         <td className="py-1.5 truncate max-w-[160px]" title={t.section}>
                           {t.section || "(root)"}
                         </td>
                         <td className="py-1.5 text-right text-text-muted tabular-nums">
                           {formatPercent(t.change)}
                         </td>
-                        <td className="py-1.5 pl-4 text-emerald-400">
+                        <td className="py-1.5 pl-4 text-good">
                           {t.appeared.join("、") || "—"}
                         </td>
-                        <td className="py-1.5 pl-4 text-red-400">{t.dropped.join("、") || "—"}</td>
+                        <td className="py-1.5 pl-4 text-bad">{t.dropped.join("、") || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -704,7 +704,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                   {plot.late_arrivals.length === 0 ? "无" : plot.late_arrivals.join("、")}
                 </p>
               </div>
-              <p className="text-text-muted pt-2 border-t border-gray-700/60">
+              <p className="text-text-muted pt-2 border-t border-line/60">
                 连贯性从 100 起扣：铺垫未回收或结尾登场各 −8，中断满 3 个章节 −5，没有线索贯穿全文
                 −15；少于 3 个章节不参与评分。
               </p>
@@ -766,7 +766,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-text-muted border-b border-gray-700">
+                    <tr className="text-text-muted border-b border-line">
                       <th className="text-left py-1.5 font-medium">段落</th>
                       <th className="text-right py-1.5 font-medium">张力</th>
                       <th className="text-right py-1.5 font-medium">字数</th>
@@ -778,7 +778,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                   </thead>
                   <tbody>
                     {pacing.points.slice(0, 20).map((p) => (
-                      <tr key={p.section} className="border-b border-gray-700/40">
+                      <tr key={p.section} className="border-b border-line/40">
                         <td className="py-1.5 truncate max-w-[220px]" title={p.section}>
                           {p.section || "(root)"}
                         </td>
@@ -844,7 +844,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                 ))}
               </ul>
             )}
-            <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+            <p className="text-xs text-text-muted mt-3 pt-2 border-t border-line/60">
               节奏评分从 100 起扣：曲线几乎不动最多 −30，连续平淡满 4 段起每段 −6（最多 −24），拖沓章节每章
               −8（最多 −24），句长毫无变化最多 −18；少于 3 个章节不参与评分。
             </p>

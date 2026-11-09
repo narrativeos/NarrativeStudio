@@ -19,7 +19,7 @@ export function SectionTitle({ children }: { children: ReactNode }) {
 /** A single headline number. */
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="p-3 bg-surface-alt rounded-lg border border-gray-700">
+    <div className="p-3 bg-surface-alt rounded-lg border border-line">
       <p className="text-xs text-text-muted">{label}</p>
       <p className="text-xl font-semibold mt-1 tabular-nums">{value}</p>
     </div>
@@ -29,7 +29,7 @@ export function StatCard({ label, value }: { label: string; value: string }) {
 /** A titled box for one list, table or chart. */
 export function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="p-4 bg-surface-alt rounded-lg border border-gray-700">
+    <div className="p-4 bg-surface-alt rounded-lg border border-line">
       <h4 className="text-sm font-medium text-text-muted mb-3">{title}</h4>
       {children}
     </div>

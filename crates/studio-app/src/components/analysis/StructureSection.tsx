@@ -25,10 +25,10 @@ interface StructureSectionProps {
  *  one measurement read in opposite directions. */
 const LANDMARK_TICK_COLORS: Record<string, string> = {
   opening: "bg-text-muted",
-  turn: "bg-sky-400",
-  peak: "bg-amber-400",
-  trough: "bg-sky-400",
-  climax: "bg-rose-400",
+  turn: "bg-info",
+  peak: "bg-warn",
+  trough: "bg-info",
+  climax: "bg-firm",
 };
 
 /**
@@ -73,7 +73,7 @@ function StructureSection({ structure }: StructureSectionProps) {
           {structure.landmarks.length > 0 && (
             <div className="mt-4">
               <Panel title={`地标位置（${structure.landmarks.length} 个）`}>
-                <div className="relative h-8 rounded bg-gray-800/60">
+                <div className="relative h-8 rounded bg-fill-soft/60">
                   {structure.landmarks.map((l, idx) => (
                     <span
                       key={`${l.kind}-${l.section}-${idx}`}
@@ -110,7 +110,7 @@ function StructureSection({ structure }: StructureSectionProps) {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead className="text-text-muted border-b border-gray-700/60">
+                    <thead className="text-text-muted border-b border-line/60">
                       <tr>
                         <th className="text-right py-1.5 font-medium">位置</th>
                         <th className="text-left py-1.5 font-medium">段落</th>
@@ -123,7 +123,7 @@ function StructureSection({ structure }: StructureSectionProps) {
                       {structure.landmarks.map((l, idx) => (
                         <tr
                           key={`${l.kind}-${l.section}-${idx}`}
-                          className="border-b border-gray-700/40"
+                          className="border-b border-line/40"
                         >
                           <td className="py-1.5 text-right tabular-nums">
                             {formatPercent(l.position)}
@@ -159,7 +159,7 @@ function StructureSection({ structure }: StructureSectionProps) {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead className="text-text-muted border-b border-gray-700/60">
+                    <thead className="text-text-muted border-b border-line/60">
                       <tr>
                         <th className="text-left py-1.5 font-medium">幕</th>
                         <th className="text-left py-1.5 font-medium">起</th>
@@ -171,7 +171,7 @@ function StructureSection({ structure }: StructureSectionProps) {
                     </thead>
                     <tbody>
                       {structure.acts.map((a) => (
-                        <tr key={a.name} className="border-b border-gray-700/40">
+                        <tr key={a.name} className="border-b border-line/40">
                           <td className="py-1.5 font-medium">{structureActLabel(a.name)}</td>
                           <td className="py-1.5 text-text-muted">{a.from_section || "(root)"}</td>
                           <td className="py-1.5 text-text-muted">{a.to_section || "(root)"}</td>
@@ -224,7 +224,7 @@ function StructureSection({ structure }: StructureSectionProps) {
               <Panel title={`${structureModelLabel(m.model)}：节拍落点`}>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead className="text-text-muted border-b border-gray-700/60">
+                    <thead className="text-text-muted border-b border-line/60">
                       <tr>
                         <th className="text-left py-1.5 font-medium">节拍</th>
                         <th className="text-right py-1.5 font-medium">期望区间</th>
@@ -236,7 +236,7 @@ function StructureSection({ structure }: StructureSectionProps) {
                     </thead>
                     <tbody>
                       {m.beats.map((b) => (
-                        <tr key={`${m.model}-${b.beat}`} className="border-b border-gray-700/40">
+                        <tr key={`${m.model}-${b.beat}`} className="border-b border-line/40">
                           <td className="py-1.5 font-medium">{structureBeatLabel(b.beat)}</td>
                           <td className="py-1.5 text-right text-text-muted tabular-nums">
                             {`${formatPercent(b.window[0])}–${formatPercent(b.window[1])}`}

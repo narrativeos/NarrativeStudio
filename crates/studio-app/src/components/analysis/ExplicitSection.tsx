@@ -100,7 +100,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="#f43f5e" fill="rgba(244, 63, 94, 0.15)" />
+            <LineChart points={curve} color="var(--color-dim-explicit)" />
           )}
           {explicit.chunked && (
             <p className="text-xs text-text-muted mt-2">
@@ -119,7 +119,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
                 label: explicitCategoryLabel(category),
                 value: count,
               }))}
-              colorClass="bg-rose-400"
+              colorClass="bg-firm"
             />
           )}
         </Panel>
@@ -154,7 +154,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead className="text-text-muted border-b border-gray-700/60">
+                <thead className="text-text-muted border-b border-line/60">
                   <tr>
                     <th className="text-left py-1.5 font-medium">词条</th>
                     <th className="text-left py-1.5 font-medium">类型</th>
@@ -167,7 +167,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
                 </thead>
                 <tbody>
                   {explicit.terms.map((t) => (
-                    <tr key={t.term} className="border-b border-gray-700/40">
+                    <tr key={t.term} className="border-b border-line/40">
                       <td className="py-1.5">
                         <span className="font-medium">{t.term}</span>
                         {t.variants.length > 1 && (
@@ -227,7 +227,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
                     （{h.section || "(root)"} · 第 {h.offset} 字）
                   </span>
                   {h.in_dialogue && (
-                    <span className="px-1.5 py-0.5 ml-1 rounded border text-xs bg-sky-500/15 text-sky-400 border-sky-500/30">
+                    <span className="px-1.5 py-0.5 ml-1 rounded border text-xs bg-info/15 text-info border-info/30">
                       对白内
                     </span>
                   )}
@@ -244,7 +244,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
           <p className="text-xs text-text-muted">
             词库按七个内容族（粗口辱骂、性描写、性暴力、暴力血腥、自伤、贬损歧视、毒品）与三档用词强度（轻、中、重）匹配：最长匹配优先，命中不重叠。内容分级取全文最强的那一档；自伤族在中等强度即会提示，因为这一族里一次提及比密度更值得注意。
           </p>
-          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-gray-700/60">
+          <p className="text-xs text-text-muted mt-3 pt-2 border-t border-line/60">
             命中只说明词面撞上词库，不等于剧情如此；分级只反映用词强度，不反映事件本身。词库未见只说明这{" "}
             {formatInt(explicit.lexicon_size)} 个模式没有命中，不代表内容温和；是否需要读者提示由人决定。
           </p>

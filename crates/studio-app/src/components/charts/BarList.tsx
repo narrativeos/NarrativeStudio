@@ -23,7 +23,7 @@ function BarList({ items, colorClass = "bg-accent", limit, formatValue }: BarLis
           <span className="w-28 shrink-0 truncate text-text" title={item.label}>
             {item.label}
           </span>
-          <div className="flex-1 h-4 bg-gray-800/60 rounded overflow-hidden">
+          <div className="flex-1 h-4 bg-fill-soft/60 rounded overflow-hidden">
             <div
               className={`h-full ${colorClass} rounded`}
               style={{ width: `${(item.value / max) * 100}%` }}

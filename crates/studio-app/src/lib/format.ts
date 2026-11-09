@@ -32,22 +32,22 @@ export function formatFixed(value: number, digits = 1): string {
 
 /** Tailwind background class for a 0-100 score (green / amber / red). */
 export function scoreColor(score: number): string {
-  if (score >= 80) return "bg-emerald-400";
-  if (score >= 60) return "bg-amber-400";
-  return "bg-red-400";
+  if (score >= 80) return "bg-good";
+  if (score >= 60) return "bg-warn";
+  return "bg-bad";
 }
 
 /** Tailwind text-color class for a 0-100 score (green / amber / red). */
 export function scoreTextColor(score: number): string {
-  if (score >= 80) return "text-emerald-400";
-  if (score >= 60) return "text-amber-400";
-  return "text-red-400";
+  if (score >= 80) return "text-good";
+  if (score >= 60) return "text-warn";
+  return "text-bad";
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
-  high: "bg-red-500/15 text-red-400 border-red-500/30",
-  medium: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  low: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  high: "bg-bad/15 text-bad border-bad/30",
+  medium: "bg-warn/15 text-warn border-warn/30",
+  low: "bg-info/15 text-info border-info/30",
 };
 
 const SEVERITY_LABELS: Record<string, string> = {
@@ -104,12 +104,12 @@ export function plotShapeLabel(shape: string): string {
  * thread that runs through the document reads as the healthy case.
  */
 const PLOT_SHAPE_STYLES: Record<string, string> = {
-  sustained: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  intermittent: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  burst: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  setup_only: "bg-red-500/15 text-red-400 border-red-500/30",
-  late_arrival: "bg-red-500/15 text-red-400 border-red-500/30",
-  minor: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  sustained: "bg-good/15 text-good border-good/30",
+  intermittent: "bg-info/15 text-info border-info/30",
+  burst: "bg-warn/15 text-warn border-warn/30",
+  setup_only: "bg-bad/15 text-bad border-bad/30",
+  late_arrival: "bg-bad/15 text-bad border-bad/30",
+  minor: "bg-fill-strong/15 text-text-muted border-line-strong/30",
 };
 
 export function plotShapeStyle(shape: string): string {
@@ -139,9 +139,9 @@ export function pacingVerdictLabel(verdict: string): string {
  * swings hard is worth a look rather than an alarm.
  */
 const PACING_VERDICT_STYLES: Record<string, string> = {
-  flat: "bg-red-500/15 text-red-400 border-red-500/30",
-  varied: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  spiky: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  flat: "bg-bad/15 text-bad border-bad/30",
+  varied: "bg-good/15 text-good border-good/30",
+  spiky: "bg-warn/15 text-warn border-warn/30",
 };
 
 export function pacingVerdictStyle(verdict: string): string {
@@ -187,10 +187,10 @@ export function conflictVerdictLabel(verdict: string): string {
  * story from a text it has no words for.
  */
 const CONFLICT_VERDICT_STYLES: Record<string, string> = {
-  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  thin: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  present: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  heavy: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  none: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  thin: "bg-warn/15 text-warn border-warn/30",
+  present: "bg-good/15 text-good border-good/30",
+  heavy: "bg-info/15 text-info border-info/30",
 };
 
 export function conflictVerdictStyle(verdict: string): string {
@@ -246,10 +246,10 @@ export function themeReachLabel(reach: string): string {
  * and a one-off is noise rather than a theme.
  */
 const THEME_REACH_STYLES: Record<string, string> = {
-  sustained: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  recurring: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  episodic: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  occasional: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  sustained: "bg-good/15 text-good border-good/30",
+  recurring: "bg-info/15 text-info border-info/30",
+  episodic: "bg-warn/15 text-warn border-warn/30",
+  occasional: "bg-fill-strong/15 text-text-muted border-line-strong/30",
 };
 
 export function themeReachStyle(reach: string): string {
@@ -296,10 +296,10 @@ export function settingVerdictLabel(verdict: string): string {
  * scene from one it has no words for.
  */
 const SETTING_VERDICT_STYLES: Record<string, string> = {
-  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  thin: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  present: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  heavy: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  none: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  thin: "bg-warn/15 text-warn border-warn/30",
+  present: "bg-good/15 text-good border-good/30",
+  heavy: "bg-info/15 text-info border-info/30",
 };
 
 export function settingVerdictStyle(verdict: string): string {
@@ -336,10 +336,10 @@ export function settingIssueLabel(kind: string): string {
  * that loses a reader, a place left for a while is only worth a look.
  */
 const SETTING_ISSUE_STYLES: Record<string, string> = {
-  unanchored: "bg-red-500/15 text-red-400 border-red-500/30",
-  crowded: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  long_absence: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  thin_environment: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  unanchored: "bg-bad/15 text-bad border-bad/30",
+  crowded: "bg-warn/15 text-warn border-warn/30",
+  long_absence: "bg-info/15 text-info border-info/30",
+  thin_environment: "bg-warn/15 text-warn border-warn/30",
 };
 
 export function settingIssueStyle(kind: string): string {
@@ -370,10 +370,10 @@ export function clicheVerdictLabel(verdict: string): string {
  * known mesh size rather than a judge.
  */
 const CLICHE_VERDICT_STYLES: Record<string, string> = {
-  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  light: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  moderate: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  heavy: "bg-red-500/15 text-red-400 border-red-500/30",
+  none: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  light: "bg-good/15 text-good border-good/30",
+  moderate: "bg-warn/15 text-warn border-warn/30",
+  heavy: "bg-bad/15 text-bad border-bad/30",
 };
 
 export function clicheVerdictStyle(verdict: string): string {
@@ -419,10 +419,10 @@ export function clicheIssueLabel(kind: string): string {
  * notice first, a single dense segment is usually one paragraph to redo.
  */
 const CLICHE_ISSUE_STYLES: Record<string, string> = {
-  repeated: "bg-red-500/15 text-red-400 border-red-500/30",
-  dense_segment: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  one_note: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  speech_tags: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  repeated: "bg-bad/15 text-bad border-bad/30",
+  dense_segment: "bg-warn/15 text-warn border-warn/30",
+  one_note: "bg-warn/15 text-warn border-warn/30",
+  speech_tags: "bg-info/15 text-info border-info/30",
 };
 
 export function clicheIssueStyle(kind: string): string {
@@ -453,10 +453,10 @@ export function dialogueVerdictLabel(verdict: string): string {
  * rather than rank them.
  */
 const DIALOGUE_VERDICT_STYLES: Record<string, string> = {
-  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  sparse: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  balanced: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  heavy: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  none: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  sparse: "bg-info/15 text-info border-info/30",
+  balanced: "bg-good/15 text-good border-good/30",
+  heavy: "bg-warn/15 text-warn border-warn/30",
 };
 
 export function dialogueVerdictStyle(verdict: string): string {
@@ -501,13 +501,13 @@ export function dialogueIssueLabel(kind: string): string {
  * text that may not be narrative at all.
  */
 const DIALOGUE_ISSUE_STYLES: Record<string, string> = {
-  no_dialogue: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  silent_segment: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  flooded_segment: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  monologue: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  telegraphic: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  unquoted: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  uneven: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  no_dialogue: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  silent_segment: "bg-warn/15 text-warn border-warn/30",
+  flooded_segment: "bg-info/15 text-info border-info/30",
+  monologue: "bg-warn/15 text-warn border-warn/30",
+  telegraphic: "bg-warn/15 text-warn border-warn/30",
+  unquoted: "bg-info/15 text-info border-info/30",
+  uneven: "bg-warn/15 text-warn border-warn/30",
 };
 
 export function dialogueIssueStyle(kind: string): string {
@@ -540,10 +540,10 @@ export function explicitAdvisoryLabel(advisory: string): string {
  * put one. Mirrors the tier colors below.
  */
 const EXPLICIT_ADVISORY_STYLES: Record<string, string> = {
-  none: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  mild: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  moderate: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  strong: "bg-red-500/15 text-red-400 border-red-500/30",
+  none: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  mild: "bg-info/15 text-info border-info/30",
+  moderate: "bg-warn/15 text-warn border-warn/30",
+  strong: "bg-bad/15 text-bad border-bad/30",
 };
 
 export function explicitAdvisoryStyle(advisory: string): string {
@@ -567,9 +567,9 @@ export function explicitTierLabel(tier: string): string {
 
 /** Badge classes for a tier; the same heat scale as the advisory level. */
 const EXPLICIT_TIER_STYLES: Record<string, string> = {
-  mild: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  moderate: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  strong: "bg-red-500/15 text-red-400 border-red-500/30",
+  mild: "bg-info/15 text-info border-info/30",
+  moderate: "bg-warn/15 text-warn border-warn/30",
+  strong: "bg-bad/15 text-bad border-bad/30",
 };
 
 export function explicitTierStyle(tier: string): string {
@@ -620,13 +620,13 @@ export function explicitIssueLabel(kind: string): string {
  * spread rather than of what they are.
  */
 const EXPLICIT_ISSUE_STYLES: Record<string, string> = {
-  self_harm: "bg-red-500/15 text-red-400 border-red-500/30",
-  sexual_violence: "bg-red-500/15 text-red-400 border-red-500/30",
-  sexual_content: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  gore: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  hate_slur: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  substance: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  dense_segment: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  self_harm: "bg-bad/15 text-bad border-bad/30",
+  sexual_violence: "bg-bad/15 text-bad border-bad/30",
+  sexual_content: "bg-warn/15 text-warn border-warn/30",
+  gore: "bg-warn/15 text-warn border-warn/30",
+  hate_slur: "bg-warn/15 text-warn border-warn/30",
+  substance: "bg-warn/15 text-warn border-warn/30",
+  dense_segment: "bg-info/15 text-info border-info/30",
 };
 
 export function explicitIssueStyle(kind: string): string {
@@ -695,9 +695,9 @@ export function structureStatusLabel(status: string): string {
  * not a fault.
  */
 const STRUCTURE_STATUS_STYLES: Record<string, string> = {
-  found: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  displaced: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  missing: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  found: "bg-good/15 text-good border-good/30",
+  displaced: "bg-warn/15 text-warn border-warn/30",
+  missing: "bg-fill-strong/15 text-text-muted border-line-strong/30",
 };
 
 export function structureStatusStyle(status: string): string {
@@ -716,9 +716,9 @@ export function structureFitLabel(fit: string): string {
 }
 
 const STRUCTURE_FIT_STYLES: Record<string, string> = {
-  matched: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  partial: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  unclear: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  matched: "bg-good/15 text-good border-good/30",
+  partial: "bg-info/15 text-info border-info/30",
+  unclear: "bg-fill-strong/15 text-text-muted border-line-strong/30",
 };
 
 export function structureFitStyle(fit: string): string {
@@ -744,11 +744,11 @@ export function structureLandmarkLabel(kind: string): string {
  * and is coloured by how sharply it changes.
  */
 const STRUCTURE_LANDMARK_STYLES: Record<string, string> = {
-  opening: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  turn: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  peak: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  trough: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  climax: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  opening: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  turn: "bg-info/15 text-info border-info/30",
+  peak: "bg-warn/15 text-warn border-warn/30",
+  trough: "bg-info/15 text-info border-info/30",
+  climax: "bg-warn/15 text-warn border-warn/30",
 };
 
 export function structureLandmarkStyle(kind: string): string {
@@ -786,12 +786,12 @@ export function structureIssueLabel(kind: string): string {
  * than a property of the story.
  */
 const STRUCTURE_ISSUE_STYLES: Record<string, string> = {
-  no_early_turn: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  missing_midpoint: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  climax_early: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  no_descent: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  act_imbalance: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  too_few_landmarks: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  no_early_turn: "bg-warn/15 text-warn border-warn/30",
+  missing_midpoint: "bg-warn/15 text-warn border-warn/30",
+  climax_early: "bg-warn/15 text-warn border-warn/30",
+  no_descent: "bg-warn/15 text-warn border-warn/30",
+  act_imbalance: "bg-warn/15 text-warn border-warn/30",
+  too_few_landmarks: "bg-fill-strong/15 text-text-muted border-line-strong/30",
 };
 
 export function structureIssueStyle(kind: string): string {
@@ -861,16 +861,16 @@ export function timelineIssueLabel(kind: string): string {
  * note describes the method rather than the story.
  */
 const TIMELINE_ISSUE_STYLES: Record<string, string> = {
-  backstep: "bg-rose-500/15 text-rose-400 border-rose-500/30",
-  long_jump: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  unmarked_stretch: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  unanchored_ganzhi: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  ambiguous_era: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  calendar_note: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  term_collision: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  no_markers: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  too_short: "bg-gray-500/15 text-text-muted border-gray-500/30",
-  no_order: "bg-gray-500/15 text-text-muted border-gray-500/30",
+  backstep: "bg-firm/15 text-firm border-firm/30",
+  long_jump: "bg-warn/15 text-warn border-warn/30",
+  unmarked_stretch: "bg-warn/15 text-warn border-warn/30",
+  unanchored_ganzhi: "bg-warn/15 text-warn border-warn/30",
+  ambiguous_era: "bg-warn/15 text-warn border-warn/30",
+  calendar_note: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  term_collision: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  no_markers: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  too_short: "bg-fill-strong/15 text-text-muted border-line-strong/30",
+  no_order: "bg-fill-strong/15 text-text-muted border-line-strong/30",
 };
 
 export function timelineIssueStyle(kind: string): string {
