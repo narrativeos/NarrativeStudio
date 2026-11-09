@@ -56,6 +56,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
   const [force, setForce] = useState(false);
   // Report export: `exporting` guards the button, `exportNote` confirms the path.
   const [exporting, setExporting] = useState(false);
+  const [exportingKnowsphere, setExportingKnowsphere] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
 
   useEffect(() => {
@@ -105,6 +106,33 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       setError(String(e));
     } finally {
       setExporting(false);
+    }
+  }
+
+  /**
+   * Export the project as a `.knowsphere.json` file for NarratSphere.
+   *
+   * The backend renders it from the same (cached) analysis this page shows,
+   * validates it against the Knowsphere schema contract, and only then
+   * writes the chosen file — so a cancelled dialog costs nothing and a
+   * written file is always loadable by NarratSphere.
+   */
+  async function exportKnowsphere() {
+    setExportingKnowsphere(true);
+    setExportNote(null);
+    try {
+      const target = await save({
+        title: "导出知识球文件",
+        defaultPath: `${data?.name ?? "project"}.knowsphere.json`,
+        filters: [{ name: "Knowsphere", extensions: ["json"] }],
+      });
+      if (!target) return; // user cancelled the dialog
+      await invoke("export_knowsphere", { projectId, path: target });
+      setExportNote(`已导出知识球文件：${target}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExportingKnowsphere(false);
     }
   }
 
@@ -178,6 +206,14 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             title="生成 Markdown 报告并选择保存位置"
           >
             {exporting ? "生成中…" : "导出报告"}
+          </button>
+          <button
+            onClick={exportKnowsphere}
+            disabled={exportingKnowsphere}
+            className="px-3 py-1.5 text-sm rounded-md bg-accent/20 text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
+            title="导出 .knowsphere.json 知识球文件，供 NarratSphere 打开"
+          >
+            {exportingKnowsphere ? "导出中…" : "导出知识球"}
           </button>
           <button
             onClick={() => {

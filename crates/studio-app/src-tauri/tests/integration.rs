@@ -30,11 +30,11 @@ use studio_analysis::{
 use studio_core::concern::Severity;
 use studio_core::project::Project;
 use studio_import::parse_semantic_result;
-use studio_report::{render_markdown, ReportInput};
+use studio_report::{render_knowsphere, render_markdown, KnowsphereInput, ReportInput};
 use studio_storage::{
-    create, get_report, invalidate_project, list, list_concerns, load_cached, load_document,
-    mark_exported, run_migrations, save_concerns, save_document, save_report, save_result,
-    StoredReport,
+    create, entity_stats_for_project, get_report, invalidate_project, list, list_concerns,
+    load_cached, load_document, mark_exported, run_migrations, save_concerns, save_document,
+    save_report, save_result, StoredReport,
 };
 use uuid::Uuid;
 
@@ -948,4 +948,112 @@ fn test_report_generation_and_export() {
     assert_eq!(after.exported_path.as_deref(), path.to_str());
     std::fs::remove_file(&path).ok();
     println!("✓ report exported to {} and path recorded", path.display());
+}
+
+/// End-to-end Knowsphere export: import → registry-issued stable ids →
+/// render → schema self-check → deterministic file. This is the contract
+/// NarrativeStudio promises NarratSphere, tested through the real pipeline.
+#[test]
+fn test_knowsphere_export_end_to_end() {
+    let file_path = test_file_path();
+    let content = std::fs::read_to_string(&file_path).expect("read fixture");
+    let doc = parse_semantic_result(&content).expect("parse");
+
+    let mut conn = Connection::open_in_memory().expect("open db");
+    run_migrations(&conn).expect("migrations");
+    let project = create(&conn, &Project::new("Knowsphere Export")).expect("create");
+    save_document(&conn, project.project_id, &doc, None).expect("save document");
+
+    // Persisting entities must have issued registry-format stable ids.
+    let entities = entity_stats_for_project(&conn, project.project_id).expect("entity stats");
+    assert!(
+        entities.iter().all(|e| e.stable_id.starts_with("ent:")),
+        "entity ids must be registry-issued"
+    );
+
+    // Identity is content-derived: resolving the same (text, category) again
+    // — in a fresh transaction, as a later import would — returns the same id.
+    let probe = &entities[0];
+    let again = {
+        let tx = conn.transaction().expect("tx");
+        let id =
+            studio_storage::resolve_or_insert(&tx, &probe.text, &probe.category).expect("resolve");
+        tx.commit().expect("commit");
+        id
+    };
+    assert_eq!(
+        again, probe.stable_id,
+        "identity must be stable across imports"
+    );
+
+    let t0 = run_t0_analysis(&doc).expect("t0");
+    let t1 = run_t1_analysis(&doc).expect("t1");
+    let plot = run_plot_analysis(&doc).expect("plot");
+    let theme = run_theme_analysis(&doc).expect("theme");
+    let setting = run_setting_analysis(&doc).expect("setting");
+    let timeline = run_timeline_analysis(&doc).expect("timeline");
+    let assessment = run_assessment(&t0, &t1);
+    let source_hash = document_hash(&doc).expect("hash");
+    let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 8, 30, 0).unwrap();
+
+    let render = || {
+        render_knowsphere(&KnowsphereInput {
+            project_name: &project.name,
+            project_id: &project.project_id.to_string(),
+            generated_at,
+            source_hash: &source_hash,
+            t1: &t1,
+            plot: &plot,
+            theme: &theme,
+            setting: &setting,
+            timeline: &timeline,
+            assessment: &assessment,
+            entities: &entities,
+        })
+        .expect("render knowsphere")
+    };
+
+    let first = render();
+    assert_eq!(
+        first.validate(),
+        Vec::<String>::new(),
+        "export must pass the schema self-check"
+    );
+    assert_eq!(
+        first.serialize(),
+        render().serialize(),
+        "same input must produce a byte-identical file"
+    );
+
+    let text = first.serialize();
+    let parsed: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+    assert_eq!(parsed["version"], "1.0");
+    assert_eq!(parsed["name"], project.name);
+    assert!(
+        parsed["layers"].is_null() && parsed["view"].is_null(),
+        "layers and view are omitted by contract"
+    );
+    assert_eq!(
+        parsed["metadata"]["custom"]["studio"]["sourceHash"]
+            .as_str()
+            .unwrap(),
+        source_hash
+    );
+    for node in parsed["nodes"].as_array().unwrap() {
+        assert!(
+            node.get("position").is_none(),
+            "nodes never carry a position; layout belongs to NarratSphere"
+        );
+        assert_ne!(
+            node["layerId"].as_u64().unwrap(),
+            6,
+            "layer 6 never holds nodes"
+        );
+    }
+    println!(
+        "✓ knowsphere export: {} nodes, {} edges, {} narratives",
+        parsed["nodes"].as_array().unwrap().len(),
+        parsed["edges"].as_array().unwrap().len(),
+        parsed["narratives"].as_array().unwrap().len()
+    );
 }
