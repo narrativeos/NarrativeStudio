@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar";
 import Home from "./pages/Home";
 import Analysis from "./pages/Analysis";
 import Compare from "./pages/Compare";
+import { applyTheme, readChoice, writeChoice, type ThemeChoice } from "./lib/theme";
 import type { Project } from "./types";
 
 type View = "home" | "project" | "compare" | "settings";
@@ -13,6 +14,24 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [compareSelection, setCompareSelection] = useState<Set<string>>(new Set());
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(() =>
+    readChoice(localStorage),
+  );
+
+  // The pick lives in React; the OS preference lives in a media query that can
+  // change while the window is open, so both are re-applied together.
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const paint = () => applyTheme(themeChoice, media.matches);
+    paint();
+    media.addEventListener("change", paint);
+    return () => media.removeEventListener("change", paint);
+  }, [themeChoice]);
+
+  const chooseTheme = useCallback((choice: ThemeChoice) => {
+    writeChoice(localStorage, choice);
+    setThemeChoice(choice);
+  }, []);
 
   useEffect(() => {
     loadProjects();
@@ -82,6 +101,8 @@ function App() {
         onToggleCompare={toggleCompare}
         onOpenSettings={openSettings}
         onDeleteProject={deleteProject}
+        themeChoice={themeChoice}
+        onThemeChoice={chooseTheme}
       />
       <main className="flex-1 overflow-auto p-6">
         {view === "home" && (

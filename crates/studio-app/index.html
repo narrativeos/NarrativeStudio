@@ -6,6 +6,21 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NarrativeStudio</title>
+    <script>
+      // Paint the chosen theme before the first frame, so a light-mode user never
+      // sees the dark theme flash. lib/theme.ts owns the same rule in TypeScript.
+      try {
+        var stored = localStorage.getItem("narrativestudio.theme");
+        var choice = ["light", "dark"].includes(stored) ? stored : "system";
+        var dark =
+          choice === "dark" ||
+          (choice === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch (e) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

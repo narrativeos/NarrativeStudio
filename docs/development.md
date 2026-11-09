@@ -521,8 +521,33 @@ useEffect(() => {
 - 画布尺寸与布局常数放在 `src/lib/`（如 `GRAPH_BOX`），使「标签不溢出画布」这类性质可被测试断言
 - 每个图表组件接收数据 + 可选的 `size` / `color` props，数据为空时返回
   「暂无数据」占位而不是渲染空坐标系
-- 颜色方案：项目 A=#3B82F6(蓝), B=#F97316(橙), C=#22C55E(绿), D=#A855F7(紫), E=#EF4444(红)
-- 暗色模式：通过 CSS 变量切换，图表颜色适配
+- 颜色分两类，**组件里不允许出现裸色号**（`lib/theme.test.ts` 会扫源码把关）：
+  - **状态色**走语义 token（`bg-bad` / `text-warn` / `border-line` …），随主题切换；
+    曲线下的色带用 `fill={color} fillOpacity` 从曲线自身派生，不再另写一份 rgba
+  - **身份色**（词性、章节、某条曲线是哪一维）集中在 `index.css` 的 `@theme static` 块，
+    两套主题共用同一色值——它们说明的是「这是哪个东西」，不是「这东西好不好」；
+    SVG 属性用 `var(--color-…)` 读取，`static` 保证编译器不会因「没有 class 引用」而丢弃
+- 多项目对比目前**没有按项目着色**：表格直接写项目名，因此也不存在 A/B/C/D/E 一套系列色
+
+### 5.5 主题（浅色 / 暗色）
+
+主题只由 `<html data-theme>` 决定，颜色全部住在 `index.css`：
+
+| 位置 | 职责 |
+|------|------|
+| `index.css` `@theme inline` | 语义 token → 主题变量（`--line`、`--bad`…），两套主题各给一份值 |
+| `index.css` `@theme static` | 身份色，主题无关 |
+| `lib/theme.ts` | 纯逻辑：`resolveTheme` / `readChoice` / `writeChoice` / `applyTheme` |
+| `App.tsx` | 记住用户选择，监听 `prefers-color-scheme` 变化并重绘 |
+| `index.html` 内联脚本 | 首帧前定色，避免浅色用户看到暗色闪一下 |
+| `components/Sidebar.tsx` | 侧栏底部「主题」三段控件：跟随系统 / 浅色 / 暗色 |
+
+- 默认**跟随系统**；选择存在 `localStorage` 的 `narrativestudio.theme`
+- 暗色值就是引入 token 之前那批 Tailwind 工具类的值，因此改造本身**没有改动暗色的任何一个像素**
+- `lib/theme.test.ts` 除扫描裸色号外，还断言两套主题都定义齐了语义 token、
+  正文/次要文字/强调色与五种状态色在两种底上都不低于 WCAG AA（4.5:1），
+  徽标底纹上的文字不低于 3:1（暗色徽标历来约 3.4:1）
+- 导出 PDF 用的打印 HTML（`studio-report::html`）自带纸白底样式，不参与主题切换
 
 ---
 

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
+import { readChoice, resolveTheme, THEME_STORAGE_KEY, writeChoice } from "./theme";
 
 // Read every source as text — no Node APIs, so this runs in whatever environment
 // Vitest is configured with. Tests are skipped: they may quote a palette colour to
@@ -16,6 +17,59 @@ const css = import.meta.glob("../index.css", {
   import: "default",
   eager: true,
 })["../index.css"] as string;
+
+const html = import.meta.glob("../../index.html", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})["../../index.html"] as string;
+
+/**
+ * Each `[data-theme="…"]` block as the compiler wrote it — quotes and whitespace
+ * there are Tailwind's choice, not ours.
+ */
+function themeBlocks() {
+  return [...css.matchAll(/\[data-theme=["']?(\w+)["']?\]\s*\{([^}]*)\}/g)];
+}
+
+function token(theme: string, name: string): string | null {
+  const body = themeBlocks().find((b) => b[1] === theme)?.[2] ?? "";
+  const value = new RegExp(`--${name}:\\s*([^;]+);`).exec(body)?.[1]?.trim() ?? "";
+  // A theme may borrow a Tailwind palette colour (`var(--color-gray-700)`); those
+  // ship with the framework and are legible by construction, so only our own hex
+  // values are measured below.
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : null;
+}
+
+const channel = (hex: string, i: number) =>
+  parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+const linear = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const luminance = (hex: string) =>
+  0.2126 * linear(channel(hex, 0)) +
+  0.7152 * linear(channel(hex, 1)) +
+  0.0722 * linear(channel(hex, 2));
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** A 15%-on-surface badge fill: blended in light, which is close enough to the
+ *  oklab mix the browser does to tell a passing pair from a failing one. */
+function tint(fg: string, bg: string, alpha: number): string {
+  return (
+    "#" +
+    [0, 1, 2]
+      .map((i) => {
+        const v = linear(channel(fg, i)) * alpha + linear(channel(bg, i)) * (1 - alpha);
+        const c = v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055;
+        return Math.round(Math.max(0, Math.min(255, c * 255)))
+          .toString(16)
+          .padStart(2, "0");
+      })
+      .join("")
+  );
+}
 
 /**
  * Palette colours belong in `index.css`, where a theme switch can reach them.
@@ -61,9 +115,7 @@ describe("colour tokens", () => {
   });
 
   it("defines every semantic token in both themes", () => {
-    // Read from the compiled stylesheet, where Tailwind has written out the theme
-    // — quotes and whitespace there are the compiler's choice, not ours.
-    const blocks = [...css.matchAll(/\[data-theme=["']?(\w+)["']?\]\s*\{([^}]*)\}/g)];
+    const blocks = themeBlocks();
     expect(blocks.map((b) => b[1]).sort()).toEqual(["dark", "light"]);
     const semantic = [
       "surface",
@@ -88,5 +140,91 @@ describe("colour tokens", () => {
         expect(body, `${theme} theme is missing --${name}`).toContain(`--${name}:`);
       }
     }
+  });
+});
+
+/**
+ * A theme is only finished when its text can be read off its surfaces. These
+ * numbers are the WCAG 2.1 thresholds; the badge floor is lower because a badge
+ * tints its own colour into the background, which the shipped dark theme has
+ * always done at around 3.4:1.
+ */
+describe("theme legibility", () => {
+  const surfaces = ["surface", "surface-alt"];
+  const inks = ["text", "text-muted", "accent"];
+  const states = ["good", "warn", "bad", "firm", "info"];
+
+  for (const theme of ["dark", "light"]) {
+    it(`keeps ${theme} body text readable on both surfaces`, () => {
+      for (const surface of surfaces) {
+        const bg = token(theme, surface);
+        expect(bg, `${theme} --${surface} should be a plain colour to measure`).not.toBeNull();
+        for (const ink of inks) {
+          const fg = token(theme, ink);
+          if (!fg) continue;
+          expect(contrast(fg, bg!), `${ink} on ${surface} in ${theme}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
+    it(`keeps ${theme} state colours readable on both surfaces`, () => {
+      for (const surface of surfaces) {
+        const bg = token(theme, surface)!;
+        for (const state of states) {
+          const fg = token(theme, state);
+          if (!fg) continue;
+          expect(contrast(fg, bg), `${state} on ${surface} in ${theme}`).toBeGreaterThanOrEqual(4.5);
+          expect(
+            contrast(fg, tint(fg, bg, 0.15)),
+            `${state} badge in ${theme}`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    });
+
+    it(`keeps ${theme} destructive buttons readable`, () => {
+      const solid = token(theme, "bad-solid");
+      if (!solid) return;
+      expect(contrast("#ffffff", solid)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});
+
+describe("theme choice", () => {
+  const store = (value: string | null) => {
+    const data = new Map<string, string>(value === null ? [] : [[THEME_STORAGE_KEY, value]]);
+    return {
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => void data.set(k, v),
+      data,
+    };
+  };
+
+  it("follows the system only when asked to", () => {
+    expect(resolveTheme("system", true)).toBe("dark");
+    expect(resolveTheme("system", false)).toBe("light");
+    expect(resolveTheme("light", true)).toBe("light");
+    expect(resolveTheme("dark", false)).toBe("dark");
+  });
+
+  it("falls back to following the system when nothing usable is stored", () => {
+    expect(readChoice(store(null))).toBe("system");
+    expect(readChoice(store("sepia"))).toBe("system");
+    expect(readChoice(store("light"))).toBe("light");
+  });
+
+  it("writes a choice that reads back", () => {
+    const s = store(null);
+    writeChoice(s, "dark");
+    expect(readChoice(s)).toBe("dark");
+    expect(s.data.get(THEME_STORAGE_KEY)).toBe("dark");
+  });
+
+  it("is repeated faithfully in the pre-paint script", () => {
+    // index.html has to make the same decision before any module loads, so it
+    // carries a second copy of the rule. This keeps the copies from drifting.
+    expect(html).toContain(THEME_STORAGE_KEY);
+    expect(html).toContain("dataset.theme");
+    expect(html).toContain("prefers-color-scheme: dark");
   });
 });

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ThemeChoice } from "../lib/theme";
 import type { Project } from "../types";
 
 type View = "home" | "project" | "compare" | "settings";
@@ -14,7 +15,15 @@ interface SidebarProps {
   onToggleCompare: (id: string) => void;
   onOpenSettings: () => void;
   onDeleteProject: (id: string) => void;
+  themeChoice: ThemeChoice;
+  onThemeChoice: (choice: ThemeChoice) => void;
 }
+
+const THEME_CHOICES: { value: ThemeChoice; label: string }[] = [
+  { value: "system", label: "跟随系统" },
+  { value: "light", label: "浅色" },
+  { value: "dark", label: "暗色" },
+];
 
 function Sidebar({
   projects,
@@ -27,6 +36,8 @@ function Sidebar({
   onToggleCompare,
   onOpenSettings,
   onDeleteProject,
+  themeChoice,
+  onThemeChoice,
 }: SidebarProps) {
   const isCompare = view === "compare";
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -120,6 +131,25 @@ function Sidebar({
       </nav>
 
       <div className="p-2 border-t border-line space-y-1">
+        <div className="px-3 pb-1">
+          <div className="text-xs text-text-muted mb-1">主题</div>
+          <div className="grid grid-cols-3 gap-1 rounded-md bg-fill-soft p-1" role="group">
+            {THEME_CHOICES.map((c) => (
+              <button
+                key={c.value}
+                onClick={() => onThemeChoice(c.value)}
+                aria-pressed={themeChoice === c.value}
+                className={`rounded px-1 py-1 text-xs transition-colors ${
+                  themeChoice === c.value
+                    ? "bg-accent/20 text-accent"
+                    : "text-text-muted hover:text-text"
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <button
           onClick={isCompare ? onExitCompare : onEnterCompare}
           className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
