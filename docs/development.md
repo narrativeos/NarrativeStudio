@@ -99,14 +99,15 @@ pulldown-cmark = "0.13"
 cd crates/studio-app
 
 # Tauri create 已生成 React + TS 模板，补充依赖
-pnpm add zustand
-pnpm add d3
 pnpm add -D tailwindcss postcss autoprefixer
 npx tailwindcss init
 
 # 目录结构
-mkdir -p src/{components,pages,stores,lib,types}
+mkdir -p src/{components,pages,lib}
 ```
+
+> 前端**不引入**状态管理库（Zustand 等）与图表库（D3 等）：状态用 React Hooks +
+> `invoke` 直连（§5.3），图表手写 SVG（§5.4）。
 
 ### 1.3 目录结构总览
 
@@ -115,86 +116,73 @@ NarrativeStudio/
 ├── Cargo.toml                      # Workspace root
 ├── crates/
 │   ├── studio-core/                # 核心类型（无业务逻辑）
-│   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── project.rs
 │   │       ├── document.rs
-│   │       ├── entity.rs
+│   │       ├── entity.rs           # Entity（含 stable_id）/ EntityStat
 │   │       ├── noun_signal.rs
 │   │       ├── analysis.rs
 │   │       ├── concern.rs
-│   │       └── report.rs
+│   │       ├── knowsphere.rs       # NarratSphere .knowsphere.json v1.0 契约镜像 + 自检
+│   │       ├── report.rs
+│   │       └── error.rs
 │   │
-│   ├── studio-import/              # 数据导入
-│   │   ├── Cargo.toml
+│   ├── studio-import/              # TraceView 结果解析
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── traceview.rs
-│   │       ├── project_store.rs
-│   │       └── validator.rs
+│   │       ├── semantic.rs         # semantic_result.json（blocks/tokens/entities）
+│   │       ├── popo.rs             # popo_result.json（目录树）
+│   │       ├── term.rs             # term_result.json（领域术语）
+│   │       └── enrich.rs           # 三者合并增强
 │   │
-│   ├── studio-analysis/            # 分析引擎
-│   │   ├── Cargo.toml
+│   ├── studio-analysis/            # 分析引擎（全部确定性规则，无 LLM）
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── orchestrator.rs
-│   │       ├── tasks/
-│   │       │   ├── mod.rs
-│   │       │   ├── t0_stats.rs
-│   │       │   ├── t1_structural.rs
-│   │       │   └── t2_llm.rs
-│   │       ├── llm/
-│   │       │   ├── mod.rs
-│   │       │   ├── client.rs
-│   │       │   ├── prompts.rs
-│   │       │   └── parser.rs
-│   │       ├── cache.rs
-│   │       └── types.rs
+│   │       ├── hash.rs             # document_hash / ANALYSIS_VERSION（缓存键）
+│   │       ├── segment.rs  text.rs  lexicon.rs  calendar.rs
+│   │       ├── t0.rs  t1.rs        # 文本统计 / 结构统计
+│   │       ├── plot.rs  pacing.rs  conflict.rs
+│   │       ├── theme.rs  setting.rs  structure.rs  timeline.rs
+│   │       ├── dialogue.rs  cliche.rs  explicit.rs
+│   │       └── assessment.rs       # 规则评估与建议
 │   │
 │   ├── studio-storage/             # DuckDB 持久化
-│   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── db.rs
-│   │       ├── migrations.rs
-│   │       └── repos/
-│   │           ├── mod.rs
-│   │           ├── project_repo.rs
-│   │           ├── entity_repo.rs
-│   │           └── analysis_repo.rs
+│   │       ├── migration.rs        # 版本化迁移（当前至 v13：entity_registry）
+│   │       ├── project_repo.rs
+│   │       ├── document_repo.rs    # Appender 批量写入 + 稳定 ID 落库
+│   │       ├── entity_registry.rs  # 稳定实体身份注册表 + entity_stats_for_project
+│   │       ├── analysis_repo.rs    # 按 (project, dimension, input_hash) 的结果缓存
+│   │       └── report_repo.rs
 │   │
 │   ├── studio-report/              # 报告生成
-│   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── aggregator.rs
-│   │       ├── markdown.rs
-│   │       └── json.rs
+│   │       ├── markdown.rs         # Markdown 报告
+│   │       └── knowsphere.rs       # .knowsphere.json 渲染器（NarratSphere 导出）
 │   │
 │   └── studio-app/                 # Tauri 应用
 │       ├── package.json
-│       ├── src/                    # 前端 (React)
-│       │   ├── main.tsx
-│       │   ├── App.tsx
-│       │   ├── components/
-│       │   ├── pages/
-│       │   ├── stores/
-│       │   ├── lib/
-│       │   └── types/
+│       ├── src/                    # 前端 (React，无状态库/图表库)
+│       │   ├── main.tsx  App.tsx  types.ts
+│       │   ├── pages/              # Home / Analysis / Compare
+│       │   ├── components/         # 卡片与手写 SVG 图表
+│       │   └── lib/                # format / graph / radar（纯函数，可单测）
 │       └── src-tauri/              # Tauri 后端入口
 │           ├── Cargo.toml
 │           ├── tauri.conf.json
+│           ├── tests/              # 导入→分析→报告 集成测试
 │           └── src/
 │               ├── main.rs
-│               ├── lib.rs
+│               ├── lib.rs          # AppState + 启动 + invoke_handler
 │               └── commands/
 │                   ├── mod.rs
-│                   ├── project.rs
-│                   ├── import.rs
-│                   ├── analyze.rs
-│                   ├── report.rs
-│                   └── settings.rs
+│                   ├── project.rs  # list / create / delete
+│                   ├── import.rs   # import_project（spawn_blocking + 进度事件）
+│                   ├── analyze.rs  # analyze_project(_inner) / 缓存 / 文档读取
+│                   └── report.rs   # report_* / export_knowsphere
 │
 ├── docs/
 │   ├── product-design.md
@@ -259,11 +247,9 @@ pnpm --filter studio-app tauri build
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
 | `STUDIO_DATA_DIR` | 数据存储目录 | `~/.NarrativeStudio/` |
-| `STUDIO_LLM_PROVIDER` | LLM 提供商 | `none` |
-| `STUDIO_LLM_API_KEY` | LLM API Key | - |
-| `STUDIO_LLM_MODEL` | LLM 模型名 | - |
-| `STUDIO_LLM_BASE_URL` | LLM 自定义 URL（Ollama） | - |
 | `RUST_LOG` | 日志级别 | `info` |
+
+> 分析全部为确定性规则计算，**没有任何 LLM 调用**，因此不存在 LLM 相关环境变量。
 
 ---
 
@@ -323,7 +309,7 @@ pub type Result<T> = std::result::Result<T, StudioError>;
 | Lint | ESLint + `@typescript-eslint`，零警告 |
 | 类型 | 严格模式（`strict: true`），禁止 `any` |
 | 组件 | 函数组件 + Hooks，禁止 class 组件 |
-| 状态 | Zustand store，按领域拆分（`useProjectStore`, `useAnalysisStore`） |
+| 状态 | React Hooks（`useState`/`useEffect`）+ `invoke` 直连，不引入全局状态库 |
 | 命名 | `PascalCase` 组件，`camelCase` 函数/变量，`UPPER_SNAKE` 常量 |
 | 导入 | 使用 `@/` 别名指向 `src/` |
 
@@ -366,7 +352,7 @@ Closes #42
 
 ### 4.1 Command 列表
 
-所有 Tauri Commands 目前定义在 `studio-app/src-tauri/src/lib.rs` 中，前端通过 `invoke` 调用（参数用 camelCase，Tauri 自动映射到 Rust 的 snake_case）。
+Tauri Commands 按领域分组在 `studio-app/src-tauri/src/commands/`（`project.rs` / `import.rs` / `analyze.rs` / `report.rs`），`lib.rs` 只保留应用状态与启动；前端通过 `invoke` 调用（参数用 camelCase，Tauri 自动映射到 Rust 的 snake_case）。
 
 | Command | 参数 | 返回 | 说明 |
 |---------|------|------|------|
@@ -381,6 +367,7 @@ Closes #42
 | `load_document_cmd` | `{ doc_id }` | `DocumentData` | 按 ID 载入文档 |
 | `report_generate` | `{ project_id }` | `ReportMeta` | 生成 Markdown 报告并入库（复用分析缓存，见 §6.6） |
 | `report_export` | `{ report_id, path }` | `path` | 把已入库的报告写到指定路径并记录 |
+| `export_knowsphere` | `{ project_id, path }` | `path` | 渲染 `.knowsphere.json`（供 NarratSphere 消费）、按 schema 契约自检后写入指定路径（见 product-design.md §Knowsphere 导出契约） |
 
 > 上表是**已实现**的命令面。设计稿中的异步任务合约（`analyze_cancel` / `analyze_status` / `settings_get` / `settings_update`）尚未实现：当前分析命令同步返回结果（用 `async fn` + `spawn_blocking` 保证不阻塞 UI 线程），没有 `TaskId` + 事件流。
 
@@ -432,33 +419,25 @@ export type AnalysisStatus = 'idle' | 'loading' | 'partial' | 'complete' | 'erro
 ### 4.4 Command 实现模板
 
 ```rust
-// studio-app/src-tauri/src/commands/analyze.rs
-use crate::state::AppState;
-use studio_core::analysis::AnalysisOptions;
+// studio-app/src-tauri/src/commands/report.rs — 典型形态：重活放阻塞线程池，
+// 数据库锁只在读写时持有，命令统一返回 Result<T, String>。
+use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub async fn analyze_project(
-    state: State<AppState>,
+pub(crate) async fn export_knowsphere(
+    state: State<'_, AppState>,
     project_id: String,
-    options: AnalysisOptions,
+    path: String,
 ) -> Result<String, String> {
-    let task_id = state
-        .orchestrator
-        .start_analysis(&project_id, options)
+    let pid = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
+    // 复用与页面相同的分析（命中缓存则不重算）。
+    let analysis = analyze_project_inner(&state, &project_id, false)?;
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let entities = entity_stats_for_project(&storage.conn, pid)
         .map_err(|e| e.to_string())?;
-    Ok(task_id)
-}
-
-#[tauri::command]
-pub async fn analyze_cancel(
-    state: State<AppState>,
-    task_id: String,
-) -> Result<(), String> {
-    state
-        .orchestrator
-        .cancel(&task_id)
-        .map_err(|e| e.to_string())
+    // …渲染 → doc.validate() → 通过后写文件…
+    Ok(path)
 }
 ```
 
@@ -468,12 +447,13 @@ pub async fn analyze_cancel(
 
 ### 5.1 页面结构
 
-| 页面 | 路由 | 说明 |
+| 页面 | 组件 | 说明 |
 |------|------|------|
-| 项目列表 | `/` | 所有项目卡片 |
-| 项目详情 | `/project/:id` | 单项目分析视图 |
-| 多项目对比 | `/compare` | 选择多个项目对比 |
-| 设置 | `/settings` | LLM 配置、数据目录 |
+| 项目列表 | `pages/Home.tsx` | 所有项目卡片，新建/导入/删除 |
+| 分析详情 | `pages/Analysis.tsx` | 单项目 13 维分析视图 + 报告/知识球导出 |
+| 多项目对比 | `pages/Compare.tsx` | 选择多个项目对比 |
+
+> 页面切换由 `App.tsx` 内部状态驱动，未引入路由库；没有设置页。
 
 ### 5.2 组件层级
 
@@ -503,61 +483,32 @@ App
 │       │   ├── DiagnosticTable
 │       │   ├── SideBySideHeatmaps
 │       │   └── SideBySideWordClouds
-│       └── SettingsPage
 └── Toast / Modal
 ```
 
 ### 5.3 状态管理
 
-```typescript
-// stores/useAnalysisStore.ts
-import { create } from 'zustand';
-import { invoke, listen } from '@tauri-apps/api/event';
+无全局状态库。页面数据在组件内用 `useState`/`useEffect` 直接 `invoke` 获取，跨页面只传 `projectId`：
 
-interface AnalysisState {
-  status: AnalysisStatus;
-  progress: { current: number; total: number; label: string };
-  results: Record<string, DimensionResult>;
-  errors: Record<string, string>;
+```tsx
+// pages/Analysis.tsx —— 实际模式：参数变化即重新取数，可取消竞态
+const [data, setData] = useState<ProjectAnalysis | null>(null);
+const [reload, setReload] = useState(0);
+const [force, setForce] = useState(false);
 
-  startAnalysis: (projectId: string, options: AnalysisOptions) => Promise<void>;
-  cancelAnalysis: (taskId: string) => Promise<void>;
-  reset: () => void;
-}
-
-export const useAnalysisStore = create<AnalysisState>((set) => ({
-  status: 'idle',
-  progress: { current: 0, total: 0, label: '' },
-  results: {},
-  errors: {},
-
-  startAnalysis: async (projectId, options) => {
-    set({ status: 'loading', results: {}, errors: {} });
-    const taskId = await invoke('analyze_project', { projectId, options });
-
-    await listen('analysis:progress', (e) => {
-      set({ progress: e.payload });
-    });
-    await listen('analysis:result', (e) => {
-      const { dimension, data } = e.payload;
-      set((s) => ({
-        results: { ...s.results, [dimension]: data },
-        status: 'partial',
-      }));
-    });
-    await listen('analysis:complete', () => {
-      set({ status: 'complete' });
-    });
-  },
-
-  cancelAnalysis: async (taskId) => {
-    await invoke('analyze_cancel', { taskId });
-    set({ status: 'idle' });
-  },
-
-  reset: () => set({ status: 'idle', results: {}, errors: {} }),
-}));
+useEffect(() => {
+  let cancelled = false;
+  setLoading(true);
+  invoke<ProjectAnalysis>("analyze_project", { projectId, force })
+    .then((r) => { if (!cancelled) setData(r); })
+    .catch((e) => { if (!cancelled) setError(String(e)); })
+    .finally(() => { if (!cancelled) setLoading(false); });
+  return () => { cancelled = true; };
+}, [projectId, reload, force]);
 ```
+
+导出类操作（报告 / 知识球）同理：`invoke` + `plugin-dialog` 的 `save()`，
+后端负责落盘，前端不需要文件系统权限。
 
 ### 5.4 图表组件规范
 
@@ -622,99 +573,33 @@ mod tests {
 
 ### 6.2 LLM 任务实现模板
 
-```rust
-// studio-analysis/src/tasks/t2_llm.rs
-use crate::llm::{LlmClient, LlmRequest};
-use crate::types::TaskContext;
-use studio_core::analysis::{AnalysisDimension, AnalysisResult};
-use studio_core::error::{Result, StudioError};
-
-/// T2: 叙事弧线识别
-pub async fn narrative_arc(
-    llm: &LlmClient,
-    ctx: &TaskContext,
-) -> Result<AnalysisResult> {
-    // 1. 构建 prompt
-    let prompt = build_arc_prompt(&ctx.chapter_summaries, &ctx.structure_tree);
-
-    // 2. 调用 LLM
-    let response = llm
-        .complete(&LlmRequest {
-            model: llm.model.clone(),
-            messages: vec![
-                ("system", "You are a narrative analysis expert...").into(),
-                ("user", &prompt).into(),
-            ],
-            max_tokens: 2000,
-            temperature: 0.3,
-        })
-        .await?;
-
-    // 3. 解析输出
-    let parsed = parse_arc_response(&response.text)?;
-
-    Ok(AnalysisResult {
-        dimension: AnalysisDimension::NarrativeArc,
-        score: Some(parsed.overall_score),
-        data: serde_json::to_value(parsed)?,
-        concerns: parsed.concerns,
-        computed_at: chrono::Utc::now(),
-    })
-}
-```
+> 未实现，也没有计划中的实现位置：当前 13 个维度全部是确定性规则计算
+> （`run_xxx_analysis(&doc)`），不存在 LLM 通道。若未来引入 T2 层，必须先
+> 解决"同一输入两次结果不同"与缓存键的关系，再考虑落点。
 
 ### 6.3 存储层实现模板
 
 ```rust
-// studio-storage/src/repos/entity_repo.rs
-use duckdb::params;
-use studio_core::entity::{Entity, EntityCategory};
-use studio_core::error::Result;
-
-pub struct EntityRepo<'conn> {
-    conn: &'conn duckdb::Connection,
+// studio-storage/src/document_repo.rs —— 实际形态：单事务 + Appender 批量写，
+// 实体身份在打开 appender 之前经 entity_registry 解析（appender 可变借用 tx）。
+pub fn save_document(
+    conn: &Connection,
+    project_id: Uuid,
+    doc: &DocumentData,
+    on_progress: Option<&dyn Fn(u64, u64)>,
+) -> Result<()> {
+    let tx = Transaction::new_unchecked(conn)?;
+    // 1. documents 行；2. 为每个 (text, category) 解析 stable_id；
+    // 3. blocks/tokens/entities/signals 四个 appender 循环写入
+    //    （entities 的第 13 列即 stable_id）；4. flush 检查错误后 commit。
+    // 任一失败整体回滚，不留半截文档。
+    // ...
+    Ok(())
 }
 
-impl<'conn> EntityRepo<'conn> {
-    pub fn insert_batch(&self, doc_id: &str, entities: &[Entity]) -> Result<usize> {
-        let mut count = 0;
-        for e in entities {
-            self.conn.execute(
-                "INSERT INTO entities (entity_id, block_id, doc_id, text, category, confidence, source, keep, span_start, span_end)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    uuid::Uuid::new_v4().to_string(),
-                    e.block_id, doc_id, e.text,
-                    e.category.as_str(), e.confidence,
-                    e.source, e.keep,
-                    e.span.0 as i64, e.span.1 as i64,
-                ],
-            )?;
-            count += 1;
-        }
-        Ok(count)
-    }
-
-    pub fn query_by_category(&self, doc_id: &str, category: &str) -> Result<Vec<Entity>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT text, category, confidence, source, keep, span_start, span_end
-             FROM entities WHERE doc_id = ?1 AND category = ?2 AND keep = TRUE"
-        )?;
-        let rows = stmt.query_map(params![doc_id, category], |row| {
-            Ok(Entity {
-                text: row.get(0)?,
-                category: EntityCategory::from_str(row.get(1)?),
-                confidence: row.get(2)?,
-                source: row.get(3)?,
-                keep: row.get(4)?,
-                filter: None,
-                filter_reason: None,
-                span: (row.get(5)? as usize, row.get(6)? as usize),
-            })
-        })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-    }
-}
+// studio-storage/src/entity_registry.rs —— 稳定身份：
+// stable_id = "ent:" + sha256(category ⿟ normalize(text)) 前 16 hex。
+// 同一身份跨导入、跨项目得到同一 id；v13 之前的 NULL 行按同一公式在读取侧回填。
 ```
 
 ### 6.4 日志规范
@@ -733,12 +618,6 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
     let t1_start = std::time::Instant::now();
     self.run_t1_tasks().await?;
     info!(elapsed_ms = t1_start.elapsed().as_millis() as u64, "T1 tasks complete");
-
-    if self.llm_enabled() {
-        let t2_start = std::time::Instant::now();
-        self.run_t2_tasks().await?;
-        info!(elapsed_ms = t2_start.elapsed().as_millis() as u64, "T2 tasks complete");
-    }
 
     Ok(())
 }
@@ -964,7 +843,7 @@ cd crates/studio-app && pnpm dev  # http://localhost:5173
 | Tauri dev 白屏 | 前端 dev server 未启动 | 确认 `pnpm dev` 在 `crates/studio-app` 运行 |
 | IPC 调用超时 | 后端任务阻塞 | 检查是否误用同步 I/O，改用 `tokio::fs` |
 | DuckDB 锁冲突 | 多进程访问同一 DB | 确保单实例运行，或改用 WAL 模式 |
-| LLM 超时 | 网络/API 问题 | 检查 `STUDIO_LLM_BASE_URL`，增加 timeout |
+| LLM 超时 | —（当前无 LLM 调用） | 不适用 |
 | 内存泄漏 | 大 JSON 未释放 | 分析完成后显式 `drop()` 中间数据 |
 
 ### 9.4 数据目录结构

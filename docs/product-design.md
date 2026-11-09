@@ -75,8 +75,12 @@ NarrativeStudio (Rust + Tauri)  ← 本项目
   │  • 叙事弧线 / 情节 / 角色 / 冲突 / 主题
   │  • 文本诊断 / 统计 / 内容分析
   │  • 综合评估与改进建议
-  ▼
-结构化诊断报告（Markdown / PDF / JSON）
+  │
+  ├──▶ 结构化诊断报告（Markdown，面向人阅读）
+  │
+  └──▶ .knowsphere.json 知识球文件（机器可读，v1.0 契约见 §4.5）
+        ▼
+      NarratSphere (Web, 3D 知识球聚合与呈现)
 ```
 
 ---
@@ -673,6 +677,63 @@ NarrativeStudio 诊断报告
 | **可排序** | 表格视图支持按任意列排序，快速定位最优/最差项目 |
 | **差异高亮** | 自动标记项目间差异最大的维度（如某项目节奏分显著低于其他） |
 | **上限** | 建议同时对比 ≤ 5 个项目，超过时提示用户筛选 |
+
+### 4.5 Knowsphere 导出契约（NarratSphere 数据接口）
+
+NarrativeStudio 是**数据构建层**，NarratSphere 是**聚合与呈现层**。两者的唯一接口是
+机器可读的 `.knowsphere.json` 文件（schema v1.0，由 NarratSphere 定义并负责解析、迁移、
+归一化与校验）。本节记录 NarrativeStudio 侧的导出契约。
+
+#### 4.5.1 边界规则
+
+| 规则 | 说明 |
+|------|------|
+| 单向文件契约 | Studio 只写文件；不共享代码、不共享存储、不回调 |
+| 不导出布局 | 节点**从不**带 `position`——球壳布局是 NarratSphere 的职责；只有叙事元素按 schema 要求携带大气层内坐标（由类型高度 + 黄金角确定性推得） |
+| 不导出 layers / view | 省略 `layers` 即选用 NarratSphere 内置六层，层级身份（名称、半径、颜色）单一事实源在消费方；`view` 是会话数据不是内容 |
+| 先自检后落盘 | 导出前在 Rust 侧按同一 schema 校验（`KnowsphereDoc::validate`），不通过则拒绝写文件；NarratSphere 永远收不到本侧已知损坏的文件 |
+| 确定性输出 | 同一分析 + 同一时间戳 → 字节一致的文件（serde 字段顺序固定、2 空格缩进、结尾换行） |
+| 未知字段兼容 | Studio 不写入 schema 之外的顶层字段；来源信息放在约定位置 `metadata.custom.studio` |
+
+#### 4.5.2 语义映射表
+
+| Studio 数据 | Knowsphere 落点 |
+|-------------|-----------------|
+| 实体身份（全部抽取实体，口径与分析层一致；PERSON/ORG/LOCATION/FACILITY/PRODUCT） | L2 `entity` 节点，`weight` ← 提及频次归一 |
+| 实体共现（T1 `A ↔ B`） | `association` 边，`strength` ← 共现次数归一（端点必须已存在） |
+| 主题（theme.themes） | L3 `concept` 节点 + 天空 `cloud`（中弱关联）系泊于该节点 |
+| 地点（setting.places） | L2 `entity` 节点；与同名实体**合并为同一节点** |
+| 时间线跨度 | 一个 L2 `fact` 节点（`时间跨度 first → last`） |
+| 评估建议 | L2 `observation` 节点，tag 携带 severity |
+| 主线·sustained 情节线 | 天空 `rain_band`（持续反馈） |
+| 主线·其他形态 | 天空 `tethered_balloon`（强关联） |
+| 支线（intermittent/burst/late_arrival） | 天空 `satellite`（远端宏观） |
+| setup_only 线程 | 天空 `free_balloon`（弱关联） |
+| 转折点 | 天空 `tornado`（动态强关联），`stability = 1 - change`，tether 到登场线程的节点 |
+| DATE/NUMBER/UNKNOWN 实体、minor 线程 | 不导出（噪声） |
+
+#### 4.5.3 稳定实体身份
+
+导出文件中的实体节点 id 是**内容派生的稳定 id**（`ent:<16 hex>`，
+由 `studio-storage::entity_registry` 按 (归一化文本, 类别) 签发，v13 迁移落库）。
+同一人物在重复导入、不同项目中得到同一 id，因此 NarratSphere 把新导出**增量合并**进
+用户手工编辑过的知识球时，可以按 id 对齐节点、边与系泊，而不是整文件覆盖。
+主题/观察/边/叙事元素的 id 用同一思路的内容哈希派生，保证跨导出稳定。
+
+#### 4.5.4 版本与实现位置
+
+- 契约 schema 版本：`1.0`（`studio_core::knowsphere::KNOWSPHERE_VERSION`）。
+- 契约镜像与自检：`crates/studio-core/src/knowsphere.rs`。
+- 映射渲染器：`crates/studio-report/src/knowsphere.rs`（纯函数，与 Markdown 渲染器同级）。
+- 导出命令：`export_knowsphere`（`commands/report.rs`）+ 分析页「导出知识球」按钮。
+- 来源元数据：`metadata.custom.studio = { projectId, studioVersion, analysisVersion, sourceHash }`，
+  其中 `sourceHash` 与分析缓存使用同一个内容哈希，可追溯导出对应的确切文本。
+
+契约变更流程：NarratSphere 侧 schema 升版 → Studio 同步更新镜像与 `KNOWSPHERE_VERSION`
+→ 映射变化写入本节映射表 → 若语义变化（某维度换落点），同一 PR 更新本节与渲染器测试。
+
+---
+
 
 ---
 
