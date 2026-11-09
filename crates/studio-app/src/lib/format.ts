@@ -896,3 +896,47 @@ export function timelineSignedSpan(days: number): string {
   return `${days > 0 ? "+" : "−"}${timelineSpanLabel(days)}`;
 }
 
+/**
+ * A habit the author-voice pass named. These are not faults — 长句不比短句好 —
+ * so every one of them wears the same neutral badge; only the words differ.
+ */
+const VOICE_ISSUE_LABELS: Record<string, string> = {
+  too_short: "文本过短",
+  long_sentences: "句子偏长",
+  short_sentences: "句子偏短",
+  varied_rhythm: "长短交替",
+  even_rhythm: "句长整齐",
+  comma_run: "小句绵长",
+  short_paragraphs: "段落偏短",
+  snippet_paragraphs: "单句成段",
+  no_pronouns: "少用人称",
+  first_person: "第一人称",
+  hedging: "偏犹疑",
+  assertive: "偏断言",
+  classical: "文言虚词",
+  flat_marks: "不用问叹",
+};
+
+export function voiceIssueLabel(kind: string): string {
+  return VOICE_ISSUE_LABELS[kind] ?? kind;
+}
+
+/** A lean, not a grade: the badge is the same whichever way the text leans. */
+const VOICE_STANCE_LABELS: Record<string, string> = {
+  hedging: "偏犹疑",
+  balanced: "均衡",
+  assertive: "偏断言",
+};
+
+export function voiceStanceLabel(verdict: string): string {
+  return VOICE_STANCE_LABELS[verdict] ?? verdict;
+}
+
+/**
+ * The badge every voice finding and stance wears. There is deliberately no
+ * argument: a habit has no severity, so nothing here can turn red.
+ */
+export function voiceBadgeStyle(): string {
+  return "bg-fill-strong/15 text-text-muted border-line-strong/30";
+}
+

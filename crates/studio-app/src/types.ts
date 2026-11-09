@@ -537,6 +537,90 @@ export interface DialogueIssue {
   detail: string;
 }
 
+/** One segment of the sentence-rhythm curve. */
+export interface VoicePoint {
+  section: string;
+  char_count: number;
+  sentences: number;
+  avg_sentence_chars: number;
+  clauses_per_sentence: number;
+}
+
+/** How often one mark appears. */
+export interface VoiceMark {
+  mark: string;
+  label: string;
+  count: number;
+  per_1000: number;
+}
+
+/** One group of function words, counted by character. */
+export interface VoiceWordGroup {
+  group: string;
+  /** The characters in the group, e.g. 的地得. */
+  words: string;
+  count: number;
+  per_1000: number;
+}
+
+/** How often the text names who is talking. */
+export interface VoicePronouns {
+  first: number;
+  second: number;
+  third: number;
+  total: number;
+  first_share: number;
+  second_share: number;
+  third_share: number;
+}
+
+/** How firmly the text stands behind what it says. */
+export interface VoiceStance {
+  hedging: number;
+  assertive: number;
+  hedging_per_10k: number;
+  assertive_per_10k: number;
+  /** `hedging` | `balanced` | `assertive` — a lean, not a fault. */
+  verdict: string;
+}
+
+/** A habit worth naming. */
+export interface VoiceIssue {
+  /** `long_sentences` | `short_sentences` | `varied_rhythm` | `even_rhythm` |
+   *  `comma_run` | `short_paragraphs` | `snippet_paragraphs` | `no_pronouns` |
+   *  `first_person` | `hedging` | `assertive` | `classical` | `flat_marks` | `too_short`. */
+  kind: string;
+  detail: string;
+}
+
+/** Author voice. There is no score: a long sentence is not better than a short one. */
+export interface VoiceStats {
+  points: VoicePoint[];
+  segment_count: number;
+  /** True when the segments are block chunks rather than sections. */
+  chunked: boolean;
+  char_count: number;
+  sentence_count: number;
+  avg_sentence_chars: number;
+  sentence_stdev: number;
+  /** `sentence_stdev / avg_sentence_chars` — the rhythm's spread, scale-free. */
+  sentence_cv: number;
+  shortest_sentence: number;
+  longest_sentence: number;
+  clause_count: number;
+  avg_clause_chars: number;
+  clauses_per_sentence: number;
+  paragraph_count: number;
+  avg_paragraph_chars: number;
+  paragraph_stdev: number;
+  single_sentence_paragraphs: number;
+  marks: VoiceMark[];
+  function_words: VoiceWordGroup[];
+  pronouns: VoicePronouns;
+  stance: VoiceStance;
+  issues: VoiceIssue[];
+}
+
 export interface DialogueStats {
   points: DialoguePoint[];
   segment_count: number;
@@ -914,6 +998,7 @@ export interface ProjectAnalysis {
   explicit: ExplicitStats;
   structure: StructureStats;
   timeline: TimelineStats;
+  voice: VoiceStats;
   assessment: Assessment;
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;

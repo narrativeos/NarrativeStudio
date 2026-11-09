@@ -51,6 +51,7 @@
   --color-dim-explicit: #f43f5e;   /* 直白曲线 */
   --color-dim-setting: #60a5fa;    /* 场景曲线 */
   --color-dim-cliche: #f59e0b;     /* 陈词滥调曲线 */
+  --color-dim-voice: #c084fc;      /* 句长曲线（作者声音） */
 }
 
 :root,

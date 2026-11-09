@@ -16,6 +16,7 @@
 //! 13. Run dialogue analysis
 //! 14. Run explicit language analysis
 //! 15. Run story structure analysis
+//! 16. Run author voice analysis
 
 use chrono::{TimeZone, Utc};
 use duckdb::Connection;
@@ -23,9 +24,9 @@ use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
     run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
     run_setting_analysis, run_structure_analysis, run_t0_analysis, run_t1_analysis,
-    run_theme_analysis, run_timeline_analysis, Assessment, ClicheStats, ConflictStats,
-    DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats, StructureStats, T0Stats,
-    T1Stats, ThemeStats, TimelineStats,
+    run_theme_analysis, run_timeline_analysis, run_voice_analysis, Assessment, ClicheStats,
+    ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats,
+    StructureStats, T0Stats, T1Stats, ThemeStats, TimelineStats, VoiceStats,
 };
 use studio_core::concern::Severity;
 use studio_core::project::Project;
@@ -221,6 +222,7 @@ fn test_analysis_cache_roundtrip() {
     let structure =
         run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
     let timeline = run_timeline_analysis(&loaded).expect("time line analysis failed");
+    let voice = run_voice_analysis(&loaded).expect("author voice analysis failed");
     let assessment = run_assessment(&t0, &t1);
     save_result(
         &conn,
@@ -349,6 +351,18 @@ fn test_analysis_cache_roundtrip() {
         &serde_json::to_string(&timeline).unwrap(),
     )
     .expect("save timeline");
+    // Author voice carries no score either: a long sentence is not better than a
+    // short one, so the row keeps the description without a mark.
+    save_result(
+        &conn,
+        project.project_id,
+        "voice",
+        "t1",
+        &hash,
+        None,
+        &serde_json::to_string(&voice).unwrap(),
+    )
+    .expect("save voice");
     let assessment_id = save_result(
         &conn,
         project.project_id,
@@ -591,6 +605,25 @@ fn test_analysis_cache_roundtrip() {
     assert_eq!(cached_timeline.char_count, timeline.char_count);
     assert_eq!(cached_timeline.readable, timeline.readable);
     assert_eq!(cached_timeline.note, timeline.note);
+    let cached_voice = load_cached::<VoiceStats>(&conn, project.project_id, "voice", &hash)
+        .unwrap()
+        .expect("voice cache hit");
+    assert_eq!(
+        serde_json::to_string(&cached_voice).unwrap(),
+        serde_json::to_string(&voice).unwrap(),
+        "cached author voice must round-trip exactly"
+    );
+    let stored_voice_score: Option<f32> = conn
+        .query_row(
+            "SELECT score FROM analysis_results WHERE dimension = 'voice'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("voice row");
+    assert!(
+        stored_voice_score.is_none(),
+        "author voice must not be cached with a score"
+    );
     // The fixture's CJK is a 1:1 substitution, so every date unit in it was scrambled: the
     // dimension has to report that dates exist without pretending it can order them.
     assert_eq!(cached_timeline.entity_date_count, 19);
@@ -610,7 +643,7 @@ fn test_analysis_cache_roundtrip() {
         "the time line must not be cached with a score"
     );
     println!(
-        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/structure/timeline/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} markers, {} recommendations)",
+        "✓ Cache hit for t0/t1/plot/pacing/conflict/theme/setting/cliche/dialogue/explicit/structure/timeline/voice/assessment ({} threads, {} segments, {} conflict hits, {} themes, {} scenes, {} cliché hits, {} speech passages, {} explicit hits, {} landmarks, {} markers, {} sentences at CV {}, {} recommendations)",
         plot.thread_count,
         pacing.segment_count,
         conflict.total_hits,
@@ -621,6 +654,8 @@ fn test_analysis_cache_roundtrip() {
         explicit.total_hits,
         structure.landmarks.len(),
         timeline.markers.len(),
+        voice.sentence_count,
+        voice.sentence_cv,
         assessment.recommendations.len()
     );
 
@@ -636,9 +671,9 @@ fn test_analysis_cache_roundtrip() {
             .is_none()
     );
 
-    // "重新分析" clears everything for the project: twelve dimensions plus the assessment
-    // derived from them.
-    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 13);
+    // "重新分析" clears everything for the project: thirteen dimensions plus the
+    // assessment derived from them.
+    assert_eq!(invalidate_project(&conn, project.project_id).unwrap(), 14);
     assert!(
         load_cached::<T0Stats>(&conn, project.project_id, "t0", &hash)
             .unwrap()
@@ -675,6 +710,7 @@ fn test_report_generation_and_export() {
     let structure =
         run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
     let timeline = run_timeline_analysis(&loaded).expect("time line analysis failed");
+    let voice = run_voice_analysis(&loaded).expect("author voice analysis failed");
     let assessment = run_assessment(&t0, &t1);
 
     let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -693,6 +729,7 @@ fn test_report_generation_and_export() {
         explicit: &explicit,
         structure: &structure,
         timeline: &timeline,
+        voice: &voice,
         assessment: &assessment,
     });
 
@@ -715,6 +752,7 @@ fn test_report_generation_and_export() {
         "## 显式语言",
         "## 故事结构",
         "## 时间线",
+        "## 作者声音",
     ] {
         assert!(markdown.contains(heading), "missing section: {heading}");
     }
@@ -726,6 +764,12 @@ fn test_report_generation_and_export() {
     assert!(markdown.starts_with(&format!("# {} · 叙事分析报告", project.name)));
     assert!(markdown.contains(&format!("**{:.1} / 100**", assessment.overall)));
     assert!(markdown.contains(&format!("| 字数 | {} |", t0.char_count)));
+    // The voice section reports the same sentences the analysis page counts.
+    assert!(markdown.contains(&format!(
+        "| 平均句长（字） | {:.1} |",
+        voice.avg_sentence_chars
+    )));
+    assert!(markdown.contains("长句不比短句好"));
     assert!(markdown.contains(&format!(
         "情节连贯性：**{:.1} / 100**",
         plot.coherence_score

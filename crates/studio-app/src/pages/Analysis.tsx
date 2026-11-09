@@ -10,6 +10,7 @@ import SettingSection from "../components/analysis/SettingSection";
 import StructureSection from "../components/analysis/StructureSection";
 import ThemeSection from "../components/analysis/ThemeSection";
 import TimelineSection from "../components/analysis/TimelineSection";
+import VoiceSection from "../components/analysis/VoiceSection";
 import BarList from "../components/charts/BarList";
 import LineChart from "../components/charts/LineChart";
 import RadarChart from "../components/charts/RadarChart";
@@ -193,6 +194,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
     explicit,
     structure,
     timeline,
+    voice,
   } = data;
   const sectionsBySize = [...t1.sections].sort((a, b) => b.char_count - a.char_count);
   // Pacing, conflict and theme all segment the document the same way, so one list
@@ -875,6 +877,9 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
 
       {/* Time line: what the text says about when, and whether its dates agree */}
       <TimelineSection timeline={timeline} />
+
+      {/* Author voice: how the text is written, never a score */}
+      <VoiceSection voice={voice} />
     </div>
   );
 }

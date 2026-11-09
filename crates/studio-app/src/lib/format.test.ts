@@ -61,6 +61,9 @@ import {
   themeReachLabel,
   themeReachStyle,
   themeSourceLabel,
+  voiceBadgeStyle,
+  voiceIssueLabel,
+  voiceStanceLabel,
 } from "./format";
 
 /** Only `entity_counts` matters for these helpers; the rest of T0Stats is unused. */
@@ -630,5 +633,43 @@ describe("time line labels", () => {
     expect(timelineSignedSpan(3)).toBe("+3 天");
     expect(timelineSignedSpan(-60)).toBe("−2 个月");
     expect(timelineSignedSpan(0)).toBe("同一天");
+  });
+});
+
+describe("voice labels", () => {
+  it("names every habit the pass can report", () => {
+    for (const kind of [
+      "too_short",
+      "long_sentences",
+      "short_sentences",
+      "varied_rhythm",
+      "even_rhythm",
+      "comma_run",
+      "short_paragraphs",
+      "snippet_paragraphs",
+      "no_pronouns",
+      "first_person",
+      "hedging",
+      "assertive",
+      "classical",
+      "flat_marks",
+    ]) {
+      expect(voiceIssueLabel(kind), kind).not.toBe(kind);
+    }
+    // An unknown kind says what it is rather than going blank.
+    expect(voiceIssueLabel("brand_new")).toBe("brand_new");
+  });
+
+  it("names a stance without grading it", () => {
+    expect(voiceStanceLabel("hedging")).toBe("偏犹疑");
+    expect(voiceStanceLabel("assertive")).toBe("偏断言");
+    expect(voiceStanceLabel("balanced")).toBe("均衡");
+    expect(voiceStanceLabel("unknown")).toBe("unknown");
+  });
+
+  it("wears a badge that cannot turn into a fault", () => {
+    const badge = voiceBadgeStyle();
+    expect(badge).toContain("text-text-muted");
+    expect(badge).not.toMatch(/bad|warn|good|firm/);
   });
 });

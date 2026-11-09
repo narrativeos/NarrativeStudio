@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { entityTotal, formatFixed, formatInt } from "../lib/format";
+import { entityTotal, formatFixed, formatInt, formatPercent } from "../lib/format";
 import type { ProjectAnalysis } from "../types";
 
 interface CompareProps {
@@ -51,6 +51,14 @@ function Compare({ selection }: CompareProps) {
     { label: "Entities", value: (a) => formatInt(entityTotal(a.t0)) },
     { label: "Noun signals", value: (a) => formatInt(a.t0.noun_signal_count) },
     { label: "Avg sentence", value: (a) => formatFixed(a.t0.avg_sentence_length) },
+    // Author voice is what carries across projects: the same habits whatever the
+    // story is about. None of these is a ranking.
+    { label: "Sentence CV", value: (a) => formatFixed(a.voice.sentence_cv, 2) },
+    { label: "Clauses / sentence", value: (a) => formatFixed(a.voice.clauses_per_sentence, 2) },
+    {
+      label: "First person",
+      value: (a) => formatPercent(a.voice.pronouns.first_share),
+    },
   ];
 
   const topWords = useMemo(() => {

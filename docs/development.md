@@ -144,7 +144,7 @@ NarrativeStudio/
 │   │       ├── t0.rs  t1.rs        # 文本统计 / 结构统计
 │   │       ├── plot.rs  pacing.rs  conflict.rs
 │   │       ├── theme.rs  setting.rs  structure.rs  timeline.rs
-│   │       ├── dialogue.rs  cliche.rs  explicit.rs
+│   │       ├── dialogue.rs  cliche.rs  explicit.rs  voice.rs
 │   │       └── assessment.rs       # 规则评估与建议
 │   │
 │   ├── studio-storage/             # DuckDB 持久化
@@ -360,7 +360,7 @@ Tauri Commands 按领域分组在 `studio-app/src-tauri/src/commands/`（`projec
 | `create_project` | `{ name }` | `Project` | 创建项目 |
 | `delete_project` | `{ project_id }` | - | 删除项目及其级联数据 |
 | `import_project` | `{ project_path }` | `Project` | 导入 TraceView 项目目录（`spawn_blocking` + `import-progress` 事件） |
-| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 冲突 + 主题 + 场景/设定 + 陈词滥调 + 对话/叙事比例 + 显式语言 + 故事结构 + 时间线 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
+| `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 冲突 + 主题 + 场景/设定 + 陈词滥调 + 对话/叙事比例 + 显式语言 + 故事结构 + 时间线 + 作者声音 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
 | `analyze_projects` | `{ project_ids }` | `Vec<ProjectAnalysis>` | 多项目对比，始终读缓存 |
 | `analyze_t0` / `analyze_t1` | `{ file_path }` | `T0Stats` / `T1Stats` | 直接分析 `semantic_result.json`，调试用，不走缓存 |
 | `list_documents` | `{ project_id }` | `Vec<(doc_id, title)>` | 项目下的文档 |
@@ -451,7 +451,7 @@ pub(crate) async fn export_knowsphere(
 | 页面 | 组件 | 说明 |
 |------|------|------|
 | 项目列表 | `pages/Home.tsx` | 所有项目卡片，新建/导入/删除 |
-| 分析详情 | `pages/Analysis.tsx` | 单项目 13 维分析视图 + 报告/知识球导出 |
+| 分析详情 | `pages/Analysis.tsx` | 单项目 14 维分析视图 + 报告/知识球导出 |
 | 多项目对比 | `pages/Compare.tsx` | 选择多个项目对比 |
 
 > 页面切换由 `App.tsx` 内部状态驱动，未引入路由库；没有设置页。
@@ -653,7 +653,7 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 
 分析是纯函数（同一文档 → 同一结果），所以结果按输入指纹持久化，二次打开项目直接读缓存而不重算。
 
-**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit, structure, timeline, assessment}`。情节线在 `score` 列存 `coherence_score`、节奏在 `score` 列存 `pace_score`、冲突在 `score` 列存 `conflict_score`、主题在 `score` 列存 `theme_score`、场景在 `score` 列存 `setting_score`、陈词滥调在 `score` 列存 `cliche_score`（未检测到冲突用词、没有可用名词词汇、既没有点名地点也没有环境用词、或全文不足 1000 字不足以按万字密度评分时该列为 NULL——缺席本身也要被记住，读回来仍然是「未评分」而不是 0）；对话/叙事比例、显式语言、故事结构与时间线则**永远没有分数**：比例不是评级，30% 对白并不比 5% 更好或更坏；内容也不是评级，一部战争题材并不比田园题材更差；形状更不是评级，契合三幕不是优点，有意拒绝这个形状也不是缺点；时间也不是评级，一部从不写日期的故事并不比每页挂一份日历的故事差。所以这四个维度的 `score` 恒为 NULL 而不是 0。这样分析历史不必解开 payload 也能横向比较。新增维度不需要改 `ANALYSIS_VERSION`：旧库缺少该维度的行，读取时天然 miss，会重算并补齐全部维度。
+**缓存键**：`(project_id, dimension, input_hash)`，其中 `dimension ∈ {t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit, structure, timeline, voice, assessment}`。情节线在 `score` 列存 `coherence_score`、节奏在 `score` 列存 `pace_score`、冲突在 `score` 列存 `conflict_score`、主题在 `score` 列存 `theme_score`、场景在 `score` 列存 `setting_score`、陈词滥调在 `score` 列存 `cliche_score`（未检测到冲突用词、没有可用名词词汇、既没有点名地点也没有环境用词、或全文不足 1000 字不足以按万字密度评分时该列为 NULL——缺席本身也要被记住，读回来仍然是「未评分」而不是 0）；对话/叙事比例、显式语言、故事结构、时间线与作者声音则**永远没有分数**：比例不是评级，30% 对白并不比 5% 更好或更坏；内容也不是评级，一部战争题材并不比田园题材更差；形状更不是评级，契合三幕不是优点，有意拒绝这个形状也不是缺点；时间也不是评级，一部从不写日期的故事并不比每页挂一份日历的故事差；写法同样不是评级，长句不比短句好，留余地的叙述也不比下断言的叙述差。所以这五个维度的 `score` 恒为 NULL 而不是 0。这样分析历史不必解开 payload 也能横向比较。新增维度不需要改 `ANALYSIS_VERSION`：旧库缺少该维度的行，读取时天然 miss，会重算并补齐全部维度。
 
 `input_hash = SHA-256(ANALYSIS_VERSION ‖ 每个 block 的字节长度 ‖ block 的 JSON)`（`studio-analysis/src/hash.rs`）：
 
@@ -704,6 +704,31 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 `ERAS` 的第三列是**该年号停用的年份**：多数情况下就是最后一个位年数所在年，但新号在年初几个月内改元时会多出一位（`景云` 没有 `景云三年`，仍记到 712）。这一位最坏只影响年号末尾的一个位年数，不会给出错的年份，所以保留来源写的日期，不再手工维护第二列。表是从来源的「起讫时间」列转录的：只收有公元年代的条目（标 `？` 的与公元前条目不收），来源里的繁体写法已转成简体。
 
 第三方数据/代码的许可义务记在仓库根 `NOTICE`（Apache-2.0 §4(d) 的惯例）：年号表那份 CC BY-SA 4.0 的署名与 ShareAlike 提示不能丢，再分发时要一并带上。
+
+### 6.8 作者声音的度量口径
+
+`studio-analysis/src/voice.rs` 量的是一篇文章**怎么写**，与题材无关，因此它没有评分函数：文件里既没有 `*_score`，
+`VoiceStats` 也没有该字段，缓存行的 `score` 恒为 NULL。加维度时不要顺手补一个分数。
+
+三条口径决定这些数字能不能横向比：
+
+- **一切密度按可见字符**（`text::visible_char_count`）算，每千字或每万字。分母是同一份文本，两个项目才可直接对照；
+  不要用 token 数——token 来自 NLP 管线，切分方式变了密度就变，而这一维度不该依赖 NLP。
+- **句与段来自既有切分**：句子用 `text::split_sentences`，段落就是 SemanticBlock（TraceView 的分段），曲线用
+  `segment::plan_segments`。这三处任何一处改了，节奏、对白、场景等维度会一起动，所以宁可在这里派生，也不要另写一份切句器。
+- **词表按固定顺序扫描**（`MARKS` / `FUNCTION_GROUPS` / `HEDGING` / `ASSERTIVE` / 三组人称），输出顺序即声明顺序，
+  不读 HashMap，同一输入必须每次给出同一份 JSON。
+
+按单字计数是**有意为之**，不是偷懒：`的地得`、`了着过`、`之其者乃则亦乎` 与 `我你他` 都是单字功能词，走 token 会把
+`了解` 的 `了` 归进动词、`其他` 的 `他` 归进代词，两种错法都比多计一次更难看。人称一侧补了一条最小的排除——`他/她/它`
+紧跟 `其/别/单` 时不算人称（`其他`、`别的`、`单它`），由 `test_a_pronoun_inside_a_word_is_not_a_person` 钉住。新增排除词时
+保持只往前看一个字：窗口再宽就会开始猜词，而这个维度不做分词。
+
+阈值集中在文件顶部（`LONG_SENTENCE_AVG`、`VARIED_CV`、`COMMA_RUN`、`SNIPPET_PARAGRAPH_SHARE`、`STANCE_RATE` …），
+每个都带一句「为什么这个数值得命名」。它们不是测量而是**值得说一说的界线**，所以每条 finding 的 detail 必须把实际数字写进去，
+读者不同意界线时能自己看数。`MIN_CHARS_FOR_FINDINGS = 600` 之下只报 `too_short` 并立刻返回：一页纸可以有任何风格。
+
+改词表或阈值要 bump `ANALYSIS_VERSION`（见 §6.7 最后一条）：文档没变而口径变了，旧缓存必须失效。
 
 ---
 

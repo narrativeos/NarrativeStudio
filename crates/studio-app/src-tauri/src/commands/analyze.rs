@@ -7,9 +7,9 @@ use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
     run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
     run_setting_analysis, run_structure_analysis, run_t0_analysis, run_t1_analysis,
-    run_theme_analysis, run_timeline_analysis, Assessment, ClicheStats, ConflictStats,
-    DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats, StructureStats, T0Stats,
-    T1Stats, ThemeStats, TimelineStats,
+    run_theme_analysis, run_timeline_analysis, run_voice_analysis, Assessment, ClicheStats,
+    ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats, SettingStats,
+    StructureStats, T0Stats, T1Stats, ThemeStats, TimelineStats, VoiceStats,
 };
 use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
@@ -42,7 +42,7 @@ pub(crate) fn analyze_t1(file_path: String) -> Result<T1Stats, String> {
 
 /// Analysis result for a single project (T0 + T1 + plot + pacing + conflict +
 /// theme + setting + cliché + dialogue + explicit language + story structure +
-/// time line + rule-based assessment).
+/// time line + author voice + rule-based assessment).
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectAnalysis {
     pub project_id: String,
@@ -59,6 +59,7 @@ pub struct ProjectAnalysis {
     pub explicit: ExplicitStats,
     pub structure: StructureStats,
     pub timeline: TimelineStats,
+    pub voice: VoiceStats,
     pub assessment: Assessment,
     /// True when the numbers came from the persisted cache instead of being
     /// recomputed, so the UI can say where the result came from.
@@ -147,6 +148,8 @@ pub(crate) fn analyze_project_inner(
             .map_err(|e| e.to_string())?;
         let timeline = load_cached::<TimelineStats>(&storage.conn, pid, "timeline", &input_hash)
             .map_err(|e| e.to_string())?;
+        let voice = load_cached::<VoiceStats>(&storage.conn, pid, "voice", &input_hash)
+            .map_err(|e| e.to_string())?;
         let assessment = load_cached::<Assessment>(&storage.conn, pid, "assessment", &input_hash)
             .map_err(|e| e.to_string())?;
         if let (
@@ -162,10 +165,11 @@ pub(crate) fn analyze_project_inner(
             Some(explicit),
             Some(structure),
             Some(timeline),
+            Some(voice),
             Some(assessment),
         ) = (
             t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit, structure,
-            timeline, assessment,
+            timeline, voice, assessment,
         ) {
             return Ok(ProjectAnalysis {
                 project_id: pid.to_string(),
@@ -182,6 +186,7 @@ pub(crate) fn analyze_project_inner(
                 explicit,
                 structure,
                 timeline,
+                voice,
                 assessment,
                 cached: true,
             });
@@ -202,6 +207,7 @@ pub(crate) fn analyze_project_inner(
     // are the turns 情节分析 already found and the tension curve 节奏分析 already drew.
     let structure = run_structure_analysis(&doc, &pacing, &plot).map_err(|e| e.to_string())?;
     let timeline = run_timeline_analysis(&doc).map_err(|e| e.to_string())?;
+    let voice = run_voice_analysis(&doc).map_err(|e| e.to_string())?;
     let assessment = run_assessment(&t0, &t1);
 
     let analysis = ProjectAnalysis {
@@ -219,6 +225,7 @@ pub(crate) fn analyze_project_inner(
         explicit,
         structure,
         timeline,
+        voice,
         assessment,
         cached: false,
     };
@@ -232,7 +239,7 @@ pub(crate) fn analyze_project_inner(
     Ok(analysis)
 }
 
-/// Persist the thirteen computed dimensions under `input_hash`, plus the
+/// Persist the fourteen computed dimensions under `input_hash`, plus the
 /// assessment's recommendations as queryable concern rows.
 ///
 /// The recommendation rows are what let a later feature (report export) list a
@@ -244,14 +251,16 @@ pub(crate) fn persist_analysis(
     analysis: &ProjectAnalysis,
 ) -> Result<(), String> {
     // Plot, pacing, conflict, theme, setting, cliché, dialogue, explicit language, story
-    // structure and time line sit at the T1 tier: same input, same cost, purely structural.
+    // structure, time line and author voice sit at the T1 tier: same input, same cost, purely
+    // structural.
     // Their scores are stored so the analysis history can be compared without unpacking the
     // payload; conflict, theme, setting and cliché have no score when the text offers
-    // nothing for them to measure, and dialogue, explicit language, story structure and time
-    // line never have one at all — 30% speech is neither better nor worse than 5%, a war
+    // nothing for them to measure, and dialogue, explicit language, story structure, time
+    // line and author voice never have one at all — 30% speech is neither better nor worse than 5%, a war
     // novel is not worse than a pastoral for carrying violence, a story that refuses
-    // three-act shape may be refusing it on purpose, and a story that never writes a date is
-    // not keeping time badly. The row keeps that absence instead of inventing a 0.
+    // three-act shape may be refusing it on purpose, a story that never writes a date is
+    // not keeping time badly, and long sentences are not better or worse than short ones.
+    // The row keeps that absence instead of inventing a 0.
     let dimensions: Vec<(&str, &str, Option<f32>, String)> = vec![
         (
             "t0",
@@ -324,6 +333,12 @@ pub(crate) fn persist_analysis(
             "t1",
             None,
             serde_json::to_string(&analysis.timeline).map_err(|e| e.to_string())?,
+        ),
+        (
+            "voice",
+            "t1",
+            None,
+            serde_json::to_string(&analysis.voice).map_err(|e| e.to_string())?,
         ),
     ];
     for (dimension, tier, score, data) in dimensions {

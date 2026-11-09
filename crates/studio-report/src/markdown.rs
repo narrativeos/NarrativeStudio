@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use studio_analysis::{
     Assessment, ClicheStats, ConflictStats, DialogueStats, ExplicitStats, PacingStats, PlotStats,
     SettingStats, StructureStats, T0Stats, T1Stats, ThemeStats, TimelineIssue, TimelineStats,
-    ANALYSIS_VERSION,
+    VoiceMark, VoiceStats, ANALYSIS_VERSION,
 };
 
 /// Everything a report is rendered from. All borrowed: the renderer never owns an
@@ -30,6 +30,7 @@ pub struct ReportInput<'a> {
     pub explicit: &'a ExplicitStats,
     pub structure: &'a StructureStats,
     pub timeline: &'a TimelineStats,
+    pub voice: &'a VoiceStats,
     pub assessment: &'a Assessment,
 }
 
@@ -57,6 +58,7 @@ pub fn render_markdown(input: &ReportInput) -> String {
     write_explicit(&mut out, input.explicit);
     write_story_structure(&mut out, input.structure);
     write_timeline(&mut out, input.timeline);
+    write_voice(&mut out, input.voice);
     write_footer(&mut out);
     out
 }
@@ -1478,6 +1480,164 @@ fn structure_limits(structure: &StructureStats) -> String {
     }
     note
 }
+/// 作者声音 — how the text is written, whatever it is about.
+///
+/// The section prints no score: 长句不比短句好. Everything here is a rate over the
+/// same visible-character count, so two projects can be read side by side.
+fn write_voice(out: &mut String, voice: &VoiceStats) {
+    out.push_str("## 作者声音\n\n");
+    if voice.char_count == 0 {
+        out.push_str("没有可统计的文本。\n\n");
+        return;
+    }
+
+    out.push_str("| 指标 | 数值 |\n| --- | ---: |\n");
+    let rows: [(&str, String); 9] = [
+        ("字数", voice.char_count.to_string()),
+        ("句子数", voice.sentence_count.to_string()),
+        ("平均句长（字）", format!("{:.1}", voice.avg_sentence_chars)),
+        ("句长标准差", format!("{:.1}", voice.sentence_stdev)),
+        ("句长变异系数", format!("{:.2}", voice.sentence_cv)),
+        (
+            "最短 / 最长句（字）",
+            format!("{} / {}", voice.shortest_sentence, voice.longest_sentence),
+        ),
+        ("每句小句数", format!("{:.2}", voice.clauses_per_sentence)),
+        (
+            "段落数 / 平均段落长（字）",
+            format!(
+                "{} / {:.1}",
+                voice.paragraph_count, voice.avg_paragraph_chars
+            ),
+        ),
+        (
+            "只有一句话的段落",
+            format!(
+                "{} / {}",
+                voice.single_sentence_paragraphs, voice.paragraph_count
+            ),
+        ),
+    ];
+    for (label, value) in rows {
+        out.push_str(&format!("| {} | {} |\n", label, value));
+    }
+    out.push('\n');
+
+    out.push_str("标点密度（每千字）：\n\n");
+    let present: Vec<&VoiceMark> = voice.marks.iter().filter(|m| m.count > 0).collect();
+    if present.is_empty() {
+        out.push_str("这段文本没有用到清单里的标点。\n\n");
+    } else {
+        out.push_str("| 标点 | 次数 | 每千字 |\n| --- | ---: | ---: |\n");
+        for m in present {
+            out.push_str(&format!(
+                "| {}（{}） | {} | {:.2} |\n",
+                esc(&m.label),
+                esc(&m.mark),
+                m.count,
+                m.per_1000
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("功能词密度（每千字，按单字计数）：\n\n");
+    out.push_str("| 类别 | 字 | 次数 | 每千字 |\n| --- | --- | ---: | ---: |\n");
+    for g in &voice.function_words {
+        out.push_str(&format!(
+            "| {} | {} | {} | {:.2} |\n",
+            esc(&g.group),
+            esc(&g.words),
+            g.count,
+            g.per_1000
+        ));
+    }
+    out.push('\n');
+
+    let verdict = match voice.stance.verdict.as_str() {
+        "hedging" => "偏犹疑",
+        "assertive" => "偏断言",
+        _ => "均衡",
+    };
+    out.push_str("人称与立场：\n\n");
+    out.push_str("| 指标 | 数值 |\n| --- | ---: |\n");
+    out.push_str(&format!(
+        "| 第一人称 | {}（{:.0}%） |\n",
+        voice.pronouns.first,
+        voice.pronouns.first_share * 100.0
+    ));
+    out.push_str(&format!(
+        "| 第二人称 | {}（{:.0}%） |\n",
+        voice.pronouns.second,
+        voice.pronouns.second_share * 100.0
+    ));
+    out.push_str(&format!(
+        "| 第三人称 | {}（{:.0}%） |\n",
+        voice.pronouns.third,
+        voice.pronouns.third_share * 100.0
+    ));
+    out.push_str(&format!(
+        "| 犹疑用词 / 断言用词 | {} / {}（每万字 {:.1} / {:.1}） |\n",
+        voice.stance.hedging,
+        voice.stance.assertive,
+        voice.stance.hedging_per_10k,
+        voice.stance.assertive_per_10k
+    ));
+    out.push_str(&format!("| 立场 | {} |\n\n", verdict));
+
+    out.push_str("句长曲线：\n\n");
+    if voice.points.is_empty() {
+        out.push_str("没有可切分的段落。\n\n");
+    } else {
+        out.push_str("| 段落 | 字数 | 句子数 | 平均句长 | 每句小句数 |\n");
+        out.push_str("| --- | ---: | ---: | ---: | ---: |\n");
+        for p in voice.points.iter().take(MAX_ROWS) {
+            out.push_str(&format!(
+                "| {} | {} | {} | {:.1} | {:.2} |\n",
+                esc(&p.section),
+                p.char_count,
+                p.sentences,
+                p.avg_sentence_chars,
+                p.clauses_per_sentence
+            ));
+        }
+        if voice.points.len() > MAX_ROWS {
+            out.push_str(&format!(
+                "\n另有 {} 段未列出。\n\n",
+                voice.points.len() - MAX_ROWS
+            ));
+        }
+        if voice.chunked {
+            out.push_str(
+                "_本文的章节少于三段，段落是按字数等分的块，是算术结果而非作者自己的分段。_\n\n",
+            );
+        }
+    }
+
+    if !voice.issues.is_empty() {
+        out.push_str("读得到的习惯：\n\n");
+        for issue in &voice.issues {
+            out.push_str(&format!("- {}\n", esc(&issue.detail)));
+        }
+        out.push('\n');
+    }
+
+    out.push_str(&voice_limits(voice));
+}
+
+/// What the numbers were measured with, and where they stop.
+fn voice_limits(voice: &VoiceStats) -> String {
+    let mut note = String::from(
+        "_本维度不给出评分：长句不比短句好，留余地的叙述不比下断言的叙述差。功能词与人称按单字计数，\
+         所以「了解」记一个「了」、「其他」记一个「他」（人称统计已跳过「其他/别的」里的这一字）；\
+         所有密度都按可见字符每千字计算，一段被引用的长歌词会把标点密度抬高。\
+         犹疑与断言的词表是固定的，命中只说明这些词出现过，不说明作者是否真的犹豫。_\n\n",
+    );
+    if voice.char_count < 600 {
+        note.push_str("全文不足 600 字，下面的数字只是这一次统计的结果，还不足以说明写法。\n\n");
+    }
+    note
+}
 
 fn write_footer(out: &mut String) {
     out.push_str("---\n\n");
@@ -1881,7 +2041,7 @@ mod tests {
         PacingPoint, Place, Plotline, PlotlineStage, Readability, Recommendation, RepeatedPhrase,
         Scene, SectionInfo, SettingIssue, StructureAct, StructureBeat, StructureIssue,
         StructureLandmark, StructureModel, Theme, TimelineMarker, TimelinePoint, TimelineStep,
-        TurningPoint,
+        TurningPoint, VoiceIssue, VoicePoint, VoicePronouns, VoiceStance, VoiceWordGroup,
     };
 
     fn at() -> DateTime<Utc> {
@@ -2219,6 +2379,7 @@ mod tests {
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         assert_eq!(render_markdown(&input), render_markdown(&input));
@@ -2256,6 +2417,7 @@ mod tests {
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let expected = "\
@@ -2427,6 +2589,10 @@ _本维度不给出评分：契合三幕不是优点，有意拒绝这个形状�
 
 _本维度不给出评分：不写日期的故事不比写满日期的故事差。识别范围是阿拉伯数字与逐字写出的中文年份，加上 天/周/月/年 的相对表达、季节与时段词、节气与节日、星期，以及年号纪年（乾隆三年）、民国纪年、干支纪年（庚子年）与农历月日（腊月初八）。年号表取自公开的历代年号对照（CC BY-SA，据李崇智《中国历代年号考》），农历与公历的换算来自开源历法引擎 lunar-lite（MIT）。三条边界跟着走：年号只到年，因为改元在年中；干支六十年一轮回，只有文档自己给出的年份能唯一框定时才定年，否则只记下不定年；农历日期若该年该月没有那天就拒绝，不做修补。外文日期仍不在范围内。相对与模糊表达锚在叙述当下而不是日历，只统计不参与排序；只到年份的日期粒度太粗，同样不参与排序。月按 30 天、年按 365 天估算。_
 
+## 作者声音
+
+没有可统计的文本。
+
 ---
 
 _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
@@ -2474,6 +2640,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2495,6 +2662,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             "## 显式语言",
             "## 故事结构",
             "## 时间线",
+            "## 作者声音",
         ] {
             assert!(md.contains(heading), "missing heading: {heading}");
         }
@@ -2506,8 +2674,8 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         }
         assert_eq!(
             md.matches("\n## ").count(),
-            16,
-            "exactly sixteen H2 sections"
+            17,
+            "exactly seventeen H2 sections"
         );
     }
 
@@ -2557,6 +2725,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2603,6 +2772,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2663,6 +2833,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2724,6 +2895,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2809,6 +2981,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2889,6 +3062,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -2985,6 +3159,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3036,6 +3211,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3116,6 +3292,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3164,6 +3341,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3272,6 +3450,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         };
         let md = render_markdown(&input);
@@ -3410,6 +3589,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         });
 
@@ -3534,6 +3714,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &assessment,
         });
         // The all-narrative wording is only for text where no speech was detected.
@@ -3596,6 +3777,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         });
 
@@ -3719,6 +3901,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         });
 
@@ -3771,6 +3954,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure: &structure,
             timeline: &timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         });
 
@@ -3921,8 +4105,123 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
             explicit: &explicit,
             structure,
             timeline,
+            voice: &VoiceStats::default(),
             assessment: &a,
         })
+    }
+
+    /// The same, for the author-voice section.
+    fn render_voice_with(voice: &VoiceStats) -> String {
+        let t0 = empty_t0();
+        let t1 = empty_t1();
+        let plot = empty_plot();
+        let pacing = empty_pacing();
+        let conflict = empty_conflict();
+        let theme = empty_theme();
+        let setting = empty_setting();
+        let cliche = empty_cliche();
+        let dialogue = empty_dialogue();
+        let explicit = empty_explicit();
+        let a = clean_assessment();
+        render_markdown(&ReportInput {
+            project_name: "P",
+            generated_at: at(),
+            t0: &t0,
+            t1: &t1,
+            plot: &plot,
+            pacing: &pacing,
+            conflict: &conflict,
+            theme: &theme,
+            setting: &setting,
+            cliche: &cliche,
+            dialogue: &dialogue,
+            explicit: &explicit,
+            structure: &empty_structure(),
+            timeline: &empty_timeline(),
+            voice,
+            assessment: &a,
+        })
+    }
+
+    #[test]
+    fn test_voice_section_reports_rhythm_and_names_no_score() {
+        let voice = VoiceStats {
+            char_count: 4000,
+            sentence_count: 120,
+            avg_sentence_chars: 33.4,
+            sentence_stdev: 21.0,
+            sentence_cv: 0.63,
+            shortest_sentence: 4,
+            longest_sentence: 180,
+            clause_count: 300,
+            avg_clause_chars: 13.4,
+            clauses_per_sentence: 2.5,
+            paragraph_count: 60,
+            avg_paragraph_chars: 66.7,
+            paragraph_stdev: 40.0,
+            single_sentence_paragraphs: 12,
+            marks: vec![VoiceMark {
+                mark: "，".into(),
+                label: "逗号".into(),
+                count: 260,
+                per_1000: 65.0,
+            }],
+            function_words: vec![VoiceWordGroup {
+                group: "结构助词".into(),
+                words: "的地得".into(),
+                count: 180,
+                per_1000: 45.0,
+            }],
+            pronouns: VoicePronouns {
+                first: 30,
+                second: 5,
+                third: 65,
+                total: 100,
+                first_share: 0.3,
+                second_share: 0.05,
+                third_share: 0.65,
+            },
+            stance: VoiceStance {
+                hedging: 12,
+                assertive: 40,
+                hedging_per_10k: 3.0,
+                assertive_per_10k: 10.0,
+                verdict: "assertive".into(),
+            },
+            points: vec![VoicePoint {
+                section: "第一章".into(),
+                char_count: 2000,
+                sentences: 60,
+                avg_sentence_chars: 33.3,
+                clauses_per_sentence: 2.5,
+            }],
+            issues: vec![VoiceIssue {
+                kind: "varied_rhythm".into(),
+                detail: "句长差异大（标准差 21.0，变异系数 0.63）：长句和短句交替出现。".into(),
+            }],
+            segment_count: 1,
+            chunked: false,
+        };
+        let md = render_voice_with(&voice);
+        assert!(md.contains("## 作者声音"));
+        assert!(md.contains("| 平均句长（字） | 33.4 |"));
+        assert!(md.contains("| 句长变异系数 | 0.63 |"));
+        assert!(md.contains("| 逗号（，） | 260 | 65.00 |"));
+        assert!(md.contains("| 结构助词 | 的地得 | 180 | 45.00 |"));
+        assert!(md.contains("| 第三人称 | 65（65%） |"));
+        assert!(md.contains("| 立场 | 偏断言 |"));
+        assert!(md.contains("| 第一章 | 2000 | 60 | 33.3 | 2.50 |"));
+        assert!(md.contains("- 句长差异大"));
+        // The section says what the numbers are measured with, and refuses a grade.
+        assert!(md.contains("长句不比短句好"));
+        assert!(md.contains("按单字计数"));
+    }
+
+    #[test]
+    fn test_voice_section_says_there_is_nothing_to_measure() {
+        let md = render_voice_with(&VoiceStats::default());
+        assert!(md.contains("## 作者声音"));
+        assert!(md.contains("没有可统计的文本。"));
     }
 
     #[test]
