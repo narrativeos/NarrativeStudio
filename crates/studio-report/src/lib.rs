@@ -4,6 +4,8 @@
 
 pub use studio_core::error::Result;
 
+mod knowsphere;
 mod markdown;
 
+pub use knowsphere::{render_knowsphere, KnowsphereInput};
 pub use markdown::{render_markdown, ReportInput};
