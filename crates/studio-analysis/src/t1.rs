@@ -544,6 +544,7 @@ mod tests {
                 filter: None,
                 filter_reason: None,
                 span: (i * 2, i * 2 + 2),
+                stable_id: None,
             })
             .collect();
         SemanticBlock {

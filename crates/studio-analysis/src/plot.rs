@@ -453,6 +453,7 @@ mod tests {
                     filter: None,
                     filter_reason: None,
                     span: (0, 0),
+                    stable_id: None,
                 })
                 .collect(),
             noun_signals: vec![],
@@ -711,6 +712,7 @@ mod tests {
             filter: None,
             filter_reason: None,
             span: (0, 0),
+            stable_id: None,
         });
         let doc = doc_of(vec![
             first,

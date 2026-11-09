@@ -248,6 +248,7 @@ mod tests {
                     filter: None,
                     filter_reason: None,
                     span: (0, 5),
+                    stable_id: None,
                 }],
                 noun_signals: vec![NounSignal {
                     text: "Hello".into(),

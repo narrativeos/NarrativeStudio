@@ -131,6 +131,9 @@ fn convert_entity(raw: RawEntity) -> Entity {
             raw.span.first().copied().unwrap_or(0),
             raw.span.get(1).copied().unwrap_or(0),
         ),
+        // Identity is issued when the row is persisted (entity registry);
+        // parsed-but-unsaved entities carry none yet.
+        stable_id: None,
     }
 }
 

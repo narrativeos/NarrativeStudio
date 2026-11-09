@@ -825,6 +825,7 @@ mod tests {
             filter: None,
             filter_reason: None,
             span: (0, 0),
+            stable_id: None,
         }
     }
 

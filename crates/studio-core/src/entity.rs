@@ -67,6 +67,27 @@ pub struct Entity {
     pub filter: Option<String>,
     pub filter_reason: Option<String>,
     pub span: (usize, usize),
+    /// Content-derived identity issued by the entity registry
+    /// (`studio_storage::entity_registry`). Stable across imports and
+    /// projects, unlike the per-import `entity_id` row key. `None` for rows
+    /// written before the registry existed (v13) and for entities that were
+    /// never persisted.
+    #[serde(default)]
+    pub stable_id: Option<String>,
+}
+
+/// Aggregated view of one identity across a whole project: what the
+/// knowsphere exporter builds surface-layer nodes from. Produced by
+/// `studio_storage::entity_stats_for_project`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityStat {
+    pub stable_id: String,
+    pub text: String,
+    /// `EntityCategory::as_str()` value (`PERSON`, `LOCATION`, …).
+    pub category: String,
+    pub mentions: u64,
+    /// Highest confidence seen for this identity.
+    pub confidence: f64,
 }
 
 #[cfg(test)]
@@ -98,6 +119,7 @@ mod tests {
             filter: None,
             filter_reason: None,
             span: (12, 19),
+            stable_id: None,
         };
         let json = serde_json::to_string(&e).unwrap();
         let deserialized: Entity = serde_json::from_str(&json).unwrap();

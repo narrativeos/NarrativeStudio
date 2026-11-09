@@ -478,6 +478,7 @@ mod tests {
                 filter: None,
                 filter_reason: None,
                 span: (16, 19),
+                stable_id: None,
             }],
             noun_signals: vec![NounSignal {
                 text: "fox".into(),

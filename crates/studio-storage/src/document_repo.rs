@@ -53,6 +53,22 @@ pub fn save_document(
     )
     .map_err(|e| crate::StudioError::Database(e.to_string()))?;
 
+    // Resolve stable identities before opening the appenders: they borrow
+    // `tx` mutably, and identity resolution queries the registry through it.
+    let mut stable_ids: HashMap<(&str, &str), String> = HashMap::new();
+    for block in &doc.blocks {
+        for entity in &block.entities {
+            let key = (entity.text.as_str(), entity.category.as_str());
+            match stable_ids.entry(key) {
+                std::collections::hash_map::Entry::Occupied(_) => {}
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    let id = crate::entity_registry::resolve_or_insert(&tx, key.0, key.1)?;
+                    vacant.insert(id);
+                }
+            }
+        }
+    }
+
     // One appender per child table, all active for the duration of the block
     // loop. Append order matches each table's column order.
     let mut blocks_app = tx
@@ -118,6 +134,9 @@ pub fn save_document(
         }
 
         for (eseq, entity) in block.entities.iter().enumerate() {
+            let stable_id = stable_ids
+                .get(&(entity.text.as_str(), entity.category.as_str()))
+                .cloned();
             entities_app
                 .append_row(duckdb::params![
                     Uuid::new_v4().to_string(),
@@ -132,6 +151,7 @@ pub fn save_document(
                     entity.filter_reason,
                     entity.span.0 as i64,
                     entity.span.1 as i64,
+                    stable_id,
                 ])
                 .map_err(|e| crate::StudioError::Database(e.to_string()))?;
         }
@@ -307,7 +327,7 @@ fn load_tokens_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<String
 fn load_entities_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<String, Vec<Entity>>> {
     let mut stmt = conn
         .prepare(
-            "SELECT source_block_id, text, category, confidence, source, keep, filter, filter_reason, span_start, span_end
+            "SELECT source_block_id, text, category, confidence, source, keep, filter, filter_reason, span_start, span_end, stable_id
              FROM entities
              WHERE source_block_id IN (SELECT source_block_id FROM semantic_blocks WHERE doc_id = ?)
              ORDER BY source_block_id, seq",
@@ -326,13 +346,25 @@ fn load_entities_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<Stri
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, i64>(8)?,
                 row.get::<_, i64>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })
         .map_err(|e| crate::StudioError::Database(e.to_string()))?;
     let mut by_block: HashMap<String, Vec<Entity>> = HashMap::new();
     for row in rows {
-        let (source_block_id, text, cat, conf, source, keep, filter, filter_reason, s0, s1) =
-            row.map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        let (
+            source_block_id,
+            text,
+            cat,
+            conf,
+            source,
+            keep,
+            filter,
+            filter_reason,
+            s0,
+            s1,
+            stable_id,
+        ) = row.map_err(|e| crate::StudioError::Database(e.to_string()))?;
         by_block.entry(source_block_id).or_default().push(Entity {
             text,
             category: cat.parse().unwrap_or_default(),
@@ -342,6 +374,7 @@ fn load_entities_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<Stri
             filter,
             filter_reason,
             span: (s0 as usize, s1 as usize),
+            stable_id,
         });
     }
     Ok(by_block)
@@ -429,6 +462,7 @@ mod tests {
                     filter: None,
                     filter_reason: None,
                     span: (0, 5),
+                    stable_id: None,
                 }],
                 noun_signals: vec![NounSignal {
                     text: "Hello".into(),

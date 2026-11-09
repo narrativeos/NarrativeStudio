@@ -309,6 +309,38 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     ",
     )?;
 
+    // v13: stable entity identity — the entity registry.
+    //
+    // The per-import `entity_id` UUID is a row key, not an identity: the same
+    // person in two imports (or two projects) gets two ids, which is fine for
+    // the app itself but breaks any downstream that references nodes by id —
+    // NarratSphere edges and narrative tethers do exactly that, and a
+    // re-export must merge into user edits by identity, not by row.
+    //
+    // The registry issues a content-derived `stable_id` per
+    // (normalized text, category): `ent:<16 hex of SHA-256>`. Re-importing the
+    // same text resolves to the same id; so does a second project mentioning
+    // the same person. Existing rows keep NULL and readers fall back to
+    // computing the same id from (text, category) on the fly.
+    migrate(
+        conn,
+        13,
+        "entity_registry",
+        "
+        CREATE TABLE IF NOT EXISTS entity_registry (
+            stable_id TEXT PRIMARY KEY,
+            canonical_text TEXT NOT NULL,
+            category TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_registry_canon
+            ON entity_registry(canonical_text, category);
+
+        ALTER TABLE entities ADD COLUMN IF NOT EXISTS stable_id TEXT;
+        CREATE INDEX IF NOT EXISTS idx_entities_stable ON entities(stable_id);
+    ",
+    )?;
+
     Ok(())
 }
 
@@ -357,12 +389,13 @@ mod tests {
             .query_row(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN 
                  ('projects', 'documents', 'semantic_blocks', 'tokens', 'entities', 
-                  'noun_signals', 'analysis_results', 'concerns', 'reports')",
+                  'noun_signals', 'analysis_results', 'concerns', 'reports',
+                  'entity_registry')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 9);
+        assert_eq!(count, 10);
     }
 
     #[test]

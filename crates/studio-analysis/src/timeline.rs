@@ -1730,6 +1730,7 @@ mod tests {
             filter: None,
             filter_reason: None,
             span: (0, 4),
+            stable_id: None,
         });
         block
     }
