@@ -306,11 +306,11 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
         <StatCard label="名词信号" value={formatInt(t0.noun_signal_count)} />
       </div>
 
-      {/* Overall assessment */}
+      {/* Statistical overview: the five T0/T1 dimensions and what they average to. */}
       <section id="overview" className={SECTION_ANCHOR}>
-        <SectionTitle>总体评估</SectionTitle>
+        <SectionTitle>统计概览</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
-          <Panel title={`综合评分 ${formatScore(data.assessment.overall)} / 100`}>
+          <Panel title={`统计均值 ${formatScore(data.assessment.overall)} / 100`}>
             <div className="flex flex-col sm:flex-row items-center gap-4">
               {/* The radar shows the shape of the portrait; the bars next to it
                   give the exact numbers it is drawn from. */}
@@ -341,6 +341,14 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                 </p>
               ))}
             </div>
+            {/* What the number averages, said out loud. The rest of this page is
+                careful not to reduce a manuscript to one figure — 作者声音,
+                故事结构, 显式语言 and the checklist carry no score by design — so
+                a mean of five statistical dimensions must not read as a grade
+                on the writing, and must not look like it covers the rest. */}
+            <p className="mt-3 pt-2 border-t border-line/60 text-[11px] text-text-muted">
+              这是上述五项的等权平均，全部来自 T0/T1 的统计量。情节、冲突、主题、场景、对话、故事结构、时间线与作者声音不参与：它们不给分（见各自小节）。这个数字描述的是行文统计，不是稿子的优劣。
+            </p>
           </Panel>
           <Panel title={`关键建议（${data.assessment.recommendations.length}）`}>
             {data.assessment.recommendations.length === 0 ? (

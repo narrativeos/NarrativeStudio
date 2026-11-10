@@ -129,31 +129,37 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">Projects</h2>
-        <div className="flex gap-2">
+      <div className="mb-4">
+        <h2 className="text-xl font-semibold mb-3">项目</h2>
+        <div className="flex items-center gap-2">
           <button
             onClick={handleImportText}
             disabled={importing}
             className="px-4 py-2 bg-surface-alt text-text rounded-md border border-line hover:bg-fill transition-colors disabled:opacity-50"
-            title="导入一个 Markdown 或 TXT 文件。没有分词与实体，因此词频、情节线、地点这几节读不到；其余维度照常。"
           >
-            + Import Markdown / TXT
+            {importing ? "导入中…" : "导入 Markdown / TXT"}
           </button>
           <button
             onClick={handleImport}
             disabled={importing}
             className="px-4 py-2 bg-accent/20 text-accent rounded-md hover:bg-accent/30 transition-colors disabled:opacity-50"
           >
-            {importing ? "Importing..." : "+ Import Project"}
+            {importing ? "导入中…" : "导入 TraceView 项目"}
           </button>
         </div>
+        {/* What each entry brings the engine, said where it can be read before
+            choosing rather than behind a hover on one button. A plain-text file
+            carries no segmentation and no entities, and that gap is decided
+            here — by the time the analysis page says so, the import is done. */}
+        <p className="text-xs text-text-muted mt-2">
+          Markdown / TXT 是一个文件一个项目，不带分词、词性与实体，因此词频、情节线、地点清单这几节会显示为读不到，其余维度照常。TraceView 项目目录带有全部输入。
+        </p>
       </div>
 
       {error && (
         <div className="text-bad mb-4">
-          <p>Import failed:</p>
-          <pre className="text-xs mt-2">{error}</pre>
+          <p>导入失败：</p>
+          <pre className="text-xs mt-2 whitespace-pre-wrap">{error}</pre>
         </div>
       )}
 
@@ -161,7 +167,7 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
         <div className="mb-4 p-4 bg-surface-alt rounded-lg border border-accent/30">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm text-accent font-medium">Importing...</span>
+            <span className="text-sm text-accent font-medium">导入中…</span>
           </div>
           {progress && progress.total > 0 && (
             <div className="mt-1">
@@ -174,7 +180,7 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
                 />
               </div>
               <p className="text-xs text-text-muted mt-1">
-                {progress.current.toLocaleString()} / {progress.total.toLocaleString()} blocks
+                {progress.current.toLocaleString()} / {progress.total.toLocaleString()} 个文本块
               </p>
             </div>
           )}
@@ -194,9 +200,10 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
       {projects.length === 0 ? (
         <div className="text-center py-12 text-text-muted">
           <p className="text-4xl mb-4">📂</p>
-          <p>No projects yet.</p>
-          <p className="text-sm mt-2">
-            Select a TraceView project folder (containing project.json) to import.
+          <p>还没有项目。</p>
+          <p className="text-sm mt-2 max-w-md mx-auto">
+            导入一个 Markdown 或 TXT 文件，或一个包含 <code>project.json</code> 的 TraceView
+            项目目录。导入完成后这里会出现项目卡片，点进去就是分析。
           </p>
         </div>
       ) : (

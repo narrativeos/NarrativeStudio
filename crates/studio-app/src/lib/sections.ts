@@ -13,7 +13,7 @@ export interface AnalysisSection {
 }
 
 export const ANALYSIS_SECTIONS: AnalysisSection[] = [
-  { id: "overview", label: "总体评估" },
+  { id: "overview", label: "统计概览" },
   { id: "statistics", label: "统计分析" },
   { id: "text", label: "文本诊断" },
   { id: "structure", label: "结构分析" },

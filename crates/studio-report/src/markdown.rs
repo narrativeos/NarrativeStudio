@@ -76,11 +76,19 @@ fn write_header(out: &mut String, input: &ReportInput) {
 }
 
 fn write_overall(out: &mut String, assessment: &Assessment) {
-    out.push_str("## 总体评估\n\n");
+    out.push_str("## 统计概览\n\n");
     out.push_str(&format!(
-        "总体评分：**{:.1} / 100**\n\n",
+        "T0/T1 统计均值：**{:.1} / 100**\n\n",
         assessment.overall
     ));
+    // Named for what it averages. The rest of this report is careful not to
+    // reduce a manuscript to one number — the voice, structure, explicit-language
+    // and checklist sections carry no score by design — so a heading that
+    // promises an overall verdict would contradict them, and a reader would take
+    // the mean of five statistical dimensions as a grade on the writing.
+    out.push_str(
+        "这是下列五项的等权平均，全部来自 T0/T1 的统计量。情节、冲突、主题、场景、对话、故事结构、时间线与作者声音不参与：它们不给分（见各自小节）。这个数字描述的是行文统计，不是稿子的优劣。\n\n",
+    );
     out.push_str("| 维度 | 评分 | 说明 |\n| --- | ---: | --- |\n");
     for d in &assessment.dimensions {
         out.push_str(&format!(
@@ -2510,9 +2518,11 @@ mod tests {
 - 生成时间：2026-01-01 08:30 UTC
 - 分析版本：m2-v6
 
-## 总体评估
+## 统计概览
 
-总体评分：**88.0 / 100**
+T0/T1 统计均值：**88.0 / 100**
+
+这是下列五项的等权平均，全部来自 T0/T1 的统计量。情节、冲突、主题、场景、对话、故事结构、时间线与作者声音不参与：它们不给分（见各自小节）。这个数字描述的是行文统计，不是稿子的优劣。
 
 | 维度 | 评分 | 说明 |
 | --- | ---: | --- |
@@ -2737,7 +2747,7 @@ _本报告由 NarrativeStudio 基于导入的分析结果自动生成。_
         let md = render_markdown(&input);
         for heading in [
             "# P · 叙事分析报告",
-            "## 总体评估",
+            "## 统计概览",
             "## 关键建议",
             "## 文本统计",
             "## 文本诊断",

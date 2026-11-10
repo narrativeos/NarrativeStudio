@@ -901,7 +901,7 @@ fn test_report_generation_and_export() {
     // A real document has to produce a real report: every section, the title, and
     // the same numbers the analysis page shows.
     for heading in [
-        "## 总体评估",
+        "## 统计概览",
         "## 关键建议",
         "## 文本统计",
         "## 文本诊断",
@@ -929,6 +929,14 @@ fn test_report_generation_and_export() {
     assert!(markdown.contains("导入的实体标注里有 19 处日期"));
     assert!(markdown.starts_with(&format!("# {} · 叙事分析报告", project.name)));
     assert!(markdown.contains(&format!("**{:.1} / 100**", assessment.overall)));
+    // Named for what it averages. The number is the mean of five T0/T1
+    // statistics, while 作者声音, 故事结构, 显式语言 and the checklist deliberately
+    // carry no score — so the report has to say which five, and that it is not a
+    // grade on the writing, beside the number itself.
+    assert!(markdown.contains("T0/T1 统计均值"));
+    assert!(markdown.contains("它们不给分"));
+    assert!(!markdown.contains("总体评分"), "{markdown}");
+    assert!(!markdown.contains("综合评分"), "{markdown}");
     assert!(markdown.contains(&format!("| 字数 | {} |", t0.char_count)));
     // The voice section reports the same sentences the analysis page counts.
     assert!(markdown.contains(&format!(

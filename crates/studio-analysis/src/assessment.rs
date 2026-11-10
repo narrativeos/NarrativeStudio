@@ -30,7 +30,14 @@ pub struct Recommendation {
     pub detail: String,
 }
 
-/// Overall assessment for a project.
+/// Statistical overview for a project.
+///
+/// `overall` is the equal-weight mean of the five T0/T1 dimensions below and
+/// nothing else. It is deliberately not called an overall assessment: 作者声音,
+/// 故事结构, 显式语言 and the final checklist carry no score by design, so a
+/// number claiming to sum up a manuscript would contradict them. Both the
+/// analysis page and the report name it 统计概览 / T0/T1 统计均值 and list which
+/// five dimensions it averages beside it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assessment {
     /// Equal-weight mean of dimension scores, 0-100.
