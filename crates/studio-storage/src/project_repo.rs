@@ -119,8 +119,10 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummary>> {
 ///
 /// Removes, in dependency order (children first), the project's analysis
 /// results and concerns, its documents and every imported block/token/entity/
-/// noun-signal row, and finally the project row itself. Runs in a single
-/// transaction so a failure leaves the database consistent.
+/// noun-signal row, its generated reports, and finally the project row itself.
+/// Runs in a single transaction so a failure leaves the database consistent.
+/// The entity registry is deliberately kept: its stable ids exist to survive
+/// re-imports, and nothing in them points back at a project.
 pub fn delete(conn: &Connection, project_id: Uuid) -> Result<()> {
     let pid = project_id.to_string();
     let tx = Transaction::new_unchecked(conn)
@@ -157,6 +159,12 @@ pub fn delete(conn: &Connection, project_id: Uuid) -> Result<()> {
     )
     .map_err(|e| crate::StudioError::Database(e.to_string()))?;
     tx.execute("DELETE FROM documents WHERE project_id = ?", [pid.as_str()])
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+
+    // Generated reports: every export inserts a fresh Markdown row, so skipping
+    // this table would leave those rows orphaned forever after the project —
+    // the only thing that ever reads them — is gone.
+    tx.execute("DELETE FROM reports WHERE project_id = ?", [pid.as_str()])
         .map_err(|e| crate::StudioError::Database(e.to_string()))?;
 
     // Finally the project row itself.
@@ -264,11 +272,30 @@ mod tests {
         };
         save_document(&conn, project.project_id, &doc, None).unwrap();
 
+        // A generated report, because every export inserts a fresh row and a
+        // project that is gone must not leave those rows behind.
+        crate::save_report(
+            &conn,
+            &crate::StoredReport {
+                report_id: Uuid::new_v4(),
+                project_id: project.project_id,
+                title: Some("Cascade 报告".into()),
+                markdown: "# 报告".into(),
+                exported_path: None,
+                created_at: chrono::Utc::now(),
+            },
+        )
+        .unwrap();
+
         // Sanity: the imported data exists before the delete.
         let blocks: i64 = conn
             .query_row("SELECT COUNT(*) FROM semantic_blocks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(blocks, 1);
+        let reports: i64 = conn
+            .query_row("SELECT COUNT(*) FROM reports", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(reports, 1);
 
         delete(&conn, project.project_id).unwrap();
 
@@ -282,6 +309,7 @@ mod tests {
             "noun_signals",
             "analysis_results",
             "concerns",
+            "reports",
         ] {
             let n: i64 = conn
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
