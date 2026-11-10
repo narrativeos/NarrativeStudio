@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import ProjectCard from "../components/ProjectCard";
+import { useShortcuts } from "../lib/shortcuts";
 import type { Project } from "../types";
 
 interface ImportProgress {
@@ -26,6 +27,10 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
+
+  // The two import paths are the first thing anyone needs a key for, and the
+  // page is only this page while it is showing the list.
+  useShortcuts({ import: handleImportText, "import-folder": handleImport });
 
   // Keep the log box scrolled to the newest line as it grows.
   useEffect(() => {
@@ -153,6 +158,12 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
             here — by the time the analysis page says so, the import is done. */}
         <p className="text-xs text-text-muted mt-2">
           Markdown / TXT 是一个文件一个项目，不带分词、词性与实体，因此词频、情节线、地点清单这几节会显示为读不到，其余维度照常。TraceView 项目目录带有全部输入。
+        </p>
+        {/* Named where they are used: a shortcut nobody can discover is a
+            shortcut nobody has. */}
+        <p className="text-xs text-text-muted mt-1">
+          快捷键：<kbd className="font-sans">⌘O</kbd> 导入文件 ·{" "}
+          <kbd className="font-sans">⌘⇧O</kbd> 导入项目目录
         </p>
       </div>
 

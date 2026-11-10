@@ -17,6 +17,7 @@ function App() {
   const [themeChoice, setThemeChoice] = useState<ThemeChoice>(() =>
     readChoice(localStorage),
   );
+  const [problem, setProblem] = useState<string | null>(null);
 
   // The pick lives in React; the OS preference lives in a media query that can
   // change while the window is open, so both are re-applied together.
@@ -37,12 +38,29 @@ function App() {
     loadProjects();
   }, []);
 
+  /**
+   * Say something went wrong, without stopping anyone.
+   *
+   * This was `window.alert`. A modal native dialog freezes the whole window,
+   * cannot be dismissed with Escape, takes focus away from whatever the reader
+   * was in the middle of, and repeats itself for every failure in a row — which
+   * for a failed batch of imports means clicking through the same box many
+   * times. A banner states it once, stays until dismissed, and leaves the page
+   * usable underneath.
+   */
+  function reportProblem(message: string) {
+    console.error(message);
+    setProblem(message);
+  }
+
   async function loadProjects() {
     try {
       const result = await invoke<Project[]>("list_projects");
       setProjects(result);
     } catch (e) {
-      console.error("Failed to load projects:", e);
+      // A list that comes back empty because the command failed is not an empty
+      // library, and the empty state would cheerfully invite a first import.
+      reportProblem(`读取项目列表失败：${String(e)}`);
     }
   }
 
@@ -55,8 +73,7 @@ function App() {
       }
       await loadProjects();
     } catch (e) {
-      console.error("Failed to delete project:", e);
-      window.alert(`删除项目失败：${e}`);
+      reportProblem(`删除项目失败：${String(e)}`);
     }
   }
 
@@ -110,6 +127,21 @@ function App() {
             `main` itself would leave a band above the dimension bar that the
             page scrolls through. */}
         <div className="p-6">
+          {problem && (
+            <div
+              role="alert"
+              className="mb-4 flex items-start gap-3 p-3 rounded-lg border border-bad/40 bg-bad/15 text-sm text-bad"
+            >
+              <p className="flex-1">{problem}</p>
+              <button
+                onClick={() => setProblem(null)}
+                aria-label="关闭提示"
+                className="shrink-0 px-1.5 py-0.5 rounded hover:bg-fill/50"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {view === "home" && (
             <Home projects={projects} onOpenProject={selectProject} onImported={loadProjects} />
           )}

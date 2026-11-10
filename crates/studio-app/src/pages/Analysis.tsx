@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../components/Cards";
 import SectionNav from "../components/SectionNav";
+import { useShortcuts } from "../lib/shortcuts";
 import ClicheSection from "../components/analysis/ClicheSection";
 import ChecklistSection from "../components/analysis/ChecklistSection";
 import ConflictSection from "../components/analysis/ConflictSection";
@@ -114,6 +115,30 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       setExporting(false);
     }
   }
+
+  /**
+   * Recompute now, ignoring the persisted cache.
+   *
+   * Named because the keyboard needs it too: ⌘R is the reader's "I changed the
+   * text" gesture, and a shortcut that does something different from the button
+   * it mirrors is worse than no shortcut.
+   */
+  function reanalyze() {
+    setForce(true);
+    setReload((n) => n + 1);
+  }
+
+  // ⌘R and ⌘E belong to whichever project is open, so they are bound here and
+  // not in the shell, which does not know what is showing. A run already in
+  // flight is not started twice.
+  useShortcuts({
+    reanalyze: () => {
+      if (!loading && !exporting) reanalyze();
+    },
+    export: () => {
+      if (data && !exporting) void exportReport();
+    },
+  });
 
   /**
    * Export the report as print-ready HTML — the PDF path.
@@ -260,12 +285,10 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             {exportingKnowsphere ? "导出中…" : "导出知识球"}
           </button>
           <button
-            onClick={() => {
-              setForce(true);
-              setReload((n) => n + 1);
-            }}
-            className="px-3 py-1.5 text-sm rounded-md bg-fill/60 hover:bg-fill text-text transition-colors"
-            title="忽略缓存，重新计算并覆盖已保存的分析结果"
+            onClick={reanalyze}
+            disabled={loading || exporting}
+            className="px-3 py-1.5 text-sm rounded-md bg-fill/60 hover:bg-fill text-text transition-colors disabled:opacity-50"
+            title="忽略缓存，重新计算并覆盖已保存的分析结果（⌘R）"
           >
             重新分析
           </button>

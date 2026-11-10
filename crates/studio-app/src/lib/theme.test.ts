@@ -134,6 +134,7 @@ describe("colour tokens", () => {
       "firm",
       "info",
       "bad-solid",
+      "bad-on-solid",
     ];
     for (const [, theme, body] of blocks) {
       for (const name of semantic) {
@@ -183,9 +184,12 @@ describe("theme legibility", () => {
     });
 
     it(`keeps ${theme} destructive buttons readable`, () => {
+      // Measured between the two tokens, not against a literal white: the point
+      // is that the pair the button actually uses holds in both themes.
       const solid = token(theme, "bad-solid");
-      if (!solid) return;
-      expect(contrast("#ffffff", solid)).toBeGreaterThanOrEqual(4.5);
+      const ink = token(theme, "bad-on-solid");
+      if (!solid || !ink) return;
+      expect(contrast(ink, solid)).toBeGreaterThanOrEqual(4.5);
     });
   }
 });

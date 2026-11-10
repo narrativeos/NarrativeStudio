@@ -26,6 +26,7 @@
   --color-firm: var(--firm);
   --color-info: var(--info);
   --color-bad-solid: var(--bad-solid);
+  --color-bad-on-solid: var(--bad-on-solid);
 }
 
 /*
@@ -72,6 +73,11 @@
   --firm: var(--color-rose-400);
   --info: var(--color-sky-400);
   --bad-solid: var(--color-red-600);
+  /* The ink on a filled destructive button. Named because the alternative is a
+     component hardcoding white, which a light theme cannot reach — and the
+     pairing is only safe while someone checks it, so it is checked in
+     theme.test.ts against this token rather than a literal. */
+  --bad-on-solid: #ffffff;
   color-scheme: dark;
 }
 
@@ -92,6 +98,7 @@
   --firm: #be123c;
   --info: #075985;
   --bad-solid: #dc2626;
+  --bad-on-solid: #ffffff;
   color-scheme: light;
 }
 
@@ -99,4 +106,22 @@ body {
   @apply bg-surface text-text font-sans antialiased;
   margin: 0;
   overflow: hidden;
+}
+
+/**
+ * The focus ring, for keyboards.
+ *
+ * Nothing in the app had one: every control kept the browser default, which
+ * macOS suppresses until a keyboard is used and which the surrounding
+ * `transition-colors` then fades into invisibility. Tab order alone is not
+ * accessibility — it has to be visible where the order currently is.
+ *
+ * `:where()` keeps the rule at zero specificity so a control's own utilities
+ * still win, and `:focus-visible` rather than `:focus` so clicking a button does
+ * not ring it. Both themes read: the accent is a dark blue on light surfaces and
+ * a light blue on dark ones.
+ */
+:where(button, a, input, select, textarea, [tabindex], [role="checkbox"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

@@ -5,29 +5,42 @@ interface ProjectCardProps {
   onOpen: (id: string) => void;
 }
 
+/**
+ * A project in the list.
+ *
+ * The card is the primary action of this page, so it is a `button` rather than a
+ * `div` with an `onClick`: focusable, activated by Space and Enter, and announced
+ * with its name. A reader who never touches the trackpad can still open a project.
+ *
+ * Its contents are spans because a button's content model is phrasing content —
+ * the layout comes from classes, not from the element.
+ */
 function ProjectCard({ project, onOpen }: ProjectCardProps) {
   return (
-    <div
+    <button
       onClick={() => onOpen(project.project_id)}
-      className="p-4 bg-surface-alt rounded-lg border border-line hover:border-accent/50 transition-colors cursor-pointer"
+      className="w-full text-left p-4 bg-surface-alt rounded-lg border border-line hover:border-accent/50 transition-colors"
     >
-      <h3 className="font-medium text-text">{project.name}</h3>
-      <div className="flex gap-4 mt-2 text-xs text-text-muted">
-        {project.genre && <span>Genre: {project.genre}</span>}
+      <span className="block font-medium text-text">{project.name}</span>
+      <span className="flex gap-4 mt-2 text-xs text-text-muted">
+        {project.genre && <span>类型：{project.genre}</span>}
         {project.word_count != null && (
-          <span>{project.word_count.toLocaleString()} words</span>
+          <span className="tabular-nums">{project.word_count.toLocaleString()} 字</span>
         )}
         {project.chapter_count != null && (
-          <span>{project.chapter_count} documents</span>
+          <span className="tabular-nums">{project.chapter_count} 篇文档</span>
         )}
         <span>{new Date(project.created_at).toLocaleDateString()}</span>
-      </div>
+      </span>
       {project.source_path && (
-        <p className="text-xs text-text-muted/60 mt-1 truncate" title={project.source_path}>
+        <span
+          className="block text-xs text-text-muted/60 mt-1 truncate"
+          title={project.source_path}
+        >
           📁 {project.source_path}
-        </p>
+        </span>
       )}
-    </div>
+    </button>
   );
 }
 
