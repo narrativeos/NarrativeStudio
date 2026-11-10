@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../components/Cards";
 import SectionNav from "../components/SectionNav";
+import { analysisShapeProblems } from "../lib/analysis-shape";
 import { useShortcuts } from "../lib/shortcuts";
 import ClicheSection from "../components/analysis/ClicheSection";
 import ChecklistSection from "../components/analysis/ChecklistSection";
@@ -56,6 +57,14 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
   const [data, setData] = useState<ProjectAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Parts of the returned analysis the page cannot render without.
+   *
+   * Kept apart from `error` because the reader's next step differs: a failed
+   * command is retried, an incomplete one is recomputed — the numbers are on
+   * disk, just not in the shape this build reads.
+   */
+  const [incomplete, setIncomplete] = useState<string[] | null>(null);
   // Bumping `reload` re-runs the load; `force` marks a run that must bypass and
   // replace the persisted cache ("重新分析").
   const [reload, setReload] = useState(0);
@@ -72,12 +81,22 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       setLoading(true);
       setError(null);
       setData(null);
+      setIncomplete(null);
       try {
         const result = await invoke<ProjectAnalysis>("analyze_project", {
           projectId,
           force,
         });
-        if (!cancelled) setData(result);
+        if (cancelled) return;
+        // Checked before it reaches the render, because an unchecked field does
+        // not fail quietly here — it throws mid-render and takes the whole
+        // window's interactivity with it. See `lib/analysis-shape.ts`.
+        const problems = analysisShapeProblems(result);
+        if (problems.length > 0) {
+          setIncomplete(problems);
+        } else {
+          setData(result);
+        }
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -204,6 +223,40 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       <div className="text-bad">
         <p>分析失败：</p>
         <pre className="text-xs mt-2 whitespace-pre-wrap">{error}</pre>
+      </div>
+    );
+  }
+
+  if (incomplete) {
+    // The command answered, so this is not a failure to retry — the numbers are
+    // stored, just not in the shape this build reads. Saying "分析失败" here
+    // would send the reader to the wrong fix, and rendering anyway would take
+    // the window down with it.
+    return (
+      <div className="space-y-4">
+        <div
+          role="alert"
+          className="p-4 rounded-lg border border-warn/40 bg-warn/15 text-sm"
+        >
+          <h2 className="font-semibold mb-1">缓存的分析结果不完整</h2>
+          <p className="mb-2">
+            后端返回的结果缺少这一版界面需要的部分，直接画会让整页失效。通常是分析引擎升级后留下的旧缓存。
+          </p>
+          <ul className="list-disc pl-5 mb-3 text-xs">
+            {incomplete.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
+          <button
+            onClick={reanalyze}
+            className="px-3 py-1.5 rounded bg-accent-soft text-accent hover:bg-accent hover:text-surface"
+          >
+            重新分析
+          </button>
+        </div>
+        <p className="text-xs text-text-muted">
+          重新分析会重算并覆盖这个项目的缓存，不会改动稿子本身。
+        </p>
       </div>
     );
   }

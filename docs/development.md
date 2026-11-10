@@ -571,6 +571,8 @@ useEffect(() => {
 | 图表有可读的名字 | 三个 SVG 图表带 `role="img"` + `aria-label`；`LineChart` 的 `label` 是**必填** prop | `tsc`（漏了就编不过） |
 | 减弱动效 | `index.css` 的 `prefers-reduced-motion` 全局归零；`SectionNav` 在 JS 里查同一条 query（平滑滚动 CSS 管不了） | 人工冒烟 |
 | 错误不打断 | `App.tsx` 的 `reportProblem` 渲染可关闭横幅，不用 `window.alert` | 人工冒烟 |
+| 渲染失败不静默 | `components/ErrorBoundary.tsx` 包在路由之外，把 render 异常变成屏幕上的文本 | `App.test.tsx` |
+| 后端 payload 先验形状 | `lib/analysis-shape.ts` 在渲染前检查 `ProjectAnalysis`，缺字段走「缓存不完整」面板而不是崩溃 | `analysis-shape.test.ts` |
 | 命中区 | 勾选框一律 ≥ 20px；清单整行是 `<label>` | 人工冒烟 |
 
 **字号**：`index.css` 里把 `--text-xs` 抬到 13px（Tailwind 默认 12px）。中文界面原先几乎全用 `text-xs`，
@@ -989,13 +991,43 @@ cargo flamegraph -p studio-analysis -- test_word_frequency
 
 ### 9.2 前端调试
 
-```bash
-# 浏览器中开发（mock IPC）
-cd crates/studio-app && pnpm dev  # http://localhost:5173
-# 在 src/lib/mock.ts 中实现 mock invoke/listen
-```
+`.vscode/launch.json` 已配好四组，任选其一（Rust 那组需要 CodeLLDB 扩展）：
 
-### 9.3 常见问题
+| 配置 | 用途 |
+|------|------|
+| 调试 Rust（Tauri 主进程） | lldb 断 Rust；preLaunchTask 会自己起 Vite（1422） |
+| Attach 到运行中的 Tauri 进程 | 终端里已经跑着 `pnpm tauri dev` 时附加进去 |
+| 调试前端（Chrome + Chrome DevTools） | 断点进组件；此处没有 Tauri IPC，`invoke` 会失败并显示顶部横幅 |
+| 全量调试（Rust + 前端） | 上面两组同时起 |
+
+在 WebView 里看 JS：debug 构建默认开着 devtools，macOS 上也可用 Safari → 开发 → 对应窗口。
+命令行起 dev server 用 `pnpm dev`（端口 **1422**，见 `vite.config.ts`；不是 5173）。
+
+### 9.3 页面还在，但什么都点不动
+
+这是本项目最容易误诊的一类故障，值得单独记：
+
+**React 19 里任何 render 期抛错都会卸载整棵树。** WebView 没有自动打开的 console，
+窗口会保留最后一次成功绘制的像素——所以看起来页面完好，而里面每个按钮都不再有反应，
+并且不留下任何提示。`components/ErrorBoundary.tsx` 包在路由之外，就是为了把这种情况
+变成屏幕上的一段中文错误文本加一个「重新载入」。
+
+已知会走这条路的原因：**后端返回的 `ProjectAnalysis` 缺字段**。`invoke<ProjectAnalysis>`
+是断言不是校验，而 Analysis 页会直接解构它（`t1.sections`、`conflict.points`），所以旧版本
+引擎留下的缓存足以让整页失活。现在这条路径由 `lib/analysis-shape.ts` 在渲染前拦下，
+页面显示「缓存的分析结果不完整」并列出缺哪几项，按「重新分析」重算覆盖缓存。
+
+排查顺序：
+
+1. 屏幕上有没有那段错误文本？有就直接按它说的做（文本里带 stack，dev 构建下）。
+2. 若是「缓存的分析结果不完整」，用 ⌘R 或面板上的按钮重新分析。
+3. 都没有、但确实点不动：用「Attach 到运行中的 Tauri 进程」或 Safari devtools 看 console，
+   找卸载前的那条异常。
+
+回归测试在 `src/App.test.tsx`——它是全项目唯一真正渲染组件并派发点击事件的测试，
+其余都是纯逻辑测试，所以点击链路断掉时只有它会红。
+
+### 9.4 常见问题
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
@@ -1005,7 +1037,7 @@ cd crates/studio-app && pnpm dev  # http://localhost:5173
 | LLM 超时 | —（当前无 LLM 调用） | 不适用 |
 | 内存泄漏 | 大 JSON 未释放 | 分析完成后显式 `drop()` 中间数据 |
 
-### 9.4 数据目录结构
+### 9.5 数据目录结构
 
 当前实现：数据库在 `app_data_dir`（macOS 下 `~/Library/Application Support/`）里的
 `narrative_studio.duckdb`，正文与实体全部在库内；`projects.source_path` 原位指向 TraceView
