@@ -10,6 +10,11 @@ use uuid::Uuid;
 
 use crate::Result;
 
+/// Subquery scopes for the batched child loaders: the rows of one document,
+/// or the rows of every document of one project.
+const DOC_SCOPE: &str = "WHERE doc_id = ?";
+const PROJECT_SCOPE: &str = "WHERE doc_id IN (SELECT doc_id FROM documents WHERE project_id = ?)";
+
 /// Maximum number of `on_progress` invocations per `save_document` call.
 ///
 /// Progress is reported at most once per `total / 100` blocks (plus the final
@@ -262,9 +267,9 @@ pub fn load_document(conn: &Connection, doc_id: Uuid) -> Result<DocumentData> {
     // attach them to their blocks by source_block_id. This replaces the previous
     // per-block N+1 pattern (3 queries per block) with a constant number of
     // queries, which keeps analysis fast on large documents.
-    let mut tokens_by_block = load_tokens_for_doc(conn, doc_id)?;
-    let mut entities_by_block = load_entities_for_doc(conn, doc_id)?;
-    let mut signals_by_block = load_signals_for_doc(conn, doc_id)?;
+    let mut tokens_by_block = load_tokens_scoped(conn, DOC_SCOPE, &doc_id.to_string())?;
+    let mut entities_by_block = load_entities_scoped(conn, DOC_SCOPE, &doc_id.to_string())?;
+    let mut signals_by_block = load_signals_scoped(conn, DOC_SCOPE, &doc_id.to_string())?;
 
     for block in blocks.iter_mut() {
         let key = block.source_block_id.clone();
@@ -282,21 +287,141 @@ pub fn load_document(conn: &Connection, doc_id: Uuid) -> Result<DocumentData> {
     })
 }
 
-/// Load all tokens belonging to a document's blocks, grouped by source_block_id.
+/// Load every document of a project in a constant number of queries.
 ///
-/// A single query scoped to the document (via a subquery on `semantic_blocks`)
-/// replaces the previous one-query-per-block pattern.
-fn load_tokens_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<String, Vec<Token>>> {
+/// [`load_document`] costs five queries per document, so calling it once per
+/// document of a project costs 5N. This loads the metadata, the blocks and
+/// all three child tables with five queries in total — scoped to the project
+/// — and merges them in memory: documents in creation order, blocks in
+/// sequence. Today a project holds one document, so the difference is
+/// invisible; the analysis path calls this so the cost does not grow with
+/// the data.
+pub fn load_project_documents(conn: &Connection, project_id: Uuid) -> Result<Vec<DocumentData>> {
+    let pid = project_id.to_string();
+
     let mut stmt = conn
         .prepare(
-            "SELECT source_block_id, text, pos, confidence, span_start, span_end, source
-             FROM tokens
-             WHERE source_block_id IN (SELECT source_block_id FROM semantic_blocks WHERE doc_id = ?)
-             ORDER BY source_block_id, seq",
+            "SELECT doc_id, title, total_word_count, total_char_count
+             FROM documents WHERE project_id = ? ORDER BY created_at ASC",
         )
         .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+    let doc_rows = stmt
+        .query_map([pid.as_str()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+
+    let mut order: Vec<Uuid> = Vec::new();
+    let mut docs: HashMap<Uuid, DocumentData> = HashMap::new();
+    for row in doc_rows {
+        let (doc_id, title, word_count, char_count) =
+            row.map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        let doc_id = crate::project_repo::parse_uuid(&doc_id)
+            .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        order.push(doc_id);
+        docs.insert(
+            doc_id,
+            DocumentData {
+                doc_id,
+                title,
+                blocks: Vec::new(),
+                total_word_count: word_count as u64,
+                total_char_count: char_count as u64,
+            },
+        );
+    }
+    if docs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Every block of the project, doc by doc, seq by seq.
+    let mut stmt = conn
+        .prepare(
+            "SELECT source_block_id, doc_id, content, section_path, block_type, title
+             FROM semantic_blocks
+             WHERE doc_id IN (SELECT doc_id FROM documents WHERE project_id = ?)
+             ORDER BY doc_id, seq",
+        )
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+    let block_rows = stmt
+        .query_map([pid.as_str()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+
+    // The child tables, one query each, scoped to the project.
+    let mut tokens_by_block = load_tokens_scoped(conn, PROJECT_SCOPE, &pid)?;
+    let mut entities_by_block = load_entities_scoped(conn, PROJECT_SCOPE, &pid)?;
+    let mut signals_by_block = load_signals_scoped(conn, PROJECT_SCOPE, &pid)?;
+
+    for row in block_rows {
+        let (source_block_id, doc_id, content, section_path, block_type, title) =
+            row.map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        let doc_id = crate::project_repo::parse_uuid(&doc_id)
+            .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        let doc = docs.get_mut(&doc_id).ok_or_else(|| {
+            crate::StudioError::Database(format!(
+                "block {source_block_id} references unknown document {doc_id}"
+            ))
+        })?;
+        doc.blocks.push(SemanticBlock {
+            source_block_id: source_block_id.clone(),
+            content,
+            section_path,
+            block_type,
+            title,
+            tokens: tokens_by_block.remove(&source_block_id).unwrap_or_default(),
+            entities: entities_by_block
+                .remove(&source_block_id)
+                .unwrap_or_default(),
+            noun_signals: signals_by_block
+                .remove(&source_block_id)
+                .unwrap_or_default(),
+        });
+    }
+
+    let mut out = Vec::with_capacity(order.len());
+    for doc_id in order {
+        out.push(docs.remove(&doc_id).ok_or_else(|| {
+            crate::StudioError::Database(format!("document {doc_id} vanished mid-load"))
+        })?);
+    }
+    Ok(out)
+}
+
+/// Load every token whose block falls inside `scope`, grouped by
+/// source_block_id.
+///
+/// A single query — scoped to one document or to a whole project via a
+/// subquery on `semantic_blocks` — replaces the previous
+/// one-query-per-block pattern.
+fn load_tokens_scoped(
+    conn: &Connection,
+    scope: &str,
+    id: &str,
+) -> Result<HashMap<String, Vec<Token>>> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT source_block_id, text, pos, confidence, span_start, span_end, source
+             FROM tokens
+             WHERE source_block_id IN (SELECT source_block_id FROM semantic_blocks {scope})
+             ORDER BY source_block_id, seq",
+        ))
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
     let rows = stmt
-        .query_map([doc_id.to_string()], |row| {
+        .query_map([id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -323,18 +448,23 @@ fn load_tokens_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<String
     Ok(by_block)
 }
 
-/// Load all entities belonging to a document's blocks, grouped by source_block_id.
-fn load_entities_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<String, Vec<Entity>>> {
+/// Load every entity whose block falls inside `scope`, grouped by
+/// source_block_id. See [`load_tokens_scoped`].
+fn load_entities_scoped(
+    conn: &Connection,
+    scope: &str,
+    id: &str,
+) -> Result<HashMap<String, Vec<Entity>>> {
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT source_block_id, text, category, confidence, source, keep, filter, filter_reason, span_start, span_end, stable_id
              FROM entities
-             WHERE source_block_id IN (SELECT source_block_id FROM semantic_blocks WHERE doc_id = ?)
+             WHERE source_block_id IN (SELECT source_block_id FROM semantic_blocks {scope})
              ORDER BY source_block_id, seq",
-        )
+        ))
         .map_err(|e| crate::StudioError::Database(e.to_string()))?;
     let rows = stmt
-        .query_map([doc_id.to_string()], |row| {
+        .query_map([id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -380,21 +510,23 @@ fn load_entities_for_doc(conn: &Connection, doc_id: Uuid) -> Result<HashMap<Stri
     Ok(by_block)
 }
 
-/// Load all noun signals belonging to a document's blocks, grouped by source_block_id.
-fn load_signals_for_doc(
+/// Load every noun signal whose block falls inside `scope`, grouped by
+/// source_block_id. See [`load_tokens_scoped`].
+fn load_signals_scoped(
     conn: &Connection,
-    doc_id: Uuid,
+    scope: &str,
+    id: &str,
 ) -> Result<HashMap<String, Vec<NounSignal>>> {
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT source_block_id, text, pos, syntactic_role, score, span_start, span_end
              FROM noun_signals
-             WHERE source_block_id IN (SELECT source_block_id FROM semantic_blocks WHERE doc_id = ?)
+             WHERE source_block_id IN (SELECT source_block_id FROM semantic_blocks {scope})
              ORDER BY source_block_id, seq",
-        )
+        ))
         .map_err(|e| crate::StudioError::Database(e.to_string()))?;
     let rows = stmt
-        .query_map([doc_id.to_string()], |row| {
+        .query_map([id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -503,6 +635,47 @@ mod tests {
         let conn = test_conn();
         let result = load_document(&conn, Uuid::new_v4());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_project_documents_batches_and_scopes() {
+        let conn = test_conn();
+        let project = Uuid::new_v4();
+        let other_project = Uuid::new_v4();
+
+        // Two documents in the project, one in another, so the batched load
+        // has to prove both its merge and its scope.
+        let mut first = sample_doc();
+        first.title = "First".into();
+        let mut second = sample_doc();
+        second.title = "Second".into();
+        second.blocks[0].source_block_id = "blk-2".into();
+        let mut foreign = sample_doc();
+        foreign.blocks[0].source_block_id = "blk-3".into();
+
+        save_document(&conn, project, &first, None).unwrap();
+        save_document(&conn, project, &second, None).unwrap();
+        save_document(&conn, other_project, &foreign, None).unwrap();
+
+        let docs = load_project_documents(&conn, project).unwrap();
+        assert_eq!(docs.len(), 2);
+        // Creation order, each document complete with its children, nothing
+        // from the other project mixed in.
+        assert_eq!(docs[0].title, "First");
+        assert_eq!(docs[1].title, "Second");
+        for doc in &docs {
+            assert_eq!(doc.blocks.len(), 1);
+            assert_eq!(doc.blocks[0].tokens.len(), 1);
+            assert_eq!(doc.blocks[0].entities.len(), 1);
+            assert_eq!(doc.blocks[0].noun_signals.len(), 1);
+        }
+        assert_eq!(docs[0].blocks[0].source_block_id, "blk-1");
+        assert_eq!(docs[1].blocks[0].source_block_id, "blk-2");
+
+        assert_eq!(
+            load_project_documents(&conn, Uuid::new_v4()).unwrap().len(),
+            0
+        );
     }
 
     fn block_with_id(id: &str) -> SemanticBlock {

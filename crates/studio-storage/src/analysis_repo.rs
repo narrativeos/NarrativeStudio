@@ -10,7 +10,9 @@
 //! to invalidate a project when its text is edited — the key does that by
 //! construction.
 
-use duckdb::{params, Connection, OptionalExt};
+use std::collections::HashMap;
+
+use duckdb::{params, Connection, OptionalExt, Transaction};
 use serde::de::DeserializeOwned;
 use studio_core::concern::{Concern, ConcernLocation, Severity};
 use uuid::Uuid;
@@ -128,6 +130,118 @@ pub fn load_cached<T: DeserializeOwned>(
             .map(Some)
             .map_err(|e| crate::StudioError::Database(format!("Corrupt cached {dimension}: {e}"))),
     }
+}
+
+/// Every row stored under `input_hash` for a project, keyed by dimension.
+///
+/// One query replaces the per-dimension lookups the full-analysis path used
+/// to make (one per dimension, fifteen for a whole analysis): the cache check
+/// is a single read, and a dimension that is absent — or whose payload cannot
+/// be deserialized into the type the caller expects — is simply a miss, which
+/// is exactly how a stale or corrupt row should behave: recompute.
+pub fn load_results_for_hash(
+    conn: &Connection,
+    project_id: Uuid,
+    input_hash: &str,
+) -> Result<HashMap<String, String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT dimension, data FROM analysis_results \
+             WHERE project_id = ? AND input_hash = ?",
+        )
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+    let rows = stmt
+        .query_map(params![project_id.to_string(), input_hash], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+    let mut by_dimension: HashMap<String, String> = HashMap::new();
+    for row in rows {
+        let (dimension, data) = row.map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        by_dimension.insert(dimension, data);
+    }
+    Ok(by_dimension)
+}
+
+/// One dimension of a full analysis, as one row of `analysis_results`.
+pub struct DimensionRow<'a> {
+    pub dimension: &'a str,
+    pub tier: &'a str,
+    pub score: Option<f32>,
+    /// The dimension's payload, already serialized.
+    pub data: &'a str,
+}
+
+/// Store a whole analysis — every dimension plus the assessment's concerns —
+/// in a single transaction.
+///
+/// [`save_result`] does this for one dimension at a time; a full analysis is
+/// fifteen dimensions, which used to cost ~60 autocommit statements and left
+/// a window in which half the rows carried the new `input_hash` and half the
+/// old. One transaction makes the bundle atomic: the cache either holds this
+/// analysis whole, or the previous one whole.
+///
+/// Like [`save_result`], any rows for the same `(project, dimension,
+/// input_hash)` are replaced first, and the concerns hanging off replaced
+/// rows go with them.
+pub fn save_analysis_bundle(
+    conn: &Connection,
+    project_id: Uuid,
+    input_hash: &str,
+    dimensions: &[DimensionRow<'_>],
+    concerns: &[Concern],
+) -> Result<()> {
+    let pid = project_id.to_string();
+    let tx = Transaction::new_unchecked(conn)
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+
+    let mut assessment_id: Option<i64> = None;
+    for dim in dimensions {
+        for sql in [
+            "DELETE FROM concerns WHERE result_id IN \
+             (SELECT result_id FROM analysis_results WHERE project_id = ? AND dimension = ? AND input_hash = ?)",
+            "DELETE FROM analysis_results WHERE project_id = ? AND dimension = ? AND input_hash = ?",
+        ] {
+            tx.execute(sql, params![pid.as_str(), dim.dimension, input_hash])
+                .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        }
+
+        let result_id: i64 = tx
+            .query_row("SELECT nextval('seq_analysis_results')", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+        tx.execute(
+            "INSERT INTO analysis_results \
+             (result_id, project_id, dimension, tier, input_hash, score, data, computed_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                result_id,
+                pid.as_str(),
+                dim.dimension,
+                dim.tier,
+                input_hash,
+                dim.score,
+                dim.data,
+                chrono::Utc::now().to_rfc3339()
+            ],
+        )
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+
+        // The assessment row anchors the concern rows, like in `persist_analysis`.
+        if dim.dimension == "assessment" {
+            assessment_id = Some(result_id);
+        }
+    }
+
+    let assessment_id = assessment_id.ok_or_else(|| {
+        crate::StudioError::Database("analysis bundle has no assessment dimension".into())
+    })?;
+    save_concerns(&tx, assessment_id, concerns)?;
+
+    tx.commit()
+        .map_err(|e| crate::StudioError::Database(e.to_string()))?;
+    Ok(())
 }
 
 /// Drop every result stored for a project — the explicit "重新分析" path —
@@ -405,5 +519,83 @@ mod tests {
     fn test_unknown_severity_falls_back_to_medium() {
         assert_eq!(severity_from_str("blocker"), Severity::Medium);
         assert_eq!(severity_to_str(&Severity::Critical), "critical");
+    }
+
+    #[test]
+    fn test_load_results_for_hash_returns_all_dimensions() {
+        let conn = test_conn();
+        let project = Uuid::new_v4();
+        save_result(&conn, project, "t0", "t0", "h", None, "{\"a\":1}").unwrap();
+        save_result(&conn, project, "t1", "t1", "h", Some(1.5), "{\"b\":2}").unwrap();
+        // A different input is a different bundle, never mixed in.
+        save_result(&conn, project, "t0", "t0", "other", None, "{}").unwrap();
+
+        let rows = load_results_for_hash(&conn, project, "h").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows["t0"], "{\"a\":1}");
+        assert_eq!(rows["t1"], "{\"b\":2}");
+        assert!(load_results_for_hash(&conn, project, "none")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_save_analysis_bundle_replaces_and_attaches_concerns() {
+        let conn = test_conn();
+        let project = Uuid::new_v4();
+        let dims = || {
+            vec![
+                DimensionRow {
+                    dimension: "t0",
+                    tier: "t0",
+                    score: None,
+                    data: "{\"v\":1}",
+                },
+                DimensionRow {
+                    dimension: "assessment",
+                    tier: "t1",
+                    score: Some(70.0),
+                    data: "{\"v\":2}",
+                },
+            ]
+        };
+
+        save_analysis_bundle(
+            &conn,
+            project,
+            "h",
+            &dims(),
+            &[concern(Severity::High, "高")],
+        )
+        .unwrap();
+        assert_eq!(count(&conn, "analysis_results"), 2);
+        assert_eq!(count(&conn, "concerns"), 1);
+
+        // A re-run at the same hash replaces the bundle without duplication,
+        // and the old concerns go with the assessment row they hung off.
+        save_analysis_bundle(
+            &conn,
+            project,
+            "h",
+            &dims(),
+            &[concern(Severity::Low, "低")],
+        )
+        .unwrap();
+        assert_eq!(count(&conn, "analysis_results"), 2);
+        assert_eq!(count(&conn, "concerns"), 1);
+
+        // A bundle without an assessment dimension cannot anchor its concerns.
+        let no_assessment = vec![DimensionRow {
+            dimension: "t0",
+            tier: "t0",
+            score: None,
+            data: "{}",
+        }];
+        assert!(save_analysis_bundle(&conn, project, "h2", &no_assessment, &[]).is_err());
+        // The failed call left no partial bundle behind (one transaction).
+        assert_eq!(
+            load_results_for_hash(&conn, project, "h2").unwrap().len(),
+            0
+        );
     }
 }
