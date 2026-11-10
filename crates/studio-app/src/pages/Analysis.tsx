@@ -110,6 +110,28 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
   }, [projectId, reload, force]);
 
   /**
+   * One export in flight: guard the button, clear the stale note, then run the
+   * body and either show the path it wrote or report the failure. The three
+   * export commands differ only in what they run, so that shared shape — the
+   * one that must never leave a button stuck disabled — lives here once.
+   */
+  async function runExport(
+    setBusy: (v: boolean) => void,
+    body: () => Promise<string | null>,
+  ) {
+    setBusy(true);
+    setExportNote(null);
+    try {
+      const note = await body();
+      if (note) setExportNote(note);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
    * Generate the Markdown report, then ask where to save it.
    *
    * Generation and writing are separate commands because the backend stores the
@@ -117,22 +139,16 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
    * re-exporting later cannot silently produce different numbers.
    */
   async function exportReport() {
-    setExporting(true);
-    setExportNote(null);
-    try {
+    await runExport(setExporting, async () => {
       const report = await invoke<ReportMeta>("report_generate", { projectId });
       const target = await save({
         defaultPath: `${report.title}.md`,
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
-      if (!target) return; // user cancelled the dialog
+      if (!target) return null; // user cancelled the dialog
       await invoke("report_export", { reportId: report.report_id, path: target });
-      setExportNote(`已导出：${target}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setExporting(false);
-    }
+      return `已导出：${target}`;
+    });
   }
 
   /**
@@ -168,23 +184,17 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
    * left, which is why no print dialog is opened from here.
    */
   async function exportPdf() {
-    setExportingPdf(true);
-    setExportNote(null);
-    try {
+    await runExport(setExportingPdf, async () => {
       const report = await invoke<ReportMeta>("report_generate", { projectId });
       const target = await save({
         title: "导出打印就绪 HTML（用浏览器打开后 ⌘P 存为 PDF）",
         defaultPath: `${report.title}.html`,
         filters: [{ name: "HTML", extensions: ["html"] }],
       });
-      if (!target) return; // user cancelled the dialog
+      if (!target) return null; // user cancelled the dialog
       await invoke("report_export_html", { reportId: report.report_id, path: target });
-      setExportNote(`已导出打印就绪 HTML：${target}（浏览器打开后按 ⌘P 存为 PDF）`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setExportingPdf(false);
-    }
+      return `已导出打印就绪 HTML：${target}（浏览器打开后按 ⌘P 存为 PDF）`;
+    });
   }
 
   /**
@@ -196,22 +206,16 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
    * written file is always loadable by NarratSphere.
    */
   async function exportKnowsphere() {
-    setExportingKnowsphere(true);
-    setExportNote(null);
-    try {
+    await runExport(setExportingKnowsphere, async () => {
       const target = await save({
         title: "导出知识球文件",
         defaultPath: `${data?.name ?? "project"}.knowsphere.json`,
         filters: [{ name: "Knowsphere", extensions: ["json"] }],
       });
-      if (!target) return; // user cancelled the dialog
+      if (!target) return null; // user cancelled the dialog
       await invoke("export_knowsphere", { projectId, path: target });
-      setExportNote(`已导出知识球文件：${target}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setExportingKnowsphere(false);
-    }
+      return `已导出知识球文件：${target}`;
+    });
   }
 
   if (loading) {

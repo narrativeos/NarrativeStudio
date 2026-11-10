@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import ProjectCard from "../components/ProjectCard";
 import { FolderIcon } from "../components/Icon";
@@ -27,7 +27,6 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
   const [logs, setLogs] = useState<string[]>([]);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
-  const unlistenRef = useRef<UnlistenFn | null>(null);
 
   // The two import paths are the first thing anyone needs a key for, and the
   // page is only this page while it is showing the list.
@@ -40,20 +39,21 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
     }
   }, [logs]);
 
-  async function handleImport() {
-    const folderPath = await open({
-      title: "选择 TraceView 项目文件夹",
-      directory: true,
-      multiple: false,
-    });
-    if (!folderPath || typeof folderPath !== "string") return;
-
+  /**
+   * Run one import: progress events in, one list refresh out.
+   *
+   * The "done" event used to refresh the list and so did the resolved invoke,
+   * which fetched the project list twice per import. The event now only ends
+   * the spinner; the refresh happens once, when the command resolves — the
+   * one path that also knows the import truly finished.
+   */
+  async function runImport(command: string, args: Record<string, unknown>) {
     setImporting(true);
     setError(null);
     setLogs([]);
     setProgress(null);
 
-    unlistenRef.current = await listen<ImportProgress>("import-progress", (event) => {
+    const unlisten = await listen<ImportProgress>("import-progress", (event) => {
       const p = event.payload;
       if ((p.type === "status" || p.type === "progress") && p.message) {
         setLogs((prev) => [...prev, p.message as string]);
@@ -63,7 +63,6 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
       }
       if (p.type === "done") {
         setImporting(false);
-        onImported();
       }
       if (p.type === "error") {
         setError(p.message ?? "Import failed");
@@ -72,18 +71,24 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
     });
 
     try {
-      await invoke("import_project", { projectPath: folderPath });
-      setImporting(false);
+      await invoke(command, args);
       onImported();
     } catch (e) {
       setError(String(e));
-      setImporting(false);
     } finally {
-      if (unlistenRef.current) {
-        unlistenRef.current();
-        unlistenRef.current = null;
-      }
+      setImporting(false);
+      unlisten();
     }
+  }
+
+  async function handleImport() {
+    const folderPath = await open({
+      title: "选择 TraceView 项目文件夹",
+      directory: true,
+      multiple: false,
+    });
+    if (!folderPath || typeof folderPath !== "string") return;
+    await runImport("import_project", { projectPath: folderPath });
   }
 
   async function handleImportText() {
@@ -94,43 +99,7 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
       filters: [{ name: "文本", extensions: ["md", "markdown", "mdown", "mkd", "txt"] }],
     });
     if (!filePath || typeof filePath !== "string") return;
-
-    setImporting(true);
-    setError(null);
-    setLogs([]);
-    setProgress(null);
-
-    unlistenRef.current = await listen<ImportProgress>("import-progress", (event) => {
-      const p = event.payload;
-      if ((p.type === "status" || p.type === "progress") && p.message) {
-        setLogs((prev) => [...prev, p.message as string]);
-      }
-      if (p.type === "progress" && p.total != null && p.total > 0) {
-        setProgress({ current: p.current ?? 0, total: p.total });
-      }
-      if (p.type === "done") {
-        setImporting(false);
-        onImported();
-      }
-      if (p.type === "error") {
-        setError(p.message ?? "Import failed");
-        setImporting(false);
-      }
-    });
-
-    try {
-      await invoke("import_text_file", { filePath });
-      setImporting(false);
-      onImported();
-    } catch (e) {
-      setError(String(e));
-      setImporting(false);
-    } finally {
-      if (unlistenRef.current) {
-        unlistenRef.current();
-        unlistenRef.current = null;
-      }
-    }
+    await runImport("import_text_file", { filePath });
   }
 
   return (
