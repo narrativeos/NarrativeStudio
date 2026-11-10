@@ -1,4 +1,4 @@
-import { Panel, SectionTitle, StatCard } from "../Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../Cards";
 import {
   formatFixed,
   formatInt,
@@ -45,7 +45,7 @@ const LANDMARK_TICK_COLORS: Record<string, string> = {
  */
 function StructureSection({ structure }: StructureSectionProps) {
   return (
-    <section>
+    <section id="story-structure" className={SECTION_ANCHOR}>
       <SectionTitle>故事结构</SectionTitle>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

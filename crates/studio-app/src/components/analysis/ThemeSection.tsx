@@ -1,4 +1,4 @@
-import { Panel, SectionTitle, StatCard } from "../Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../Cards";
 import LineChart from "../charts/LineChart";
 import BarList from "../charts/BarList";
 import {
@@ -42,7 +42,7 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
     : [];
 
   return (
-    <section>
+    <section id="theme" className={SECTION_ANCHOR}>
       <SectionTitle>主题分析</SectionTitle>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Panel, SectionTitle } from "../Cards";
+import { Panel, SectionTitle, SECTION_ANCHOR } from "../Cards";
 import { checklistBadgeStyle, checklistGroupLabel, formatInt } from "../../lib/format";
 import { readTicks, tickProgress, toggleTick, writeTicks } from "../../lib/checklist";
 import type { ChecklistItem, ReviewChecklist } from "../../types";
@@ -43,7 +43,7 @@ function ChecklistSection({ checklist, projectId }: ChecklistSectionProps) {
   }
 
   return (
-    <section>
+    <section id="checklist" className={SECTION_ANCHOR}>
       <SectionTitle>最终审查清单</SectionTitle>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">

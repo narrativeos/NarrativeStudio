@@ -104,17 +104,23 @@ function App() {
         themeChoice={themeChoice}
         onThemeChoice={chooseTheme}
       />
-      <main className="flex-1 overflow-auto p-6">
-        {view === "home" && (
-          <Home projects={projects} onOpenProject={selectProject} onImported={loadProjects} />
-        )}
-        {view === "project" && selectedProjectId && (
-          <Analysis projectId={selectedProjectId} onBack={goHome} />
-        )}
-        {view === "compare" && <Compare selection={compareSelection} />}
-        {view === "settings" && (
-          <div className="text-text-muted">Settings (coming soon)</div>
-        )}
+      <main className="flex-1 overflow-auto">
+        {/* The padding lives inside the scroller rather than on it: a sticky
+            element offsets from the scrollport's padding edge, so padding on
+            `main` itself would leave a band above the dimension bar that the
+            page scrolls through. */}
+        <div className="p-6">
+          {view === "home" && (
+            <Home projects={projects} onOpenProject={selectProject} onImported={loadProjects} />
+          )}
+          {view === "project" && selectedProjectId && (
+            <Analysis projectId={selectedProjectId} onBack={goHome} />
+          )}
+          {view === "compare" && <Compare selection={compareSelection} />}
+          {view === "settings" && (
+            <div className="text-text-muted">Settings (coming soon)</div>
+          )}
+        </div>
       </main>
     </div>
   );

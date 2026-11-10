@@ -1,4 +1,4 @@
-import { Panel, SectionTitle, StatCard } from "../Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../Cards";
 import {
   formatInt,
   formatPercent,
@@ -55,7 +55,7 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
   const unreadableDates = timeline.entity_date_count - timeline.absolute_count;
 
   return (
-    <section>
+    <section id="timeline" className={SECTION_ANCHOR}>
       <SectionTitle>时间线</SectionTitle>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

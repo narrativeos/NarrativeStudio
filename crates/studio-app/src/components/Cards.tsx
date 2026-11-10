@@ -16,6 +16,19 @@ export function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The class every dimension `<section>` carries so a jump from `SectionNav`
+ * lands with its heading in view.
+ *
+ * The margin is the height of that sticky bar plus the gap under it, and it has
+ * to match `BAR_OFFSET` in `SectionNav`: too small and the heading arrives
+ * hidden behind the bar, which reads as the link doing nothing. It lives here
+ * rather than at each call site because seventeen copies of a number drift.
+ */
+export const SECTION_ANCHOR = "scroll-mt-24";
+
+
+
 /** A single headline number. */
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (

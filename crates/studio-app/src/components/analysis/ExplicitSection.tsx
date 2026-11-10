@@ -1,4 +1,4 @@
-import { Panel, SectionTitle, StatCard } from "../Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../Cards";
 import BarList from "../charts/BarList";
 import LineChart from "../charts/LineChart";
 import {
@@ -39,7 +39,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
   const comparable = explicit.peak_section !== "";
 
   return (
-    <section>
+    <section id="explicit" className={SECTION_ANCHOR}>
       <SectionTitle>显式语言</SectionTitle>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

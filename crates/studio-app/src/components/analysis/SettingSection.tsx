@@ -1,4 +1,4 @@
-import { Panel, SectionTitle, StatCard } from "../Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../Cards";
 import LineChart from "../charts/LineChart";
 import {
   formatFixed,
@@ -35,7 +35,7 @@ function SettingSection({ setting }: SettingSectionProps) {
   }));
 
   return (
-    <section>
+    <section id="setting" className={SECTION_ANCHOR}>
       <SectionTitle>场景/设定</SectionTitle>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

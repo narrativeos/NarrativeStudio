@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { Panel, SectionTitle, StatCard } from "../components/Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../components/Cards";
+import SectionNav from "../components/SectionNav";
 import ClicheSection from "../components/analysis/ClicheSection";
 import ChecklistSection from "../components/analysis/ChecklistSection";
 import ConflictSection from "../components/analysis/ConflictSection";
@@ -285,6 +286,10 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
         </div>
       )}
 
+      {/* Seventeen dimensions in one column: the bar that lets a reader go
+          straight to the one they came for, and know which one they are in. */}
+      <SectionNav />
+
       {/* Overview metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard
@@ -302,7 +307,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       </div>
 
       {/* Overall assessment */}
-      <section>
+      <section id="overview" className={SECTION_ANCHOR}>
         <SectionTitle>总体评估</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
           <Panel title={`综合评分 ${formatScore(data.assessment.overall)} / 100`}>
@@ -362,7 +367,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       </section>
 
       {/* Statistical analysis */}
-      <section>
+      <section id="statistics" className={SECTION_ANCHOR}>
         <SectionTitle>统计分析</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
           <Panel title="高频词 Top 15">
@@ -425,7 +430,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       </section>
 
       {/* Text diagnostics */}
-      <section>
+      <section id="text" className={SECTION_ANCHOR}>
         <SectionTitle>文本诊断</SectionTitle>
         <div className="grid md:grid-cols-3 gap-4">
           <Panel title="重复短语 Top 15">
@@ -453,7 +458,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       </section>
 
       {/* Structural analysis */}
-      <section>
+      <section id="structure" className={SECTION_ANCHOR}>
         <SectionTitle>结构分析</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
           <Panel title="块类型分布">
@@ -507,7 +512,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       </section>
 
       {/* Narrative analysis */}
-      <section>
+      <section id="narrative" className={SECTION_ANCHOR}>
         <SectionTitle>叙事分析</SectionTitle>
         <div className="grid md:grid-cols-2 gap-4">
           <Panel title={`叙事弧线（${arcShapeLabel(t1.arc.shape)}）`}>
@@ -589,7 +594,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       </section>
 
       {/* Plot analysis */}
-      <section>
+      <section id="plot" className={SECTION_ANCHOR}>
         <SectionTitle>情节分析</SectionTitle>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard
@@ -743,7 +748,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       </section>
 
       {/* Pacing analysis */}
-      <section>
+      <section id="pacing" className={SECTION_ANCHOR}>
         <SectionTitle>节奏分析</SectionTitle>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="节奏评分" value={`${formatScore(pacing.pace_score)} / 100`} />

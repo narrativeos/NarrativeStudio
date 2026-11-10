@@ -1,4 +1,4 @@
-import { Panel, SectionTitle, StatCard } from "../Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../Cards";
 import LineChart from "../charts/LineChart";
 import {
   formatFixed,
@@ -37,7 +37,7 @@ function VoiceSection({ voice }: VoiceSectionProps) {
     voice.paragraph_count === 0 ? 0 : voice.single_sentence_paragraphs / voice.paragraph_count;
 
   return (
-    <section>
+    <section id="voice" className={SECTION_ANCHOR}>
       <SectionTitle>作者声音</SectionTitle>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

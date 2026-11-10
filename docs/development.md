@@ -452,11 +452,17 @@ pub(crate) async fn export_knowsphere(
 
 | 页面 | 组件 | 说明 |
 |------|------|------|
-| 项目列表 | `pages/Home.tsx` | 所有项目卡片，新建/导入/删除 |
-| 分析详情 | `pages/Analysis.tsx` | 单项目 14 维分析视图 + 报告/知识球导出 |
+| 项目列表 | `pages/Home.tsx` | 所有项目卡片，导入 TraceView 目录或 Markdown/TXT（见 §6.10） |
+| 分析详情 | `pages/Analysis.tsx` | 单项目 17 节分析视图 + 报告/知识球导出 |
 | 多项目对比 | `pages/Compare.tsx` | 选择多个项目对比 |
 
 > 页面切换由 `App.tsx` 内部状态驱动，未引入路由库；没有设置页。
+>
+> 分析页是长页：17 个 `<section>`，节次清单只写在 `lib/sections.ts` 一处，页面顶部 `SectionNav` 与每个
+> `<section id>` 都由它派生。`sections.test.ts` 扫全部源码把两边对齐——加了节次忘了登记，或登记了没渲染，
+> 都会在这里失败而不是留一个死链接。锚点边距是 `Cards.tsx` 的 `SECTION_ANCHOR`，必须等于 `SectionNav` 的
+> `BAR_OFFSET`：小了标题会停在跳转条底下，看起来像点了没反应。滚动监听注册在 `window` 的**捕获**阶段——
+> 页面滚的是 `<main>` 而不是 window，捕获是让一个监听器看到任意元素滚动的办法。
 
 ### 5.2 组件层级
 

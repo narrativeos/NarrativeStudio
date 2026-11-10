@@ -1,4 +1,4 @@
-import { Panel, SectionTitle, StatCard } from "../Cards";
+import { Panel, SectionTitle, StatCard, SECTION_ANCHOR } from "../Cards";
 import BarList from "../charts/BarList";
 import LineChart from "../charts/LineChart";
 import {
@@ -36,7 +36,7 @@ function DialogueSection({ dialogue }: DialogueSectionProps) {
   const comparable = dialogue.peak_section !== "";
 
   return (
-    <section>
+    <section id="dialogue" className={SECTION_ANCHOR}>
       <SectionTitle>对话/叙事比例</SectionTitle>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
