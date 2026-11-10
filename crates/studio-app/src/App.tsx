@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar";
 import Home from "./pages/Home";
 import Analysis from "./pages/Analysis";
 import Compare from "./pages/Compare";
+import { readBridge } from "./lib/bridge";
 import { applyTheme, readChoice, writeChoice, type ThemeChoice } from "./lib/theme";
 import type { Project } from "./types";
 
@@ -18,6 +19,9 @@ function App() {
     readChoice(localStorage),
   );
   const [problem, setProblem] = useState<string | null>(null);
+  // Read once per render rather than kept in state: the bridge is decided by
+  // which window this is and cannot change while the window is open.
+  const bridge = readBridge();
 
   // The pick lives in React; the OS preference lives in a media query that can
   // change while the window is open, so both are re-applied together.
@@ -35,8 +39,13 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // Nothing here can succeed without the bridge, and trying produces a banner
+    // per command that looks like damaged data. See `lib/bridge.ts`.
+    if (bridge === "none") return;
     loadProjects();
-  }, []);
+    // `bridge` cannot change while the window is open, so this still runs once;
+    // naming it keeps the effect honest rather than widening an existing warning.
+  }, [bridge]);
 
   /**
    * Say something went wrong, without stopping anyone.
@@ -102,6 +111,32 @@ function App() {
       return next;
     });
   }, []);
+
+  if (bridge === "none") {
+    // Its own page rather than a banner, because a banner leaves an empty project
+    // list underneath that reads as the library being empty. Nothing in this
+    // window can be made to work, and the reason is which window it is.
+    return (
+      <div className="p-6">
+        <div className="max-w-2xl p-4 rounded-lg border border-warn/40 bg-warn/15 text-sm">
+          <h2 className="font-semibold mb-2">这个窗口没有连到 Tauri 后端</h2>
+          <p className="mb-2">
+            项目列表、导入和分析都要经过 Tauri 注入的 IPC 桥，而这个窗口里没有它。所以这里不会列出项目，也不是数据读坏了。
+          </p>
+          <p className="mb-2">
+            若你是在浏览器里打开 <code className="font-mono text-xs">http://localhost:1422</code>
+            ：那只能调样式和组件。要跑真实数据，请起完整的开发实例：
+          </p>
+          <pre className="font-mono text-xs mb-3 whitespace-pre-wrap">
+            cd crates/studio-app && pnpm tauri dev
+          </pre>
+          <p>
+            或在 VS Code 里用 launch.json 的「调试 Rust（Tauri 主进程）」。若这条提示出现在应用自己的窗口里，说明前后端不是同一次构建，重跑上面那条命令即可。
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen">

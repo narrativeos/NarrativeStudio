@@ -98,7 +98,22 @@ beforeEach(() => {
   analysis.invoke = vi.fn(async (cmd: string) =>
     cmd === "list_projects" ? [project("p1", "测试稿")] : {},
   );
+  // The app checks for the IPC bridge the Tauri runtime injects before it asks
+  // for anything, so these cases say they are inside that runtime. Delegating
+  // keeps the check working when a case swaps the mock out.
+  setBridge(true);
 });
+
+function setBridge(present: boolean) {
+  const scope = window as unknown as { __TAURI_INTERNALS__?: unknown };
+  if (present) {
+    scope.__TAURI_INTERNALS__ = {
+      invoke: (cmd: string, args?: unknown) => analysis.invoke(cmd, args),
+    };
+  } else {
+    delete scope.__TAURI_INTERNALS__;
+  }
+}
 
 describe("the running app", () => {
   it("opens a project when its card is clicked", async () => {
@@ -167,6 +182,21 @@ describe("the running app", () => {
       (b) => b.textContent === "重新分析",
     );
     expect(retry, "the incomplete panel offers the fix").toBeTruthy();
+  });
+
+  it("explains a window with no backend instead of reporting bad data", async () => {
+    // Without the injected bridge every command throws
+    // `Cannot read properties of undefined (reading 'invoke')`, which the app
+    // used to surface as 「读取项目列表失败」 — a message that reads like the
+    // library is corrupt, to someone who only opened a browser tab.
+    setBridge(false);
+    render(<App />);
+    await act(async () => {});
+
+    expect(host.textContent).toContain("这个窗口没有连到 Tauri 后端");
+    expect(host.textContent).toContain("pnpm tauri dev");
+    expect(host.textContent).not.toContain("读取项目列表失败");
+    expect(analysis.invoke).not.toHaveBeenCalled();
   });
 });
 

@@ -573,6 +573,7 @@ useEffect(() => {
 | 错误不打断 | `App.tsx` 的 `reportProblem` 渲染可关闭横幅，不用 `window.alert` | 人工冒烟 |
 | 渲染失败不静默 | `components/ErrorBoundary.tsx` 包在路由之外，把 render 异常变成屏幕上的文本 | `App.test.tsx` |
 | 后端 payload 先验形状 | `lib/analysis-shape.ts` 在渲染前检查 `ProjectAnalysis`，缺字段走「缓存不完整」面板而不是崩溃 | `analysis-shape.test.ts` |
+| 没有 IPC 桥就直说 | `lib/bridge.ts` 判断当前窗口能否到达 Rust 侧；不能就显示专门的页面，而不是报「读取项目列表失败」 | `bridge.test.ts`、`App.test.tsx` |
 | 命中区 | 勾选框一律 ≥ 20px；清单整行是 `<label>` | 人工冒烟 |
 
 **字号**：`index.css` 里把 `--text-xs` 抬到 13px（Tailwind 默认 12px）。中文界面原先几乎全用 `text-xs`，
@@ -1002,6 +1003,12 @@ cargo flamegraph -p studio-analysis -- test_word_frequency
 
 在 WebView 里看 JS：debug 构建默认开着 devtools，macOS 上也可用 Safari → 开发 → 对应窗口。
 命令行起 dev server 用 `pnpm dev`（端口 **1422**，见 `vite.config.ts`；不是 5173）。
+
+**浏览器里没有数据。** 所有命令都走 Tauri 注入的 `window.__TAURI_INTERNALS__.invoke`，
+只有 Tauri 自己的 WebView 才有它。在浏览器里打开 1422（或打开 `dist/index.html`）时，
+页面会直接显示「这个窗口没有连到 Tauri 后端」并让你跑 `pnpm tauri dev`——Chrome 那组配置
+只能调样式和组件。这条判断住在 `lib/bridge.ts`，由 `App.test.tsx` 与 `bridge.test.ts` 守住；
+在此之前它表现为「读取项目列表失败：TypeError: … reading 'invoke'」，看起来像数据坏了。
 
 ### 9.3 页面还在，但什么都点不动
 
