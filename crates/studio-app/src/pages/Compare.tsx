@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { entityTotal, formatFixed, formatInt, formatPercent, wordsMeasured } from "../lib/format";
 import { ScalesIcon } from "../components/Icon";
-import type { ProjectAnalysis } from "../types";
+import type { ProjectAnalysis, ProjectAnalysisOutcome } from "../types";
 
 interface CompareProps {
   selection: Set<string>;
@@ -13,9 +13,10 @@ function Compare({ selection }: CompareProps) {
   // That removes the need for a synchronous reset inside the effect (which
   // caused cascading renders) and makes it impossible for a stale response
   // from a previous selection to render under the current one.
-  const [result, setResult] = useState<{ key: string; data: ProjectAnalysis[] } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{
+    key: string;
+    outcomes: ProjectAnalysisOutcome[];
+  } | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
 
   const selectedIds = useMemo(() => Array.from(selection), [selection]);
@@ -28,8 +29,10 @@ function Compare({ selection }: CompareProps) {
     let cancelled = false;
     async function run() {
       try {
-        const data = await invoke<ProjectAnalysis[]>("analyze_projects", { projectIds });
-        if (!cancelled) setResult({ key: depKey, data });
+        const outcomes = await invoke<ProjectAnalysisOutcome[]>("analyze_projects", {
+          projectIds,
+        });
+        if (!cancelled) setResult({ key: depKey, outcomes });
       } catch (e) {
         if (!cancelled) setFailure({ key: depKey, message: String(e) });
       }
@@ -40,10 +43,16 @@ function Compare({ selection }: CompareProps) {
     };
   }, [depKey, enoughSelected]);
 
-  const data = result?.key === depKey ? result.data : null;
+  const outcomes = result?.key === depKey ? result.outcomes : null;
   const error = failure?.key === depKey ? failure.message : null;
   const loading =
     enoughSelected && result?.key !== depKey && failure?.key !== depKey;
+  // One project's failure no longer voids the batch: the columns that could
+  // answer are shown, and the ones that could not are named below.
+  const data = outcomes
+    ? outcomes.flatMap((o) => (o.analysis ? [o.analysis] : []))
+    : null;
+  const failures = (outcomes ?? []).filter((o) => o.error);
 
   const metrics: { label: string; value: (a: ProjectAnalysis) => string }[] = [
     // A text-only project has no segmentation and no entities, so these two are
@@ -116,6 +125,19 @@ function Compare({ selection }: CompareProps) {
             <div className="text-bad mb-4">
               <p>对比失败：</p>
               <pre className="text-xs mt-2 whitespace-pre-wrap">{error}</pre>
+            </div>
+          )}
+          {failures.length > 0 && (
+            <div className="text-warn mb-4 text-sm">
+              <p>{failures.length} 个项目未能完成分析，其余项目照常对比：</p>
+              {failures.map((f) => (
+                <pre
+                  key={f.project_id}
+                  className="text-xs mt-1 whitespace-pre-wrap"
+                >
+                  {f.error}
+                </pre>
+              ))}
             </div>
           )}
           {data && data.length >= 2 && (

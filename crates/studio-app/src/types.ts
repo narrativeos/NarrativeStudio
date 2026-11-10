@@ -1036,3 +1036,11 @@ export interface ProjectAnalysis {
   /** True when the numbers were read from the persisted cache. */
   cached: boolean;
 }
+
+/** One project's outcome of the multi-project comparison: its analysis, or
+ *  the reason it failed. One broken project no longer voids the whole batch. */
+export interface ProjectAnalysisOutcome {
+  project_id: string;
+  analysis: ProjectAnalysis | null;
+  error: string | null;
+}

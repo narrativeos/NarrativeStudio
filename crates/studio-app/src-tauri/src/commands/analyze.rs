@@ -2,7 +2,9 @@
 //! content-hash-keyed result cache, and document reads.
 
 use duckdb::Connection;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::collections::HashMap;
 use studio_analysis::{
     document_hash, run_assessment, run_cliche_analysis, run_conflict_analysis,
     run_dialogue_analysis, run_explicit_analysis, run_pacing_analysis, run_plot_analysis,
@@ -16,12 +18,32 @@ use studio_core::concern::{Concern, ConcernLocation, Severity};
 use studio_core::document::DocumentData;
 use studio_import::parse_semantic_result;
 use studio_storage::{
-    get, invalidate_project, load_cached, load_document, save_concerns, save_result,
+    get, invalidate_project, load_document, load_project_documents, load_results_for_hash,
+    save_analysis_bundle, DimensionRow,
 };
 use tauri::State;
 use uuid::Uuid;
 
 use crate::AppState;
+
+// The dimension keys, spelled once: the cache read and the persist table both
+// name rows through these, so a rename cannot land on one side only. The
+// frontend's `analysis-shape.ts` keeps the matching list.
+const D_T0: &str = "t0";
+const D_T1: &str = "t1";
+const D_PLOT: &str = "plot";
+const D_PACING: &str = "pacing";
+const D_CONFLICT: &str = "conflict";
+const D_THEME: &str = "theme";
+const D_SETTING: &str = "setting";
+const D_CLICHE: &str = "cliche";
+const D_DIALOGUE: &str = "dialogue";
+const D_EXPLICIT: &str = "explicit";
+const D_STRUCTURE: &str = "structure";
+const D_TIMELINE: &str = "timeline";
+const D_VOICE: &str = "voice";
+const D_CHECKLIST: &str = "checklist";
+const D_ASSESSMENT: &str = "assessment";
 
 /// Run T0 analysis on a semantic_result.json file.
 #[tauri::command]
@@ -72,19 +94,14 @@ pub struct ProjectAnalysis {
 /// Load all documents of a project and merge them into a single `DocumentData`.
 ///
 /// A project currently holds one document, but this merges any number so the
-/// analysis stays correct if a project ever contains multiple documents.
+/// analysis stays correct if a project ever contains multiple documents. The
+/// batched loader keeps the whole read at a constant number of queries no
+/// matter how many documents a project holds.
 pub(crate) fn load_project_document(
     conn: &Connection,
     project_id: Uuid,
 ) -> Result<DocumentData, String> {
-    let mut stmt = conn
-        .prepare("SELECT doc_id FROM documents WHERE project_id = ? ORDER BY created_at ASC")
-        .map_err(|e| e.to_string())?;
-    let doc_ids: Vec<String> = stmt
-        .query_map([project_id.to_string()], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+    let docs = load_project_documents(conn, project_id).map_err(|e| e.to_string())?;
 
     let mut merged = DocumentData {
         doc_id: Uuid::new_v4(),
@@ -94,9 +111,7 @@ pub(crate) fn load_project_document(
         total_char_count: 0,
     };
 
-    for doc_id in doc_ids {
-        let uuid = Uuid::parse_str(&doc_id).map_err(|e| e.to_string())?;
-        let doc = load_document(conn, uuid).map_err(|e| e.to_string())?;
+    for doc in docs {
         merged.total_word_count += doc.total_word_count;
         merged.total_char_count += doc.total_char_count;
         merged.blocks.extend(doc.blocks);
@@ -105,7 +120,7 @@ pub(crate) fn load_project_document(
     Ok(merged)
 }
 
-/// Core: get T0/T1/assessment for a project, from the cache when it is valid.
+/// Core: get the full analysis for a project, from the cache when it is valid.
 ///
 /// The cache is keyed on the SHA-256 of the analysed content, so it is only
 /// reused for byte-identical input: re-importing the same file keeps the cache
@@ -113,92 +128,40 @@ pub(crate) fn load_project_document(
 /// `force` (the "重新分析" button) drops the stored rows first and recomputes —
 /// needed when the analysis logic itself changed, which the input hash cannot
 /// detect on its own.
+///
+/// Returns the analysis and the `input_hash` it is keyed on, so a caller that
+/// also needs the hash (`export_knowsphere`) does not read and hash the whole
+/// document a second time.
+///
+/// The database lock is held for the queries — project row, documents, hash,
+/// cache check — and again for the write at the end, never across the
+/// CPU-heavy analysis passes in between. One mutex serves every command in
+/// the app; holding it through a computation would block even
+/// `list_projects` until the analysis finished.
 pub(crate) fn analyze_project_inner(
     state: &State<AppState>,
     project_id: &str,
     force: bool,
-) -> Result<ProjectAnalysis, String> {
+) -> Result<(ProjectAnalysis, String), String> {
     let pid = Uuid::parse_str(project_id).map_err(|e| e.to_string())?;
-    let storage = state.storage.lock().map_err(|e| e.to_string())?;
-    let project = get(&storage.conn, pid).map_err(|e| e.to_string())?;
-    let doc = load_project_document(&storage.conn, pid)?;
-    let input_hash = document_hash(&doc).map_err(|e| e.to_string())?;
-
-    if force {
-        invalidate_project(&storage.conn, pid).map_err(|e| e.to_string())?;
-    } else {
-        let t0 = load_cached::<T0Stats>(&storage.conn, pid, "t0", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let t1 = load_cached::<T1Stats>(&storage.conn, pid, "t1", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let plot = load_cached::<PlotStats>(&storage.conn, pid, "plot", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let pacing = load_cached::<PacingStats>(&storage.conn, pid, "pacing", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let conflict = load_cached::<ConflictStats>(&storage.conn, pid, "conflict", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let theme = load_cached::<ThemeStats>(&storage.conn, pid, "theme", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let setting = load_cached::<SettingStats>(&storage.conn, pid, "setting", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let cliche = load_cached::<ClicheStats>(&storage.conn, pid, "cliche", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let dialogue = load_cached::<DialogueStats>(&storage.conn, pid, "dialogue", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let explicit = load_cached::<ExplicitStats>(&storage.conn, pid, "explicit", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let structure = load_cached::<StructureStats>(&storage.conn, pid, "structure", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let timeline = load_cached::<TimelineStats>(&storage.conn, pid, "timeline", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let voice = load_cached::<VoiceStats>(&storage.conn, pid, "voice", &input_hash)
-            .map_err(|e| e.to_string())?;
-        let checklist =
-            load_cached::<ReviewChecklist>(&storage.conn, pid, "checklist", &input_hash)
-                .map_err(|e| e.to_string())?;
-        let assessment = load_cached::<Assessment>(&storage.conn, pid, "assessment", &input_hash)
-            .map_err(|e| e.to_string())?;
-        if let (
-            Some(t0),
-            Some(t1),
-            Some(plot),
-            Some(pacing),
-            Some(conflict),
-            Some(theme),
-            Some(setting),
-            Some(cliche),
-            Some(dialogue),
-            Some(explicit),
-            Some(structure),
-            Some(timeline),
-            Some(voice),
-            Some(checklist),
-            Some(assessment),
-        ) = (
-            t0, t1, plot, pacing, conflict, theme, setting, cliche, dialogue, explicit, structure,
-            timeline, voice, checklist, assessment,
-        ) {
-            return Ok(ProjectAnalysis {
-                project_id: pid.to_string(),
-                name: project.name,
-                t0,
-                t1,
-                plot,
-                pacing,
-                conflict,
-                theme,
-                setting,
-                cliche,
-                dialogue,
-                explicit,
-                structure,
-                timeline,
-                voice,
-                checklist,
-                assessment,
-                cached: true,
-            });
+    let (project, doc, input_hash, cached) = {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        let project = get(&storage.conn, pid).map_err(|e| e.to_string())?;
+        let doc = load_project_document(&storage.conn, pid)?;
+        let input_hash = document_hash(&doc).map_err(|e| e.to_string())?;
+        if force {
+            invalidate_project(&storage.conn, pid).map_err(|e| e.to_string())?;
         }
+        let cached = if force {
+            None
+        } else {
+            cached_analysis(&storage.conn, pid, &project.name, &input_hash)?
+        };
+        (project, doc, input_hash, cached)
+    };
+
+    if let Some(analysis) = cached {
+        return Ok((analysis, input_hash));
     }
 
     let t0 = run_t0_analysis(&doc).map_err(|e| e.to_string())?;
@@ -255,18 +218,71 @@ pub(crate) fn analyze_project_inner(
 
     // A cache-write failure must not lose the analysis the user is waiting for:
     // warn and return the fresh result, which simply costs a recompute next time.
-    if let Err(e) = persist_analysis(&storage.conn, pid, &input_hash, &analysis) {
-        eprintln!("分析结果写入缓存失败（本次结果仍已返回）: {e}");
+    // The lock is taken again here for the write alone; the passes above ran
+    // without it.
+    {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        if let Err(e) = persist_analysis(&storage.conn, pid, &input_hash, &analysis) {
+            eprintln!("分析结果写入缓存失败（本次结果仍已返回）: {e}");
+        }
     }
 
+    Ok((analysis, input_hash))
+}
+
+/// The persisted bundle for `input_hash`, if every dimension is present and
+/// deserializes into the type the page renders.
+///
+/// One query loads the whole bundle; a missing or unreadable dimension is a
+/// miss for the bundle as a whole, which recomputes it fresh — the same cure
+/// that "重新分析" applies to a stale payload.
+fn cached_analysis(
+    conn: &Connection,
+    project_id: Uuid,
+    name: &str,
+    input_hash: &str,
+) -> Result<Option<ProjectAnalysis>, String> {
+    let rows = load_results_for_hash(conn, project_id, input_hash).map_err(|e| e.to_string())?;
+    let analysis: Option<ProjectAnalysis> = (|| {
+        Some(ProjectAnalysis {
+            project_id: project_id.to_string(),
+            name: name.to_string(),
+            t0: dim(&rows, D_T0)?,
+            t1: dim(&rows, D_T1)?,
+            plot: dim(&rows, D_PLOT)?,
+            pacing: dim(&rows, D_PACING)?,
+            conflict: dim(&rows, D_CONFLICT)?,
+            theme: dim(&rows, D_THEME)?,
+            setting: dim(&rows, D_SETTING)?,
+            cliche: dim(&rows, D_CLICHE)?,
+            dialogue: dim(&rows, D_DIALOGUE)?,
+            explicit: dim(&rows, D_EXPLICIT)?,
+            structure: dim(&rows, D_STRUCTURE)?,
+            timeline: dim(&rows, D_TIMELINE)?,
+            voice: dim(&rows, D_VOICE)?,
+            checklist: dim(&rows, D_CHECKLIST)?,
+            assessment: dim(&rows, D_ASSESSMENT)?,
+            cached: true,
+        })
+    })();
     Ok(analysis)
 }
 
-/// Persist the fourteen computed dimensions under `input_hash`, plus the
-/// checklist and the assessment's recommendations as queryable rows.
+/// One dimension of a loaded bundle, typed. A row that no longer matches its
+/// type counts as absent: the bundle misses and the dimension is recomputed.
+fn dim<T: DeserializeOwned>(rows: &HashMap<String, String>, dimension: &str) -> Option<T> {
+    rows.get(dimension)
+        .and_then(|data| serde_json::from_str(data).ok())
+}
+
+/// Persist every computed dimension under `input_hash`, plus the checklist
+/// and the assessment's recommendations as queryable rows — in one
+/// transaction, so the cache never holds half of one analysis and half of
+/// the next.
 ///
 /// The recommendation rows are what let a later feature (report export) list a
-/// project's concerns without re-running the analysis.
+/// project's concerns without re-running the analysis; they hang off the
+/// assessment row, which the bundle write anchors for them.
 pub(crate) fn persist_analysis(
     conn: &Connection,
     project_id: Uuid,
@@ -279,121 +295,27 @@ pub(crate) fn persist_analysis(
     // Their scores are stored so the analysis history can be compared without unpacking the
     // payload; conflict, theme, setting and cliché have no score when the text offers
     // nothing for them to measure, and dialogue, explicit language, story structure, time
-    // line, author voice and the review checklist never have one at all — 30% speech is neither better nor worse than 5%, a war
-    // novel is not worse than a pastoral for carrying violence, a story that refuses
-    // three-act shape may be refusing it on purpose, a story that never writes a date is
-    // not keeping time badly, long sentences are not better or worse than short ones, and
-    // a list of questions has no number to carry.
-    // The row keeps that absence instead of inventing a 0.
-    let dimensions: Vec<(&str, &str, Option<f32>, String)> = vec![
-        (
-            "t0",
-            "t0",
-            None,
-            serde_json::to_string(&analysis.t0).map_err(|e| e.to_string())?,
-        ),
-        (
-            "t1",
-            "t1",
-            None,
-            serde_json::to_string(&analysis.t1).map_err(|e| e.to_string())?,
-        ),
-        (
-            "plot",
-            "t1",
-            // NULL when the document carries nothing a thread can be traced
-            // through — the text-only import case. An empty thread map is a
-            // fact about the import, not a verdict on the story.
-            analysis
-                .plot
-                .readable
-                .then_some(analysis.plot.coherence_score as f32),
-            serde_json::to_string(&analysis.plot).map_err(|e| e.to_string())?,
-        ),
-        (
-            "pacing",
-            "t1",
-            Some(analysis.pacing.pace_score as f32),
-            serde_json::to_string(&analysis.pacing).map_err(|e| e.to_string())?,
-        ),
-        (
-            "conflict",
-            "t1",
-            analysis.conflict.conflict_score.map(|s| s as f32),
-            serde_json::to_string(&analysis.conflict).map_err(|e| e.to_string())?,
-        ),
-        (
-            "theme",
-            "t1",
-            analysis.theme.theme_score.map(|s| s as f32),
-            serde_json::to_string(&analysis.theme).map_err(|e| e.to_string())?,
-        ),
-        (
-            "setting",
-            "t1",
-            analysis.setting.setting_score.map(|s| s as f32),
-            serde_json::to_string(&analysis.setting).map_err(|e| e.to_string())?,
-        ),
-        (
-            "cliche",
-            "t1",
-            analysis.cliche.cliche_score.map(|s| s as f32),
-            serde_json::to_string(&analysis.cliche).map_err(|e| e.to_string())?,
-        ),
-        (
-            "dialogue",
-            "t1",
-            None,
-            serde_json::to_string(&analysis.dialogue).map_err(|e| e.to_string())?,
-        ),
-        (
-            "explicit",
-            "t1",
-            None,
-            serde_json::to_string(&analysis.explicit).map_err(|e| e.to_string())?,
-        ),
-        (
-            "structure",
-            "t1",
-            None,
-            serde_json::to_string(&analysis.structure).map_err(|e| e.to_string())?,
-        ),
-        (
-            "timeline",
-            "t1",
-            None,
-            serde_json::to_string(&analysis.timeline).map_err(|e| e.to_string())?,
-        ),
-        (
-            "voice",
-            "t1",
-            None,
-            serde_json::to_string(&analysis.voice).map_err(|e| e.to_string())?,
-        ),
-        (
-            "checklist",
-            "t1",
-            None,
-            serde_json::to_string(&analysis.checklist).map_err(|e| e.to_string())?,
-        ),
-    ];
-    for (dimension, tier, score, data) in dimensions {
-        save_result(conn, project_id, dimension, tier, input_hash, score, &data)
-            .map_err(|e| e.to_string())?;
-    }
-
-    // The assessment row is written apart from the loop because its id anchors the
-    // concern rows.
-    let assessment_id = save_result(
-        conn,
-        project_id,
-        "assessment",
-        "t1",
-        input_hash,
-        Some(analysis.assessment.overall as f32),
-        &serde_json::to_string(&analysis.assessment).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    // line, author voice and the review checklist never have one at all — 30% speech is
+    // neither better nor worse than 5%, a war novel is not worse than a pastoral for
+    // carrying violence, a story that refuses three-act shape may be refusing it on
+    // purpose, a story that never writes a date is not keeping time badly, long sentences
+    // are not better or worse than short ones, and a list of questions has no number to
+    // carry. The rows keep that absence instead of inventing a 0.
+    let t0 = serde_json::to_string(&analysis.t0).map_err(|e| e.to_string())?;
+    let t1 = serde_json::to_string(&analysis.t1).map_err(|e| e.to_string())?;
+    let plot = serde_json::to_string(&analysis.plot).map_err(|e| e.to_string())?;
+    let pacing = serde_json::to_string(&analysis.pacing).map_err(|e| e.to_string())?;
+    let conflict = serde_json::to_string(&analysis.conflict).map_err(|e| e.to_string())?;
+    let theme = serde_json::to_string(&analysis.theme).map_err(|e| e.to_string())?;
+    let setting = serde_json::to_string(&analysis.setting).map_err(|e| e.to_string())?;
+    let cliche = serde_json::to_string(&analysis.cliche).map_err(|e| e.to_string())?;
+    let dialogue = serde_json::to_string(&analysis.dialogue).map_err(|e| e.to_string())?;
+    let explicit = serde_json::to_string(&analysis.explicit).map_err(|e| e.to_string())?;
+    let structure = serde_json::to_string(&analysis.structure).map_err(|e| e.to_string())?;
+    let timeline = serde_json::to_string(&analysis.timeline).map_err(|e| e.to_string())?;
+    let voice = serde_json::to_string(&analysis.voice).map_err(|e| e.to_string())?;
+    let checklist = serde_json::to_string(&analysis.checklist).map_err(|e| e.to_string())?;
+    let assessment = serde_json::to_string(&analysis.assessment).map_err(|e| e.to_string())?;
 
     let concerns: Vec<Concern> = analysis
         .assessment
@@ -412,8 +334,110 @@ pub(crate) fn persist_analysis(
             suggestion: None,
         })
         .collect();
-    save_concerns(conn, assessment_id, &concerns).map_err(|e| e.to_string())?;
-    Ok(())
+    // The one table that spells out each dimension's tier and score. The
+    // names come from the same `D_*` constants the cache read looks up, so
+    // the two halves of the cache cannot drift apart.
+    let dimensions = [
+        DimensionRow {
+            dimension: D_T0,
+            tier: "t0",
+            score: None,
+            data: &t0,
+        },
+        DimensionRow {
+            dimension: D_T1,
+            tier: "t1",
+            score: None,
+            data: &t1,
+        },
+        DimensionRow {
+            dimension: D_PLOT,
+            tier: "t1",
+            // NULL when the document carries nothing a thread can be traced
+            // through — the text-only import case. An empty thread map is a
+            // fact about the import, not a verdict on the story.
+            score: analysis
+                .plot
+                .readable
+                .then_some(analysis.plot.coherence_score as f32),
+            data: &plot,
+        },
+        DimensionRow {
+            dimension: D_PACING,
+            tier: "t1",
+            score: Some(analysis.pacing.pace_score as f32),
+            data: &pacing,
+        },
+        DimensionRow {
+            dimension: D_CONFLICT,
+            tier: "t1",
+            score: analysis.conflict.conflict_score.map(|s| s as f32),
+            data: &conflict,
+        },
+        DimensionRow {
+            dimension: D_THEME,
+            tier: "t1",
+            score: analysis.theme.theme_score.map(|s| s as f32),
+            data: &theme,
+        },
+        DimensionRow {
+            dimension: D_SETTING,
+            tier: "t1",
+            score: analysis.setting.setting_score.map(|s| s as f32),
+            data: &setting,
+        },
+        DimensionRow {
+            dimension: D_CLICHE,
+            tier: "t1",
+            score: analysis.cliche.cliche_score.map(|s| s as f32),
+            data: &cliche,
+        },
+        DimensionRow {
+            dimension: D_DIALOGUE,
+            tier: "t1",
+            score: None,
+            data: &dialogue,
+        },
+        DimensionRow {
+            dimension: D_EXPLICIT,
+            tier: "t1",
+            score: None,
+            data: &explicit,
+        },
+        DimensionRow {
+            dimension: D_STRUCTURE,
+            tier: "t1",
+            score: None,
+            data: &structure,
+        },
+        DimensionRow {
+            dimension: D_TIMELINE,
+            tier: "t1",
+            score: None,
+            data: &timeline,
+        },
+        DimensionRow {
+            dimension: D_VOICE,
+            tier: "t1",
+            score: None,
+            data: &voice,
+        },
+        DimensionRow {
+            dimension: D_CHECKLIST,
+            tier: "t1",
+            score: None,
+            data: &checklist,
+        },
+        DimensionRow {
+            dimension: D_ASSESSMENT,
+            tier: "t1",
+            score: Some(analysis.assessment.overall as f32),
+            data: &assessment,
+        },
+    ];
+
+    save_analysis_bundle(conn, project_id, input_hash, &dimensions, &concerns)
+        .map_err(|e| e.to_string())
 }
 
 /// The rule engine spells severity as `"high" | "medium" | "low"`; anything else
@@ -439,7 +463,21 @@ pub(crate) async fn analyze_project(
     project_id: String,
     force: Option<bool>,
 ) -> Result<ProjectAnalysis, String> {
-    analyze_project_inner(&state, &project_id, force.unwrap_or(false))
+    analyze_project_inner(&state, &project_id, force.unwrap_or(false)).map(|(analysis, _)| analysis)
+}
+
+/// One project's outcome of a batch comparison: its analysis, or the reason
+/// it failed.
+///
+/// A batch used to fail as a whole on the first broken project — one stale
+/// row hid every column the comparison was about. Carrying the outcome per
+/// project lets the page show the columns that can answer and name the one
+/// that cannot.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectAnalysisOutcome {
+    pub project_id: String,
+    pub analysis: Option<ProjectAnalysis>,
+    pub error: Option<String>,
 }
 
 /// Run T0/T1 analysis on multiple projects for cross-project comparison.
@@ -447,15 +485,27 @@ pub(crate) async fn analyze_project(
 /// `async` for the same reason as [`analyze_project`]: keep the heavy work off
 /// the main/UI thread so the frontend stays responsive. Comparison always reads
 /// the cache when it is valid — there is no UI affordance to force it here.
+/// Each project answers for itself; one failure does not void the batch.
 #[tauri::command]
 pub(crate) async fn analyze_projects(
     state: State<'_, AppState>,
     project_ids: Vec<String>,
-) -> Result<Vec<ProjectAnalysis>, String> {
-    project_ids
+) -> Result<Vec<ProjectAnalysisOutcome>, String> {
+    Ok(project_ids
         .iter()
-        .map(|id| analyze_project_inner(&state, id, false))
-        .collect()
+        .map(|id| match analyze_project_inner(&state, id, false) {
+            Ok((analysis, _)) => ProjectAnalysisOutcome {
+                project_id: id.clone(),
+                analysis: Some(analysis),
+                error: None,
+            },
+            Err(e) => ProjectAnalysisOutcome {
+                project_id: id.clone(),
+                analysis: None,
+                error: Some(e),
+            },
+        })
+        .collect())
 }
 
 /// List documents for a project.

@@ -2,7 +2,6 @@
 //! export — the machine-readable product consumed by NarratSphere.
 
 use serde::Serialize;
-use studio_analysis::document_hash;
 use studio_report::{
     render_html, render_knowsphere, render_markdown, KnowsphereInput, ReportInput,
 };
@@ -12,7 +11,7 @@ use studio_storage::{
 use tauri::State;
 use uuid::Uuid;
 
-use crate::commands::analyze::{analyze_project_inner, load_project_document};
+use crate::commands::analyze::analyze_project_inner;
 use crate::AppState;
 
 /// A generated report: metadata plus the rendered Markdown, so the UI can name
@@ -38,7 +37,8 @@ pub(crate) async fn report_generate(
     project_id: String,
 ) -> Result<ReportMeta, String> {
     let pid = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
-    let analysis = analyze_project_inner(&state, &project_id, false)?;
+    let analysis =
+        analyze_project_inner(&state, &project_id, false).map(|(analysis, _)| analysis)?;
 
     let title = format!("{} 分析报告", analysis.name);
     let created_at = chrono::Utc::now();
@@ -158,16 +158,15 @@ pub(crate) async fn export_knowsphere(
     path: String,
 ) -> Result<String, String> {
     let pid = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
-    let analysis = analyze_project_inner(&state, &project_id, false)?;
+    // The analysis already reads the document and computes its content hash,
+    // so it returns the hash: this command no longer reads and hashes the
+    // whole document a second time just to stamp the export.
+    let (analysis, source_hash) = analyze_project_inner(&state, &project_id, false)?;
 
-    // Entity identities and the source hash come straight from the database:
-    // the hash is the same content key the analysis cache is keyed on.
-    let (entities, source_hash) = {
+    // Entity identities come straight from the database.
+    let entities = {
         let storage = state.storage.lock().map_err(|e| e.to_string())?;
-        let entities = entity_stats_for_project(&storage.conn, pid).map_err(|e| e.to_string())?;
-        let doc = load_project_document(&storage.conn, pid)?;
-        let hash = document_hash(&doc).map_err(|e| e.to_string())?;
-        (entities, hash)
+        entity_stats_for_project(&storage.conn, pid).map_err(|e| e.to_string())?
     };
 
     let doc = render_knowsphere(&KnowsphereInput {
