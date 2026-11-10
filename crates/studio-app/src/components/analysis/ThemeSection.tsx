@@ -148,7 +148,7 @@ function ThemeSection({ theme, segmentLabels }: ThemeSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到主题，因此没有曲线。</p>
           ) : (
-            <LineChart points={curve} color="var(--color-dim-theme)" />
+            <LineChart points={curve} label="主题密度" color="var(--color-dim-theme)" />
           )}
           <p className="text-xs text-text-muted mt-2">
             横轴与节奏、冲突曲线一致（{theme.section_count} 段）：同一位置可以横向对照。

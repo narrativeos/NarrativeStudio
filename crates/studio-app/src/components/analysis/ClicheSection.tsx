@@ -134,7 +134,7 @@ function ClicheSection({ cliche }: ClicheSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="var(--color-dim-cliche)" />
+            <LineChart points={curve} label="套话密度" color="var(--color-dim-cliche)" />
           )}
           {cliche.chunked && (
             <p className="text-xs text-text-muted mt-2">

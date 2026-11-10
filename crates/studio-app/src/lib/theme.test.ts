@@ -135,6 +135,7 @@ describe("colour tokens", () => {
       "info",
       "bad-solid",
       "bad-on-solid",
+      "accent-soft",
     ];
     for (const [, theme, body] of blocks) {
       for (const name of semantic) {
@@ -190,6 +191,18 @@ describe("theme legibility", () => {
       const ink = token(theme, "bad-on-solid");
       if (!solid || !ink) return;
       expect(contrast(ink, solid)).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it(`keeps ${theme} accent text readable on its own tint`, () => {
+      // The active nav row and the secondary primary buttons. These are the two
+      // places that used `bg-accent/20`, where the fill is the accent itself at
+      // 20% — which reads fine on the dark theme and at 3.81:1 on a light one,
+      // because a tint's contrast depends on the surface under it. Measuring the
+      // pair is what stops an alpha value coming back to do that again.
+      const soft = token(theme, "accent-soft");
+      const fg = token(theme, "accent");
+      if (!soft || !fg) return;
+      expect(contrast(fg, soft), `accent on accent-soft in ${theme}`).toBeGreaterThanOrEqual(4.5);
     });
   }
 });

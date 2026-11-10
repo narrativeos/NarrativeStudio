@@ -103,20 +103,43 @@ function ChecklistRow({
   onToggle: (id: string) => void;
 }) {
   return (
-    <li className="flex items-start gap-2">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={() => onToggle(item.id)}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0"
-        aria-label={item.label}
-      />
-      <div className="min-w-0">
-        {/* Confirmed items fade rather than get struck through: a tick means the
-            question was answered, not that the line was struck out. */}
-        <p className={`text-xs ${checked ? "text-text-muted" : ""}`}>{item.label}</p>
-        <p className="text-xs text-text-muted mt-0.5">{item.detail}</p>
-      </div>
+    <li>
+      {/* The whole row is the control. A bare checkbox beside a paragraph that is
+          not its label means the only way to tick an item is to hit that box
+          exactly, and 14px is well under what a trackpad lands on reliably — in a
+          list meant to be worked through one item at a time. Wrapping the row in
+          a label also gives the checkbox its accessible name for free. */}
+      <label className="flex cursor-pointer items-start gap-2.5">
+        <span className="relative mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => onToggle(item.id)}
+            aria-label={item.label}
+            className="peer h-5 w-5 cursor-pointer appearance-none rounded border border-line-strong bg-surface transition-colors checked:border-accent checked:bg-accent"
+          />
+          <svg
+            aria-hidden
+            viewBox="0 0 12 12"
+            className="pointer-events-none absolute h-3 w-3 text-surface opacity-0 peer-checked:opacity-100"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M2 6.5 4.5 9 10 3" />
+          </svg>
+        </span>
+        <span className="min-w-0">
+          {/* Confirmed items fade rather than get struck through: a tick means the
+              question was answered, not that the line was struck out. */}
+          <span className={`block text-xs ${checked ? "text-text-muted" : ""}`}>
+            {item.label}
+          </span>
+          <span className="block text-xs text-text-muted mt-0.5">{item.detail}</span>
+        </span>
+      </label>
     </li>
   );
 }

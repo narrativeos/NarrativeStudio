@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { entityTotal, formatFixed, formatInt, formatPercent, wordsMeasured } from "../lib/format";
+import { ScalesIcon } from "../components/Icon";
 import type { ProjectAnalysis } from "../types";
 
 interface CompareProps {
@@ -48,23 +49,23 @@ function Compare({ selection }: CompareProps) {
     // A text-only project has no segmentation and no entities, so these two are
     // gaps in the input rather than measurements; 0 would compare as a count.
     {
-      label: "Words",
+      label: "词数",
       value: (a) => (wordsMeasured(a.t0) ? formatInt(a.t0.word_count) : "未测量"),
     },
-    { label: "Blocks", value: (a) => formatInt(a.t0.block_count) },
-    { label: "Sections", value: (a) => formatInt(a.t1.section_count) },
+    { label: "文本块", value: (a) => formatInt(a.t0.block_count) },
+    { label: "段落数", value: (a) => formatInt(a.t1.section_count) },
     {
-      label: "Entities",
+      label: "实体",
       value: (a) => (a.setting.places_measured ? formatInt(entityTotal(a.t0)) : "未测量"),
     },
-    { label: "Noun signals", value: (a) => formatInt(a.t0.noun_signal_count) },
-    { label: "Avg sentence", value: (a) => formatFixed(a.t0.avg_sentence_length) },
+    { label: "名词信号", value: (a) => formatInt(a.t0.noun_signal_count) },
+    { label: "平均句长", value: (a) => formatFixed(a.t0.avg_sentence_length) },
     // Author voice is what carries across projects: the same habits whatever the
     // story is about. None of these is a ranking.
-    { label: "Sentence CV", value: (a) => formatFixed(a.voice.sentence_cv, 2) },
-    { label: "Clauses / sentence", value: (a) => formatFixed(a.voice.clauses_per_sentence, 2) },
+    { label: "句长离散", value: (a) => formatFixed(a.voice.sentence_cv, 2) },
+    { label: "每句子句数", value: (a) => formatFixed(a.voice.clauses_per_sentence, 2) },
     {
-      label: "First person",
+      label: "第一人称占比",
       value: (a) => formatPercent(a.voice.pronouns.first_share),
     },
   ];
@@ -91,7 +92,10 @@ function Compare({ selection }: CompareProps) {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-xl font-semibold">⚖️ 多项目对比</h2>
+        <h2 className="flex items-center gap-2 text-xl font-semibold">
+          <ScalesIcon className="h-5 w-5" />
+          多项目对比
+        </h2>
         <p className="text-xs text-text-muted mt-1">
           已选 {selection.size} 个项目
           {selection.size < 2 ? "（请从左侧勾选至少 2 个）" : ""}
@@ -100,16 +104,18 @@ function Compare({ selection }: CompareProps) {
 
       {selection.size < 2 ? (
         <div className="text-center py-12 text-text-muted">
-          <p className="text-4xl mb-4">⚖️</p>
+          <p className="mb-4 flex justify-center">
+            <ScalesIcon className="h-12 w-12" />
+          </p>
           <p>从左侧勾选至少 2 个项目进行对比。</p>
         </div>
       ) : (
         <>
-          {loading && <div className="text-text-muted mb-4">Analyzing…</div>}
+          {loading && <div className="text-text-muted mb-4">分析中…</div>}
           {error && (
             <div className="text-bad mb-4">
-              <p>Comparison failed:</p>
-              <pre className="text-xs mt-2">{error}</pre>
+              <p>对比失败：</p>
+              <pre className="text-xs mt-2 whitespace-pre-wrap">{error}</pre>
             </div>
           )}
           {data && data.length >= 2 && (

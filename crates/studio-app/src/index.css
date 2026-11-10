@@ -1,6 +1,21 @@
 @import "tailwindcss";
 
 /*
+ * The type scale, raised for Chinese.
+ *
+ * Tailwind's `text-xs` is 12px and this interface used it for the great majority
+ * of its text. At 12px a Latin word keeps its shape and a Chinese one does not:
+ * 连贯性 and 叙述视角 differ by strokes a 12px CJK run drops, and the page is
+ * dense enough that readers hold it at arm's length. 13px is also the size macOS
+ * itself sets for body and control text. Changing the token moves every use at
+ * once; the 10px and 11px outliers that were smaller still are gone.
+ */
+@theme {
+  --text-xs: 13px;
+  --text-xs--line-height: 1.55;
+}
+
+/*
  * Semantic colour tokens. Nothing in `src/` is allowed to name a palette colour
  * (see `lib/theme.test.ts`): components name what a thing *means* — a hairline,
  * a fill, a warning — and the palette lives here, in one place, per theme.
@@ -27,6 +42,7 @@
   --color-info: var(--info);
   --color-bad-solid: var(--bad-solid);
   --color-bad-on-solid: var(--bad-on-solid);
+  --color-accent-soft: var(--accent-soft);
 }
 
 /*
@@ -73,6 +89,13 @@
   --firm: var(--color-rose-400);
   --info: var(--color-sky-400);
   --bad-solid: var(--color-red-600);
+  /* The fill under accent-coloured text — the active nav row, a secondary
+     primary button. Written as a solid, not as `bg-accent/20`: at 20% the accent
+     tinted into a light surface reads at 3.81:1, under the 4.5:1 this project
+     measures everywhere else, and the tint's own value depended on which surface
+     it happened to sit on. These two values were picked against that number and
+     `theme.test.ts` checks them, so the next tint cannot drift back. */
+  --accent-soft: #214163;
   /* The ink on a filled destructive button. Named because the alternative is a
      component hardcoding white, which a light theme cannot reach — and the
      pairing is only safe while someone checks it, so it is checked in
@@ -98,6 +121,7 @@
   --firm: #be123c;
   --info: #075985;
   --bad-solid: #dc2626;
+  --accent-soft: #e1ebf4;
   --bad-on-solid: #ffffff;
   color-scheme: light;
 }
@@ -124,4 +148,26 @@ body {
 :where(button, a, input, select, textarea, [tabindex], [role="checkbox"]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/**
+ * Honour the system's reduced-motion setting.
+ *
+ * The page is full of `transition-colors`, and the import progress shows a
+ * spinner that turns for as long as an import takes — which for a large project
+ * is minutes of continuous motion in the middle of the field of view. Readers who
+ * ask for reduced motion ask because motion is a vestibular trigger, not a
+ * preference, so the request has to win over every animation on the page rather
+ * than the ones someone remembered to gate. `SectionNav` checks the same query in
+ * JS, because a smooth scroll is not something CSS can be told to shorten.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

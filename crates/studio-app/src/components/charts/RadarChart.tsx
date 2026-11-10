@@ -30,7 +30,14 @@ function RadarChart({
   const scores = dimensions.map((d) => d.score);
 
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[260px]">
+    <svg
+      role="img"
+      aria-label={`统计维度雷达图：${dimensions
+        .map((d) => `${d.label} ${Math.round(d.score)} 分`)
+        .join("，")}`}
+      viewBox={`0 0 ${size} ${size}`}
+      className="w-full max-w-[260px]"
+    >
       {/* Rings: 25 / 50 / 75 / 100 */}
       {[0.25, 0.5, 0.75, 1].map((ring) => (
         <polygon

@@ -100,7 +100,7 @@ function ExplicitSection({ explicit }: ExplicitSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="var(--color-dim-explicit)" />
+            <LineChart points={curve} label="直白用词密度" color="var(--color-dim-explicit)" />
           )}
           {explicit.chunked && (
             <p className="text-xs text-text-muted mt-2">

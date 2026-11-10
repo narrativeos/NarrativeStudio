@@ -1382,7 +1382,7 @@ pub struct AnalysisResult {
 | 点击问题 | 跳转到原文位置（高亮）——**未实现**：当前没有原文视图，见 §10.5 |
 | 悬停图表 | 显示详细数据 tooltip |
 | 拖拽导入 | 支持拖拽 TraceView JSON 文件到窗口——**未实现** |
-| 快捷键 | Cmd+O 打开项目, Cmd+R 重新分析, Cmd+E 导出 |
+| 快捷键 | ⌘O 导入文件、⌘⇧O 导入 TraceView 目录、⌘R 重新分析、⌘E 导出报告（已实现，`lib/shortcuts.ts`；焦点在输入区时一律不触发）。**偏差**：只在 WebView 内绑定，Tauri 原生菜单栏项目尚未加，因此菜单里看不到这些条目 |
 | 暗色模式 | 跟随系统 / 手动切换（已实现，见 development.md §5.5） |
 
 ---

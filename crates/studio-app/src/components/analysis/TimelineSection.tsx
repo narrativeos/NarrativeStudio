@@ -104,7 +104,7 @@ function TimelineSection({ timeline }: TimelineSectionProps) {
                     />
                   ))}
                 </div>
-                <div className="mt-1 flex justify-between text-[10px] text-text-muted">
+                <div className="mt-1 flex justify-between text-xs text-text-muted">
                   <span>0%</span>
                   <span className="flex items-center gap-3">
                     {(

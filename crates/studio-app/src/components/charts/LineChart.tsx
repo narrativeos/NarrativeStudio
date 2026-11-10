@@ -1,5 +1,13 @@
 interface LineChartProps {
   points: { label: string; value: number }[];
+  /**
+   * What the curve measures, for the accessible name.
+   *
+   * Required rather than defaulted: nine of these render on one page and a
+   * generic "line chart" announced nine times tells a screen-reader nothing,
+   * while the panel heading right above each one already knows the answer.
+   */
+  label: string;
   height?: number;
   color?: string;
 }
@@ -10,6 +18,7 @@ interface LineChartProps {
  */
 function LineChart({
   points,
+  label,
   height = 180,
   color = "var(--color-chart)",
 }: LineChartProps) {
@@ -42,8 +51,21 @@ function LineChart({
           Math.round((i / (labelCount - 1)) * (points.length - 1))
         );
 
+  // The accessible name carries the one thing the shape would otherwise have to
+  // be seen for: where the peak is. An SVG with no role and no name is skipped
+  // outright by a screen reader, so every chart on the page would be silent.
+  const peak = points.reduce(
+    (best, p, i) => (p.value > points[best].value ? i : best),
+    0,
+  );
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+    <svg
+      role="img"
+      aria-label={`${label}折线图，共 ${points.length} 个位置，最高点在「${points[peak].label}」`}
+      viewBox={`0 0 ${width} ${height}`}
+      className="w-full"
+    >
       {[0.25, 0.5, 0.75, 1].map((g) => (
         <line
           key={g}

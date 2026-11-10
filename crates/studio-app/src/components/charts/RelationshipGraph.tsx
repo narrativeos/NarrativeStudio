@@ -35,7 +35,12 @@ function RelationshipGraph({ characters, limit = 12 }: RelationshipGraphProps) {
 
   return (
     <div>
-      <svg viewBox={`0 0 ${GRAPH_BOX.width} ${GRAPH_BOX.height}`} className="w-full">
+      <svg
+        role="img"
+        aria-label={`人物共现关系图：${graph.nodes.length} 个角色，${graph.edges.length} 条共现连线。一条线只表示两个名字出现在同一个文本块里，不代表他们之间的关系。`}
+        viewBox={`0 0 ${GRAPH_BOX.width} ${GRAPH_BOX.height}`}
+        className="w-full"
+      >
         {graph.edges.map((edge) => {
           const a = graph.nodes.find((n) => n.name === edge.a);
           const b = graph.nodes.find((n) => n.name === edge.b);

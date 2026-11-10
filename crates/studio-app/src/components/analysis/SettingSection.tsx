@@ -119,7 +119,7 @@ function SettingSection({ setting }: SettingSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到环境曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="var(--color-dim-setting)" />
+            <LineChart points={curve} label="环境密度" color="var(--color-dim-setting)" />
           )}
           {setting.chunked && (
             <p className="text-xs text-text-muted mt-2">

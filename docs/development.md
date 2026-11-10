@@ -557,6 +557,33 @@ useEffect(() => {
   徽标底纹上的文字不低于 3:1（暗色徽标历来约 3.4:1）
 - 导出 PDF 用的打印 HTML（`studio-report::html`）自带纸白底样式，不参与主题切换
 
+### 5.6 可访问性与平台约定
+
+界面是给键盘和 macOS 用的，不只是给鼠标用的。以下约定由测试或代码位置兜住，不是倡议：
+
+| 约定 | 住在哪 | 由谁守住 |
+|------|--------|---------|
+| 焦点环 | `index.css` 的 `:where(…):focus-visible`（零特异性，控件自带工具类仍可覆盖） | 人工冒烟 |
+| 快捷键 | `lib/shortcuts.ts`：`matchShortcut` 纯函数 + `useShortcuts` | `shortcuts.test.ts` |
+| 快捷键不抢输入 | `isTypingTarget`——焦点在 input/textarea/contenteditable 时一律不触发 | `shortcuts.test.ts` |
+| 卡片/行是控件不是 `div` | `ProjectCard.tsx` 用 `<button>`；侧栏行用 `<button aria-current>` | 人工冒烟 |
+| 状态不只靠颜色 | 当前项用 `bg-accent-soft` + 下划线；勾选框用 `aria-checked` | 人工冒烟 |
+| 图表有可读的名字 | 三个 SVG 图表带 `role="img"` + `aria-label`；`LineChart` 的 `label` 是**必填** prop | `tsc`（漏了就编不过） |
+| 减弱动效 | `index.css` 的 `prefers-reduced-motion` 全局归零；`SectionNav` 在 JS 里查同一条 query（平滑滚动 CSS 管不了） | 人工冒烟 |
+| 错误不打断 | `App.tsx` 的 `reportProblem` 渲染可关闭横幅，不用 `window.alert` | 人工冒烟 |
+| 命中区 | 勾选框一律 ≥ 20px；清单整行是 `<label>` | 人工冒烟 |
+
+**字号**：`index.css` 里把 `--text-xs` 抬到 13px（Tailwind 默认 12px）。中文界面原先几乎全用 `text-xs`，
+12px 的汉字会丢掉区分笔画；13px 也是 macOS 正文/控件的默认尺寸。改 token 一次生效，不要回到 208 个调用点，
+也不要再引入 `text-[10px]` / `text-[11px]` 这类更小的值。`<html lang="zh-CN">` 已设，屏幕阅读器才不会用
+英文音读中文。
+
+**图标**：用 `components/Icon.tsx` 的内联 SVG（`stroke="currentColor"`），不要用 emoji。emoji 自带一套
+颜色，暗色/禁用状态下不会跟着变灰，一个禁用的行会顶着一个饱和的图标。图标默认 `aria-hidden`，名字由所在控件带。
+
+**尚未实现**（与设计稿的已知偏差，见 `product-design.md` §8.2）：Tauri 原生菜单栏项目（快捷键目前只在
+前端绑定）、拖拽导入、底部状态栏。
+
 ---
 
 ## 6. 后端开发指南

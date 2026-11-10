@@ -87,7 +87,7 @@ function DialogueSection({ dialogue }: DialogueSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="var(--color-dim-dialogue)" />
+            <LineChart points={curve} label="对白占比" color="var(--color-dim-dialogue)" />
           )}
           {dialogue.chunked && (
             <p className="text-xs text-text-muted mt-2">

@@ -7,7 +7,7 @@ import Compare from "./pages/Compare";
 import { applyTheme, readChoice, writeChoice, type ThemeChoice } from "./lib/theme";
 import type { Project } from "./types";
 
-type View = "home" | "project" | "compare" | "settings";
+type View = "home" | "project" | "compare";
 
 function App() {
   const [view, setView] = useState<View>("home");
@@ -103,8 +103,6 @@ function App() {
     });
   }, []);
 
-  const openSettings = useCallback(() => setView("settings"), []);
-
   return (
     <div className="flex h-screen w-screen">
       <Sidebar
@@ -116,7 +114,6 @@ function App() {
         onEnterCompare={enterCompare}
         onExitCompare={exitCompare}
         onToggleCompare={toggleCompare}
-        onOpenSettings={openSettings}
         onDeleteProject={deleteProject}
         themeChoice={themeChoice}
         onThemeChoice={chooseTheme}
@@ -149,9 +146,6 @@ function App() {
             <Analysis projectId={selectedProjectId} onBack={goHome} />
           )}
           {view === "compare" && <Compare selection={compareSelection} />}
-          {view === "settings" && (
-            <div className="text-text-muted">Settings (coming soon)</div>
-          )}
         </div>
       </main>
     </div>

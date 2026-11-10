@@ -69,7 +69,7 @@ function ConflictSection({ conflict }: ConflictSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到冲突曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="var(--color-dim-conflict)" />
+            <LineChart points={curve} label="冲突强度" color="var(--color-dim-conflict)" />
           )}
           {conflict.chunked && (
             <p className="text-xs text-text-muted mt-2">

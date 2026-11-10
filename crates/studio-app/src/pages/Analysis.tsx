@@ -263,7 +263,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           <button
             onClick={exportReport}
             disabled={exporting}
-            className="px-3 py-1.5 text-sm rounded-md bg-accent/20 text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-sm rounded-md bg-accent-soft text-accent hover:bg-accent hover:text-surface transition-colors disabled:opacity-50"
             title="生成 Markdown 报告并选择保存位置"
           >
             {exporting ? "生成中…" : "导出报告"}
@@ -271,7 +271,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           <button
             onClick={exportPdf}
             disabled={exportingPdf}
-            className="px-3 py-1.5 text-sm rounded-md bg-accent/20 text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-sm rounded-md bg-accent-soft text-accent hover:bg-accent hover:text-surface transition-colors disabled:opacity-50"
             title="导出打印就绪 HTML：A4 排版，用浏览器打开后按 ⌘P 存为 PDF"
           >
             {exportingPdf ? "生成中…" : "导出 PDF"}
@@ -279,7 +279,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           <button
             onClick={exportKnowsphere}
             disabled={exportingKnowsphere}
-            className="px-3 py-1.5 text-sm rounded-md bg-accent/20 text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-sm rounded-md bg-accent-soft text-accent hover:bg-accent hover:text-surface transition-colors disabled:opacity-50"
             title="导出 .knowsphere.json 知识球文件，供 NarratSphere 打开"
           >
             {exportingKnowsphere ? "导出中…" : "导出知识球"}
@@ -359,7 +359,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
             </div>
             <div className="mt-3 space-y-1">
               {data.assessment.dimensions.map((d) => (
-                <p key={d.key} className="text-[11px] text-text-muted">
+                <p key={d.key} className="text-xs text-text-muted">
                   {d.label}：{d.detail}
                 </p>
               ))}
@@ -369,7 +369,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                 故事结构, 显式语言 and the checklist carry no score by design — so
                 a mean of five statistical dimensions must not read as a grade
                 on the writing, and must not look like it covers the rest. */}
-            <p className="mt-3 pt-2 border-t border-line/60 text-[11px] text-text-muted">
+            <p className="mt-3 pt-2 border-t border-line/60 text-xs text-text-muted">
               这是上述五项的等权平均，全部来自 T0/T1 的统计量。情节、冲突、主题、场景、对话、故事结构、时间线与作者声音不参与：它们不给分（见各自小节）。这个数字描述的是行文统计，不是稿子的优劣。
             </p>
           </Panel>
@@ -382,7 +382,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <ul className="space-y-2">
                 {data.assessment.recommendations.map((r, i) => (
                   <li key={i} className="text-xs flex items-start gap-2">
-                    <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded border text-[10px] ${severityStyle(r.severity)}`}>
+                    <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded border text-xs ${severityStyle(r.severity)}`}>
                       {severityLabel(r.severity)}
                     </span>
                     <span>
@@ -551,6 +551,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <p className="text-xs text-text-muted">暂无数据</p>
             ) : (
               <LineChart
+                label="叙事弧线张力"
                 points={t1.arc.points.map((p) => ({
                   label: p.section || "(root)",
                   value: p.intensity,
@@ -600,10 +601,13 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                         <td className="py-1.5 text-right text-text-muted tabular-nums">
                           {formatPercent(c.span_ratio)}
                         </td>
-                        <td className="py-1.5 pl-4 truncate max-w-[160px]" title={c.first_section}>
+                        {/* Section paths are Chinese and now 13px; at 160px most
+                            of them truncated to a few characters, which reads as
+                            missing data rather than as a long name. */}
+                        <td className="py-1.5 pl-4 truncate max-w-[220px]" title={c.first_section}>
                           {c.first_section || "(root)"}
                         </td>
-                        <td className="py-1.5 pl-4 truncate max-w-[160px]" title={c.last_section}>
+                        <td className="py-1.5 pl-4 truncate max-w-[220px]" title={c.last_section}>
                           {c.last_section || "(root)"}
                         </td>
                         <td className="py-1.5 pl-4 text-text-muted">
@@ -682,7 +686,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
                         <td className="py-1.5 pl-4 text-text-muted">{p.kind}</td>
                         <td className="py-1.5 pl-4">
                           <span
-                            className={`px-1.5 py-0.5 rounded border text-[11px] whitespace-nowrap ${plotShapeStyle(p.shape)}`}
+                            className={`px-1.5 py-0.5 rounded border text-xs whitespace-nowrap ${plotShapeStyle(p.shape)}`}
                             title={`触达 ${p.sections_touched} 个章节 · 最长中断 ${p.longest_gap} 个章节`}
                           >
                             {plotShapeLabel(p.shape)}
@@ -807,6 +811,7 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
               <p className="text-xs text-text-muted">未识别到节奏曲线：文档没有可切分的段落。</p>
             ) : (
               <LineChart
+                label="节奏张力"
                 points={pacing.points.map((p) => ({
                   label: p.section || "(root)",
                   value: p.tension / 100,

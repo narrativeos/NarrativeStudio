@@ -1,4 +1,5 @@
 import type { Project } from "../types";
+import { FolderIcon } from "./Icon";
 
 interface ProjectCardProps {
   project: Project;
@@ -33,11 +34,9 @@ function ProjectCard({ project, onOpen }: ProjectCardProps) {
         <span>{new Date(project.created_at).toLocaleDateString()}</span>
       </span>
       {project.source_path && (
-        <span
-          className="block text-xs text-text-muted/60 mt-1 truncate"
-          title={project.source_path}
-        >
-          📁 {project.source_path}
+        <span className="flex items-center gap-1 truncate text-xs text-text-muted/60">
+          <FolderIcon className="h-3.5 w-3.5 shrink-0" />
+          {project.source_path}
         </span>
       )}
     </button>

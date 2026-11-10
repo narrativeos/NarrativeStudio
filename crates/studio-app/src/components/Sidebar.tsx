@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { ThemeChoice } from "../lib/theme";
 import type { Project } from "../types";
+import { ScalesIcon, TrashIcon } from "./Icon";
 
-type View = "home" | "project" | "compare" | "settings";
+type View = "home" | "project" | "compare";
 
 interface SidebarProps {
   projects: Project[];
@@ -13,7 +14,6 @@ interface SidebarProps {
   onEnterCompare: () => void;
   onExitCompare: () => void;
   onToggleCompare: (id: string) => void;
-  onOpenSettings: () => void;
   onDeleteProject: (id: string) => void;
   themeChoice: ThemeChoice;
   onThemeChoice: (choice: ThemeChoice) => void;
@@ -34,7 +34,6 @@ function Sidebar({
   onEnterCompare,
   onExitCompare,
   onToggleCompare,
-  onOpenSettings,
   onDeleteProject,
   themeChoice,
   onThemeChoice,
@@ -58,16 +57,16 @@ function Sidebar({
     <aside className="w-64 bg-surface-alt border-r border-line flex flex-col">
       <div className="p-4 border-b border-line">
         <h1 className="text-lg font-bold text-accent">NarrativeStudio</h1>
-        <p className="text-xs text-text-muted mt-1">Multi-dimensional Analysis</p>
+        <p className="text-xs text-text-muted mt-1">多维叙事分析</p>
       </div>
 
       <div className="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-        {isCompare ? "Compare" : "Projects"}
+        {isCompare ? "对比项目" : "项目"}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
         {projects.length === 0 && (
-          <p className="text-xs text-text-muted px-3 py-2">No projects yet.</p>
+          <p className="text-xs text-text-muted px-3 py-2">还没有项目。</p>
         )}
         {projects.map((p) => {
           const active = isCompare
@@ -91,7 +90,7 @@ function Sidebar({
                 {isCompare && (
                   <span
                     aria-hidden
-                    className={`inline-flex w-5 h-5 shrink-0 items-center justify-center rounded border text-[11px] ${
+                    className={`inline-flex w-5 h-5 shrink-0 items-center justify-center rounded border text-xs ${
                       active ? "border-accent bg-accent text-surface" : "border-line-strong"
                     }`}
                   >
@@ -110,7 +109,7 @@ function Sidebar({
                   title="删除项目"
                   aria-label={`删除项目 ${p.name}`}
                 >
-                  🗑️
+                  <TrashIcon />
                 </button>
               )}
               {/* The confirmation belongs to this row, so it appears in it.
@@ -158,7 +157,7 @@ function Sidebar({
                 aria-pressed={themeChoice === c.value}
                 className={`rounded px-1 py-1 text-xs transition-colors ${
                   themeChoice === c.value
-                    ? "bg-accent/20 text-accent"
+                    ? "bg-accent-soft text-accent"
                     : "text-text-muted hover:text-text"
                 }`}
               >
@@ -171,22 +170,12 @@ function Sidebar({
           onClick={isCompare ? onExitCompare : onEnterCompare}
           className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
             isCompare
-              ? "bg-accent/20 text-accent"
+              ? "bg-accent-soft text-accent"
               : "text-text-muted hover:text-text hover:bg-fill/50"
           }`}
         >
-          <span className="mr-2">⚖️</span>
-          {isCompare ? "Exit Compare" : "Compare Projects"}
-        </button>
-        <button
-          onClick={onOpenSettings}
-          className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
-            view === "settings"
-              ? "bg-accent/20 text-accent"
-              : "text-text-muted hover:text-text hover:bg-fill/50"
-          }`}
-        >
-          <span className="mr-2">⚙️</span>Settings
+          <ScalesIcon className="mr-2 inline h-4 w-4" />
+          {isCompare ? "退出对比" : "对比项目"}
         </button>
       </div>
 

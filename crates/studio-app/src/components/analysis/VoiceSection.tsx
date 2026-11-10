@@ -72,7 +72,7 @@ function VoiceSection({ voice }: VoiceSectionProps) {
           {curve.length === 0 ? (
             <p className="text-xs text-text-muted">未识别到曲线：文档没有可切分的段落。</p>
           ) : (
-            <LineChart points={curve} color="var(--color-dim-voice)" />
+            <LineChart points={curve} label="句长" color="var(--color-dim-voice)" />
           )}
           {voice.chunked && (
             <p className="text-xs text-text-muted mt-2">

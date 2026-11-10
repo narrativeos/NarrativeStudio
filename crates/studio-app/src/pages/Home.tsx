@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import ProjectCard from "../components/ProjectCard";
+import { FolderIcon } from "../components/Icon";
 import { useShortcuts } from "../lib/shortcuts";
 import type { Project } from "../types";
 
@@ -147,7 +148,7 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
           <button
             onClick={handleImport}
             disabled={importing}
-            className="px-4 py-2 bg-accent/20 text-accent rounded-md hover:bg-accent/30 transition-colors disabled:opacity-50"
+            className="px-4 py-2 bg-accent-soft text-accent rounded-md hover:bg-accent hover:text-surface transition-colors disabled:opacity-50"
           >
             {importing ? "导入中…" : "导入 TraceView 项目"}
           </button>
@@ -197,7 +198,7 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
           )}
           <div
             ref={logBoxRef}
-            className="mt-3 max-h-48 overflow-y-auto bg-black/40 rounded-md p-2 font-mono text-xs text-text-muted space-y-1"
+            className="mt-3 max-h-48 overflow-y-auto bg-fill-soft rounded-md p-2 font-mono text-xs text-text-muted space-y-1"
           >
             {logs.map((line, i) => (
               <div key={i} className="whitespace-pre-wrap break-words">
@@ -210,7 +211,9 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
 
       {projects.length === 0 ? (
         <div className="text-center py-12 text-text-muted">
-          <p className="text-4xl mb-4">📂</p>
+          <p className="mb-4 flex justify-center">
+            <FolderIcon className="h-12 w-12" />
+          </p>
           <p>还没有项目。</p>
           <p className="text-sm mt-2 max-w-md mx-auto">
             导入一个 Markdown 或 TXT 文件，或一个包含 <code>project.json</code> 的 TraceView
