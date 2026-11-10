@@ -127,10 +127,21 @@ fn write_recommendations(out: &mut String, assessment: &Assessment) {
 
 fn write_text_stats(out: &mut String, t0: &T0Stats) {
     out.push_str("## 文本统计\n\n");
+    // Every token-derived figure below is zero on a text-only import because
+    // nothing was segmented, not because nothing was found. Saying 词数 0 would
+    // read as a measurement, so the row says it was not one.
+    let words_unmeasured = t0.token_source == "none";
     out.push_str("| 指标 | 数值 |\n| --- | ---: |\n");
     let rows: [(&str, String); 8] = [
         ("字数", t0.char_count.to_string()),
-        ("词数", t0.word_count.to_string()),
+        (
+            "词数",
+            if words_unmeasured {
+                "未测量".to_string()
+            } else {
+                t0.word_count.to_string()
+            },
+        ),
         ("块数", t0.block_count.to_string()),
         ("句子数", t0.sentence_count.to_string()),
         ("平均句长（字）", format!("{:.1}", t0.avg_sentence_chars)),
@@ -141,11 +152,19 @@ fn write_text_stats(out: &mut String, t0: &T0Stats) {
         ),
         (
             "副词 / 形容词",
-            format!("{} / {}", t0.adverb_count, t0.adjective_count),
+            if words_unmeasured {
+                "未测量 / 未测量".to_string()
+            } else {
+                format!("{} / {}", t0.adverb_count, t0.adjective_count)
+            },
         ),
     ];
     for (label, value) in rows {
         out.push_str(&format!("| {} | {} |\n", label, value));
+    }
+    if words_unmeasured {
+        out.push('\n');
+        out.push_str("本项目是纯文本导入，没有分词与词性。词数、词性分布、副词与形容词、重复短语都未被测量；未测量不等于零，也不说明这些问题不存在。句子层面的数字照常给出，它们只读正文。\n");
     }
     out.push('\n');
 
@@ -388,6 +407,14 @@ fn write_narrative(out: &mut String, t1: &T1Stats) {
 /// only translates the keys into labels.
 fn write_plot(out: &mut String, plot: &PlotStats) {
     out.push_str("## 情节线\n\n");
+    // Nothing to trace is a statement about the import, not about the story: an
+    // empty thread map would score a perfect 100 for want of anything to
+    // penalise. Say what is missing instead of printing that number.
+    if !plot.readable {
+        out.push_str(&plot.note);
+        out.push_str("\n\n");
+        return;
+    }
     out.push_str(&format!(
         "情节连贯性：**{:.1} / 100**；共 {} 条线索（{} 个章节）\n\n",
         plot.coherence_score, plot.thread_count, plot.section_count
@@ -712,6 +739,11 @@ fn write_theme(out: &mut String, theme: &ThemeStats) {
 
 fn write_setting(out: &mut String, setting: &SettingStats) {
     out.push_str("## 场景/设定\n\n");
+    if !setting.places_measured {
+        // Places come from location entities. Without them every scene looks
+        // unanchored for a reason that has nothing to do with the writing.
+        out.push_str("本项目是纯文本导入，没有地点实体，因此**地点清单读不到**；下面的场景只按环境用词与段落切分，未点名地点不等于没有场景。\n\n");
+    }
     match setting.setting_score {
         Some(score) => out.push_str(&format!(
             "场景评分：**{:.1} / 100** · {} 场 · {} 个地点 · 环境用词 {} 次（{:.1} 次/千字，判定：**{}**（`{}`））\n\n",
@@ -2098,6 +2130,7 @@ mod tests {
 
     fn empty_t0() -> T0Stats {
         T0Stats {
+            token_source: "nlp".into(),
             word_count: 0,
             char_count: 0,
             block_count: 0,
@@ -2154,6 +2187,8 @@ mod tests {
             unresolved_threads: vec![],
             late_arrivals: vec![],
             coherence_score: 100.0,
+            readable: true,
+            note: String::new(),
             section_count: 0,
         }
     }
@@ -2240,6 +2275,7 @@ mod tests {
             peak_intensity: 0.0,
             issues: vec![],
             longest_absence: 0,
+            places_measured: true,
             setting_score: None,
         }
     }

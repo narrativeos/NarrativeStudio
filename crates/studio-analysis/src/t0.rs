@@ -59,6 +59,20 @@ pub struct T0Stats {
     pub top_repeated_phrases: Vec<RepeatedPhrase>,
     /// Readability score, level, and method.
     pub readability: Readability,
+    /// Where the word-level numbers came from: `"nlp"` when the import carried
+    /// segmented tokens, `"none"` when it did not.
+    ///
+    /// `word_count`, `top_words`, `pos_distribution`, the adverb and adjective
+    /// tables and the repeated phrases are all token-derived, so on a text-only
+    /// import they are all zero — and a zero there means *not measured*, which a
+    /// bare 0 would misreport. Defaults to `"nlp"` so a row cached before this
+    /// field existed keeps reading as it was computed.
+    #[serde(default = "default_token_source")]
+    pub token_source: String,
+}
+
+fn default_token_source() -> String {
+    "nlp".to_string()
 }
 
 /// Run all T0 statistical analyses on the given document.
@@ -218,6 +232,11 @@ pub fn run_t0_analysis(doc: &DocumentData) -> Result<T0Stats> {
         top_adjectives,
         top_repeated_phrases,
         readability,
+        token_source: if crate::coverage::input_coverage(doc).has_tokens {
+            "nlp".to_string()
+        } else {
+            "none".to_string()
+        },
     })
 }
 

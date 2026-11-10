@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { entityTotal, formatFixed, formatInt, formatPercent } from "../lib/format";
+import { entityTotal, formatFixed, formatInt, formatPercent, wordsMeasured } from "../lib/format";
 import type { ProjectAnalysis } from "../types";
 
 interface CompareProps {
@@ -45,10 +45,18 @@ function Compare({ selection }: CompareProps) {
     enoughSelected && result?.key !== depKey && failure?.key !== depKey;
 
   const metrics: { label: string; value: (a: ProjectAnalysis) => string }[] = [
-    { label: "Words", value: (a) => formatInt(a.t0.word_count) },
+    // A text-only project has no segmentation and no entities, so these two are
+    // gaps in the input rather than measurements; 0 would compare as a count.
+    {
+      label: "Words",
+      value: (a) => (wordsMeasured(a.t0) ? formatInt(a.t0.word_count) : "未测量"),
+    },
     { label: "Blocks", value: (a) => formatInt(a.t0.block_count) },
     { label: "Sections", value: (a) => formatInt(a.t1.section_count) },
-    { label: "Entities", value: (a) => formatInt(entityTotal(a.t0)) },
+    {
+      label: "Entities",
+      value: (a) => (a.setting.places_measured ? formatInt(entityTotal(a.t0)) : "未测量"),
+    },
     { label: "Noun signals", value: (a) => formatInt(a.t0.noun_signal_count) },
     { label: "Avg sentence", value: (a) => formatFixed(a.t0.avg_sentence_length) },
     // Author voice is what carries across projects: the same habits whatever the

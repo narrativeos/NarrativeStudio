@@ -1,7 +1,11 @@
-//! TraceView folder import command.
+//! Import commands: a TraceView project folder, or a plain Markdown / TXT file.
+
+use std::path::Path;
 
 use studio_core::project::Project;
-use studio_import::parse_semantic_result_enriched;
+use studio_import::{
+    decode_text_file, format_of_file_name, parse_plain_text, parse_semantic_result_enriched,
+};
 use studio_storage::{create, save_document};
 use tauri::{Emitter, Manager};
 
@@ -229,4 +233,117 @@ pub(crate) fn run_import(
         .ok();
 
     Ok(project)
+}
+
+/// Import a single Markdown or TXT file as a new project.
+///
+/// The file is the whole source: no `project.json`, no NLP sidecar. What comes
+/// back is a document with blocks and section paths and nothing else, which the
+/// analysis reads as "these dimensions cannot answer" rather than "these
+/// dimensions found nothing" — see `studio_import::plaintext`.
+#[tauri::command]
+pub(crate) async fn import_text_file(
+    app_handle: tauri::AppHandle,
+    file_path: String,
+) -> Result<Project, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        run_text_import(&app_handle, &state, &file_path)
+    })
+    .await
+    .map_err(|e| format!("Import task failed: {e}"))?
+}
+
+/// Blocking body of [`import_text_file`].
+pub(crate) fn run_text_import(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    file_path: &str,
+) -> Result<Project, String> {
+    let path = Path::new(file_path);
+
+    let format = format_of_file_name(&path.file_name().unwrap_or_default().to_string_lossy())
+        .ok_or_else(|| {
+            format!("{file_path} 不是可导入的文本文件（支持 .md / .markdown / .txt）")
+        })?;
+
+    emit_status(app_handle, &format!("读取 {} ...", path.display()));
+    let bytes = std::fs::read(path).map_err(|e| format!("Failed to read file: {e}"))?;
+
+    let decoded = decode_text_file(&bytes).map_err(|e| e.to_string())?;
+    emit_status(
+        app_handle,
+        &format!(
+            "解码: {} ({} 字符)",
+            decoded.encoding,
+            decoded.text.chars().count()
+        ),
+    );
+
+    // The file name stem, so importing `出版学导论.md` titles the project
+    // `出版学导论` rather than leaving the user to name it.
+    let title = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Imported Text".to_string());
+
+    emit_status(app_handle, "切分文本块 ...");
+    let doc = parse_plain_text(&title, &decoded.text, format).map_err(|e| e.to_string())?;
+    let block_count = doc.blocks.len() as u64;
+    emit_status(
+        app_handle,
+        &format!(
+            "解析完成: {} 个文本块, {} 字（无分词与实体：正文-only 导入）",
+            block_count, doc.total_char_count
+        ),
+    );
+
+    emit_status(app_handle, "创建项目记录 ...");
+    let mut project = Project::new(&title);
+    project.source_path = Some(file_path.to_string());
+
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let project = create(&storage.conn, &project).map_err(|e| e.to_string())?;
+
+    emit_status(app_handle, "写入数据库 ...");
+    save_document(
+        &storage.conn,
+        project.project_id,
+        &doc,
+        Some(&|current, total| {
+            app_handle
+                .emit(
+                    "import-progress",
+                    ImportProgress::Progress {
+                        current,
+                        total,
+                        message: "写入数据库 ...".into(),
+                    },
+                )
+                .ok();
+        }),
+    )
+    .map_err(|e| e.to_string())?;
+
+    app_handle
+        .emit(
+            "import-progress",
+            ImportProgress::Done {
+                project_id: project.project_id.to_string(),
+            },
+        )
+        .ok();
+
+    Ok(project)
+}
+
+fn emit_status(app_handle: &tauri::AppHandle, message: &str) {
+    app_handle
+        .emit(
+            "import-progress",
+            ImportProgress::Status {
+                message: message.to_string(),
+            },
+        )
+        .ok();
 }

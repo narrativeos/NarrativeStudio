@@ -236,6 +236,10 @@ pub struct SettingIssue {
     pub detail: String,
 }
 
+fn places_measured_default() -> bool {
+    true
+}
+
 /// Setting analysis output for one document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingStats {
@@ -254,6 +258,13 @@ pub struct SettingStats {
     pub places: Vec<Place>,
     /// Distinct places named anywhere in the document.
     pub place_count: u32,
+    /// Whether places could be read at all: they come from location entities,
+    /// which a text-only import does not carry. False means `place_count` is not
+    /// a measurement, and a scene without a named place is not evidence of an
+    /// unanchored scene. Defaults to true so a row cached before this field
+    /// existed keeps reading as it was computed.
+    #[serde(default = "places_measured_default")]
+    pub places_measured: bool,
     /// Places named in at least [`RECURRING_PLACE_MENTIONS`] blocks.
     pub recurring_places: u32,
     pub total_env_hits: u32,
@@ -498,6 +509,7 @@ pub fn run_setting_analysis(doc: &DocumentData) -> Result<SettingStats> {
         unanchored_share,
         places,
         place_count: all_places.len() as u32,
+        places_measured: crate::coverage::input_coverage(doc).has_entities,
         recurring_places,
         total_env_hits,
         env_density,

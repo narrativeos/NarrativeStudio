@@ -259,6 +259,7 @@ mod tests {
 
     fn base_t0() -> T0Stats {
         T0Stats {
+            token_source: "nlp".into(),
             word_count: 1000,
             char_count: 900,
             block_count: 10,

@@ -3,7 +3,7 @@
 //! Kept free of JSX and Tauri imports so they can be unit-tested with Vitest
 //! (see development.md §7.1: frontend unit tests cover components/utils).
 
-import type { T0Stats } from "../types";
+import type { ProjectAnalysis, T0Stats } from "../types";
 
 /** Total entity occurrences across all categories. */
 export function entityTotal(t0: T0Stats): number {
@@ -203,6 +203,44 @@ export function conflictVerdictStyle(verdict: string): string {
  * Conflict and theme analysis withhold the score rather than reporting 0 when the
  * vocabulary they need is missing, so every view has one way to say "未评分".
  */
+/** Whether the word-level numbers were measured at all.
+ *
+ *  A text-only import carries no segmentation, so the word count, the part of
+ *  speech table, the adverb and adjective tables and the repeated phrases are
+ *  all zero. Zero there means *not measured*, and rendering it as a number
+ *  would report an absence as a result. */
+export function wordsMeasured(t0: T0Stats): boolean {
+  return t0.token_source !== "none";
+}
+
+/** What a text-only import cannot answer, in the order the page shows it.
+ *
+ *  The distinction the banner exists to make: an absent number is not evidence
+ *  of an absent quality. */
+export function unreadableSections(data: ProjectAnalysis): string[] {
+  const missing: string[] = [];
+  if (!wordsMeasured(data.t0)) {
+    missing.push("词频与重复短语");
+  }
+  if (!data.plot.readable) {
+    missing.push("情节线");
+  }
+  if (!data.setting.places_measured) {
+    missing.push("地点清单");
+  }
+  if (data.theme.source === "none") {
+    missing.push("主题词表");
+  }
+  return missing;
+}
+
+/** The banner sentence, or null when nothing is missing. */
+export function coverageNote(data: ProjectAnalysis): string | null {
+  const missing = unreadableSections(data);
+  if (missing.length === 0) return null;
+  return `本项目是纯文本导入，没有分词、词性与实体，因此${missing.join("、")}读不到。读不到不等于没有：这些数字没有被测量，而不是测量结果为零。`;
+}
+
 export function formatOptionalScore(score: number | null): string {
   return score === null ? "未评分" : `${formatScore(score)} / 100`;
 }

@@ -91,6 +91,13 @@ pub struct PlotStats {
     /// 0-100; [`coherence_score`] states exactly what it penalises.
     pub coherence_score: f64,
     pub section_count: u32,
+    /// False when the document carries neither entities nor noun signals, which
+    /// is the only thing a thread can be traced through. A text-only import lands
+    /// here: the score would be a perfect 100 for want of anything to penalise,
+    /// which is a number about the import, not about the book.
+    pub readable: bool,
+    /// Why it cannot be read, when `readable` is false; empty otherwise.
+    pub note: String,
 }
 
 /// Where every narrative-bearing subject shows up.
@@ -107,6 +114,10 @@ struct ThreadMap {
 
 /// Extract the plotlines of a document from its entity and noun-signal flow.
 pub fn run_plot_analysis(doc: &DocumentData) -> Result<PlotStats> {
+    let coverage = crate::coverage::input_coverage(doc);
+    // A thread is something that shows up in more than one place; the only things
+    // that can show up are entities and noun signals.
+    let readable = coverage.has_entities || coverage.has_noun_signals;
     let map = collect_presence(doc);
     let section_count = map.sections.len();
 
@@ -161,8 +172,17 @@ pub fn run_plot_analysis(doc: &DocumentData) -> Result<PlotStats> {
         turning_points,
         unresolved_threads,
         late_arrivals,
-        coherence_score,
+        // Not scored when there was nothing to trace: an empty thread map says
+        // the import carried no entities, not that the story goes nowhere. The
+        // score column then stores NULL, the same way the unscored dimensions do.
+        coherence_score: if readable { coherence_score } else { 0.0 },
         section_count: section_count as u32,
+        readable,
+        note: if readable {
+            String::new()
+        } else {
+            "本文没有实体与名词信号（纯文本导入即是如此），情节线无从追踪。这里不给出连贯性评分，也不说明情节线不存在。".to_string()
+        },
     })
 }
 
@@ -697,7 +717,29 @@ mod tests {
         assert_eq!(stats.thread_count, 0);
         assert!(stats.plotlines.is_empty());
         assert!(stats.turning_points.is_empty());
-        assert_eq!(stats.coherence_score, 100.0);
+        // Nothing to trace: this is the text-only case, and a perfect score here
+        // would be a statement about the import rather than the document.
+        assert!(!stats.readable);
+        assert_eq!(stats.coherence_score, 0.0);
+        assert!(stats.note.contains("读不到") || stats.note.contains("无从追踪"));
+    }
+
+    #[test]
+    fn test_a_text_only_document_is_not_scored() {
+        // The same document with no NLP payload at all: same prose, no threads.
+        let doc = doc_of(vec![SemanticBlock {
+            source_block_id: String::new(),
+            content: "他走了。她又走了。".into(),
+            section_path: "第一章".into(),
+            block_type: "paragraph".into(),
+            title: None,
+            tokens: vec![],
+            entities: vec![],
+            noun_signals: vec![],
+        }]);
+        let stats = run_plot_analysis(&doc).unwrap();
+        assert!(!stats.readable);
+        assert_eq!(stats.thread_count, 0);
     }
 
     #[test]

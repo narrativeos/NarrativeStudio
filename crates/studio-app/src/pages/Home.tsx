@@ -80,17 +80,74 @@ function Home({ projects, onOpenProject, onImported }: HomeProps) {
     }
   }
 
+  async function handleImportText() {
+    const filePath = await open({
+      title: "选择 Markdown / TXT 文件",
+      directory: false,
+      multiple: false,
+      filters: [{ name: "文本", extensions: ["md", "markdown", "mdown", "mkd", "txt"] }],
+    });
+    if (!filePath || typeof filePath !== "string") return;
+
+    setImporting(true);
+    setError(null);
+    setLogs([]);
+    setProgress(null);
+
+    unlistenRef.current = await listen<ImportProgress>("import-progress", (event) => {
+      const p = event.payload;
+      if ((p.type === "status" || p.type === "progress") && p.message) {
+        setLogs((prev) => [...prev, p.message as string]);
+      }
+      if (p.type === "progress" && p.total != null && p.total > 0) {
+        setProgress({ current: p.current ?? 0, total: p.total });
+      }
+      if (p.type === "done") {
+        setImporting(false);
+        onImported();
+      }
+      if (p.type === "error") {
+        setError(p.message ?? "Import failed");
+        setImporting(false);
+      }
+    });
+
+    try {
+      await invoke("import_text_file", { filePath });
+      setImporting(false);
+      onImported();
+    } catch (e) {
+      setError(String(e));
+      setImporting(false);
+    } finally {
+      if (unlistenRef.current) {
+        unlistenRef.current();
+        unlistenRef.current = null;
+      }
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Projects</h2>
-        <button
-          onClick={handleImport}
-          disabled={importing}
-          className="px-4 py-2 bg-accent/20 text-accent rounded-md hover:bg-accent/30 transition-colors disabled:opacity-50"
-        >
-          {importing ? "Importing..." : "+ Import Project"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleImportText}
+            disabled={importing}
+            className="px-4 py-2 bg-surface-alt text-text rounded-md border border-line hover:bg-fill transition-colors disabled:opacity-50"
+            title="导入一个 Markdown 或 TXT 文件。没有分词与实体，因此词频、情节线、地点这几节读不到；其余维度照常。"
+          >
+            + Import Markdown / TXT
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={importing}
+            className="px-4 py-2 bg-accent/20 text-accent rounded-md hover:bg-accent/30 transition-colors disabled:opacity-50"
+          >
+            {importing ? "Importing..." : "+ Import Project"}
+          </button>
+        </div>
       </div>
 
       {error && (

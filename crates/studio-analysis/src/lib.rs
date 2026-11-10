@@ -25,6 +25,7 @@ mod calendar;
 mod checklist;
 mod cliche;
 mod conflict;
+mod coverage;
 mod dialogue;
 mod explicit;
 mod hash;
@@ -51,6 +52,7 @@ pub use cliche::{
 pub use conflict::{
     run_conflict_analysis, ConflictAbsence, ConflictPoint, ConflictStats, ConflictType,
 };
+pub use coverage::{input_coverage, InputCoverage};
 pub use dialogue::{
     run_dialogue_analysis, DialogueIssue, DialoguePoint, DialogueSample, DialogueStats,
 };

@@ -18,6 +18,7 @@ import RadarChart from "../components/charts/RadarChart";
 import RelationshipGraph from "../components/charts/RelationshipGraph";
 import {
   arcShapeLabel,
+  coverageNote,
   entityTotal,
   formatFixed,
   formatInt,
@@ -31,6 +32,7 @@ import {
   scoreTextColor,
   severityLabel,
   severityStyle,
+  wordsMeasured,
 } from "../lib/format";
 import type { ProjectAnalysis, ReportMeta } from "../types";
 
@@ -275,13 +277,27 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
         </p>
       )}
 
+      {/* What the import could not feed the engine. A text-only project reads
+          differently: the missing numbers are gaps in the input, not findings. */}
+      {data && coverageNote(data) && (
+        <div className="mb-4 p-3 rounded-lg border border-accent/30 bg-surface-alt text-xs text-text-muted">
+          {coverageNote(data)}
+        </div>
+      )}
+
       {/* Overview metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard label="字数" value={formatInt(t0.word_count)} />
+        <StatCard
+          label="字数"
+          value={data && !wordsMeasured(data.t0) ? "未测量" : formatInt(t0.word_count)}
+        />
         <StatCard label="文本块" value={formatInt(t0.block_count)} />
         <StatCard label="章节" value={formatInt(t1.section_count)} />
         <StatCard label="句子" value={formatInt(t0.sentence_count)} />
-        <StatCard label="实体" value={formatInt(entityTotal(t0))} />
+        <StatCard
+          label="实体"
+          value={data && !data.setting.places_measured ? "未测量" : formatInt(entityTotal(t0))}
+        />
         <StatCard label="名词信号" value={formatInt(t0.noun_signal_count)} />
       </div>
 
@@ -576,7 +592,12 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
       <section>
         <SectionTitle>情节分析</SectionTitle>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="情节连贯性" value={`${formatScore(plot.coherence_score)} / 100`} />
+          <StatCard
+            label="情节连贯性"
+            value={
+              plot.readable ? `${formatScore(plot.coherence_score)} / 100` : "读不到"
+            }
+          />
           <StatCard label="情节线" value={formatInt(plot.thread_count)} />
           <StatCard
             label="主线 / 支线"
@@ -584,6 +605,10 @@ function Analysis({ projectId, onBack }: AnalysisProps) {
           />
           <StatCard label="转折点" value={formatInt(plot.turning_points.length)} />
         </div>
+
+        {!plot.readable && (
+          <p className="mt-3 text-xs text-text-muted">{plot.note}</p>
+        )}
 
         <div className="mt-4">
           <Panel

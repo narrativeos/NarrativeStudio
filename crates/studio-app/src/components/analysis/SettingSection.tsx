@@ -41,7 +41,10 @@ function SettingSection({ setting }: SettingSectionProps) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="场景评分" value={formatOptionalScore(score)} />
         <StatCard label="场景数" value={formatInt(setting.scene_count)} />
-        <StatCard label="地点数" value={formatInt(setting.place_count)} />
+        <StatCard
+          label="地点数"
+          value={setting.places_measured ? formatInt(setting.place_count) : "未测量"}
+        />
         <StatCard label="环境千字密度" value={formatFixed(setting.env_density)} />
       </div>
 

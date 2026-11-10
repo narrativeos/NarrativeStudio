@@ -301,7 +301,13 @@ pub(crate) fn persist_analysis(
         (
             "plot",
             "t1",
-            Some(analysis.plot.coherence_score as f32),
+            // NULL when the document carries nothing a thread can be traced
+            // through — the text-only import case. An empty thread map is a
+            // fact about the import, not a verdict on the story.
+            analysis
+                .plot
+                .readable
+                .then_some(analysis.plot.coherence_score as f32),
             serde_json::to_string(&analysis.plot).map_err(|e| e.to_string())?,
         ),
         (

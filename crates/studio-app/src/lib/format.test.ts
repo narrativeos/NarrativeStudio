@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { T0Stats } from "../types";
+import type { ProjectAnalysis, T0Stats } from "../types";
 import {
   arcShapeLabel,
   checklistBadgeStyle,
@@ -13,6 +13,7 @@ import {
   conflictTypeLabel,
   conflictVerdictLabel,
   conflictVerdictStyle,
+  coverageNote,
   dialogueIssueLabel,
   dialogueIssueStyle,
   dialogueKindLabel,
@@ -59,6 +60,8 @@ import {
   timelinePrecisionLabel,
   timelineSignedSpan,
   timelineSpanLabel,
+  unreadableSections,
+  wordsMeasured,
   themeConcentrationLabel,
   themeReachLabel,
   themeReachStyle,
@@ -673,6 +676,53 @@ describe("voice labels", () => {
     const badge = voiceBadgeStyle();
     expect(badge).toContain("text-text-muted");
     expect(badge).not.toMatch(/bad|warn|good|firm/);
+  });
+});
+
+describe("text-only coverage", () => {
+  it("says the word count was not measured, not that it is zero", () => {
+    expect(wordsMeasured({ token_source: "nlp" } as T0Stats)).toBe(true);
+    expect(wordsMeasured({ token_source: "none" } as T0Stats)).toBe(false);
+  });
+
+  it("lists what a plain-text import cannot answer", () => {
+    const data = {
+      t0: { token_source: "none" },
+      plot: { readable: false },
+      setting: { places_measured: false },
+      theme: { source: "none" },
+    } as unknown as ProjectAnalysis;
+    expect(unreadableSections(data)).toEqual([
+      "词频与重复短语",
+      "情节线",
+      "地点清单",
+      "主题词表",
+    ]);
+    const note = coverageNote(data) ?? "";
+    // The sentence must draw the line the whole feature exists for.
+    expect(note).toContain("读不到不等于没有");
+    expect(note).toContain("不是测量结果为零");
+  });
+
+  it("says nothing when the import carried everything", () => {
+    const data = {
+      t0: { token_source: "nlp" },
+      plot: { readable: true },
+      setting: { places_measured: true },
+      theme: { source: "noun_signals" },
+    } as unknown as ProjectAnalysis;
+    expect(unreadableSections(data)).toEqual([]);
+    expect(coverageNote(data)).toBeNull();
+  });
+
+  it("names only what is actually missing", () => {
+    const data = {
+      t0: { token_source: "nlp" },
+      plot: { readable: true },
+      setting: { places_measured: false },
+      theme: { source: "noun_tokens" },
+    } as unknown as ProjectAnalysis;
+    expect(unreadableSections(data)).toEqual(["地点清单"]);
   });
 });
 

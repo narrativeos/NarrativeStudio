@@ -137,6 +137,7 @@ pub fn run() {
             commands::project::create_project,
             commands::project::delete_project,
             commands::import::import_project,
+            commands::import::import_text_file,
             commands::analyze::analyze_t0,
             commands::analyze::analyze_t1,
             commands::analyze::analyze_project,

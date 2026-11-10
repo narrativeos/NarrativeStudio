@@ -43,6 +43,9 @@ export interface T0Stats {
   top_adjectives: [string, number][];
   top_repeated_phrases: RepeatedPhrase[];
   readability: Readability;
+  /** `"nlp"` when the import carried segmented tokens, `"none"` when it did not.
+   *  Every word-level number below is a measurement only in the first case. */
+  token_source: string;
 }
 
 export interface SectionInfo {
@@ -134,6 +137,11 @@ export interface PlotStats {
   /** 0-100. */
   coherence_score: number;
   section_count: number;
+  /** False when the document carries neither entities nor noun signals, i.e. a
+   *  text-only import: the score would then describe the import, not the book. */
+  readable: boolean;
+  /** Why it cannot be read, when `readable` is false; empty otherwise. */
+  note: string;
 }
 
 /** One segment of the pacing curve: what the section is made of and how tense it
@@ -384,6 +392,9 @@ export interface SettingStats {
   places: Place[];
   /** Distinct places named anywhere in the document. */
   place_count: number;
+  /** Whether places could be read at all: they come from location entities,
+   *  which a text-only import does not carry. */
+  places_measured: boolean;
   /** Places named in at least three blocks. */
   recurring_places: number;
   total_env_hits: number;

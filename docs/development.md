@@ -361,6 +361,7 @@ Tauri Commands 按领域分组在 `studio-app/src-tauri/src/commands/`（`projec
 | `create_project` | `{ name }` | `Project` | 创建项目 |
 | `delete_project` | `{ project_id }` | - | 删除项目及其级联数据 |
 | `import_project` | `{ project_path }` | `Project` | 导入 TraceView 项目目录（`spawn_blocking` + `import-progress` 事件） |
+| `import_text_file` | `{ file_path }` | `Project` | 导入单个 Markdown / TXT 文件（同一套进度事件；没有分词与实体，降级口径见 §6.10） |
 | `analyze_project` | `{ project_id, force? }` | `ProjectAnalysis` | T0 + T1 + 情节 + 节奏 + 冲突 + 主题 + 场景/设定 + 陈词滥调 + 对话/叙事比例 + 显式语言 + 故事结构 + 时间线 + 作者声音 + 最终审查清单 + 评估；命中缓存时 `cached: true`，`force: true` 强制重算（见 §6.5） |
 | `analyze_projects` | `{ project_ids }` | `Vec<ProjectAnalysis>` | 多项目对比，始终读缓存 |
 | `analyze_t0` / `analyze_t1` | `{ file_path }` | `T0Stats` / `T1Stats` | 直接分析 `semantic_result.json`，调试用，不走缓存 |
@@ -756,6 +757,48 @@ pub async fn run_analysis(&self, project_id: &str) -> Result<()> {
 
 改规则里的阈值（`UNANCHORED_SHARE`、`ABSENT_RUN_SEGMENTS`、`ADVERB_OVERUSE`、`READABILITY_FLOOR`）与加/删规则都要
 bump `ANALYSIS_VERSION`：清单是派生行，但它跟着源维度一起失效才不会与同一份缓存里的其他数字说不同的话。
+
+### 6.10 纯文本导入的口径
+
+`studio-import/src/plaintext.rs` 让一个 `.md` / `.txt` 文件走通整条流水线。它产出的仍是同一个 `DocumentData`，
+因此分析层没有新分支——但 TraceView 额外带的那四样（带词性的 tokens、entities、noun_signals、单独的 TOC）它一样也没有，
+**而且刻意不去猜**：补一套本地分词或按规则造实体，会让情节线、主题、地点这几节摆出一批像是量出来的数字，
+而引擎别处已经立了相反的规矩（`structure.rs` 的 `readable` 闸门、`theme.rs` 的 `source`、时间线的「读不到 ≠ 没有日期」）。
+
+**切块规则**：ATX 标题（`#`…`######`，允许 `#第三章` 这种不空格的写法）成为 `title` 块并维护标题栈，
+`section_path` 用与 popo TOC 富化相同的 `" / "` 连接形式，所以 `t1` 看到的是真章节、场景切分看到的是真换场；
+`第X章` / `序章` 这类无标记章节行同样识别为标题，但要求数词后紧跟部类词、其后只能是分隔符或行尾，
+所以 `第三章的某个夜晚` 与 `第一天，他推开门。` 仍是正文——一个假标题会把之后所有块挂进不存在的章节。
+列表项是 `list` 块；`---` / `———` 这类分隔线**丢弃**，因为对白维度把以 `——` 开头的行读作说话行，留一行破折号会被数成一处空对白。
+软换行不保留换行符（`split_sentences` 视 `\n` 为句末，留着会在每个折行处凭空造一个句子），中日文直接相接、英文两侧都是 ASCII 字母数字时补一个空格。
+TXT 另有一条：全文没有一个空行时按「一行一段」读，中文稿就是这么写的；一旦作者用了空行，空行才是段落分隔符。
+行内标记在**导入时**剥掉而不是在分析时，因为引擎按字符计数（标点密度、每千字、陈词滥调的字面扫描），留下 `**` 就是把它当正文数。
+编码先按 UTF-8（含 BOM）严格解码，失败再试 GB18030（GBK/GB2312 的上位集），两者都不行就**报错并说明**，不产生替换字符后再拿去计数。
+
+**降级口径**由 `studio-analysis/src/coverage.rs` 一处说明：`input_coverage(&doc)` 从块里读出 tokens / pos /
+entities / noun_signals 在不在——它是**从数据推的**而不是导入时记的标记，因为「行里有什么」比「当初想怎么导」描述得更准，也不会过期。
+
+| 维度 | 纯文本导入下 | 靠什么 |
+|------|--------------|--------|
+| 句子统计、可读性（CJK 分支）、作者声音、节奏、冲突、陈词滥调、对白、显式语言 | 照常出数 | 词库与正文 |
+| `t1` 章节结构 | 照常 | 标题块与 `section_path` |
+| 时间线 | 照常 | 扫正文；DATE 实体只作对照计数 |
+| 故事结构 | 部分 | 少一类来自情节线的 landmark |
+| 词频、词性分布、副词/形容词、重复短语 | **读不到** | `T0Stats::token_source = "none"` |
+| 情节线 | **读不到**，不评分 | `PlotStats::readable = false` |
+| 地点清单 | **读不到** | `SettingStats::places_measured = false` |
+| 主题词表 | 落到 `source: "none"`，不评分 | 既有回退 |
+| 最终审查清单 | 相关规则沉默 | 没有数字可指就不出现 |
+
+三处细节让这个口径不至于半途漏掉：`analyze.rs` 存 plot 行时写 `readable.then_some(score)`，所以缓存里是 NULL 而不是
+一个「完美 100」（无线索可扣分时 `coherence_score` 就是 100，那说的是导入而不是稿子）；`checklist.rs` 的无锚点场景规则
+加了 `places_measured` 前置条件，否则纯文本项目里每一场都「没有地点」，清单会集体误报；UI 与报告把未测量的数字写成
+**未测量**而不是 0（`lib/format.ts` 的 `wordsMeasured` / `unreadableSections` / `coverageNote` 与报告里同一句话）。
+
+**不需要 bump `ANALYSIS_VERSION`**：新字段 `token_source` / `places_measured` 都带 `serde(default)` 且默认值就是旧行为
+（`"nlp"` / `true`），已有缓存行反序列化后与当初算出来的一致；plot 的闸门只改「实体与名词信号都没有」那种文档的输出，
+而 TraceView 导入不会没有实体。纯文本项目是新增的，它没有旧缓存行可失效。
+
 
 ---
 

@@ -1507,8 +1507,18 @@ studio-app (Tauri 入口)
 - [x] TraceView `popo_result.json` 解析（取章节 TOC，文件缺失时按无 TOC 继续）
 - [x] 数据写入 DuckDB（`save_document` 在一个事务里写 documents / semantic_blocks / tokens /
   entities / noun_signals，实体先经 registry 取稳定 id，任一步失败整体回滚；带进度事件）
-- [ ] 原始文档导入（Markdown / TXT）
-  - ⏳ 目前唯一入口是 TraceView 项目文件夹导入；直接读 Markdown / TXT 未做
+- [x] 原始文档导入（Markdown / TXT）——`studio-import/src/plaintext.rs` + `import_text_file`：一个 `.md` / `.txt`
+  文件就是一个项目，不再只有 TraceView 一个入口。标题成为章节（`#`…`######`，也认 `第X章` / `序章` 这类无标记章节行，
+  但要求数词后紧跟部类词且其后只能是分隔符或行尾，所以 `第三章的某个夜晚` 仍是正文——一个假标题会把之后所有块挂进
+  不存在的章节）；分隔线丢弃（对白维度把以 `——` 开头的行读作说话行）；软换行并回同一段（换行符会被句子切分器当成句末，
+  留着等于在每个折行处凭空造一个句子）；行内标记在导入时剥掉而不是在分析时，因为引擎按字符计数；编码先 UTF-8 后 GB18030，
+  都不行就报错说明而不是产出替换字符。
+  - **它不带分词、词性、实体与名词信号，也刻意不去猜**：情节线、词频、副词/形容词、重复短语、主题词表、地点清单因此
+    **读不到**，UI 与报告写「未测量 / 读不到」而不是 0，plot 与 theme 的缓存行 `score` 记 NULL——无线索可扣分时
+    连贯性就是满分 100，那说的是导入而不是稿子。读不到不等于没有：这些数字没有被测量，而不是测量结果为零。
+    句子统计、可读性、作者声音、节奏、冲突、陈词滥调、对白、显式语言、时间线只读正文与词库，因此照常出数；
+    最终审查清单里依赖缺席证据的规则保持沉默，否则纯文本项目里每一场都「没有地点」，清单会集体误报。
+    口径集中在 `studio-analysis/src/coverage.rs`（从数据推，不记导入标记），详见 development.md §6.10
 - [ ] 项目文件管理（自包含文件夹）
   - ⏳ 现状是 `projects.source_path` 原位引用 TraceView 文件夹，正文与实体全部落
     DuckDB（`app_data_dir`/`narrative_studio.duckdb`）；没有把源文件复制进

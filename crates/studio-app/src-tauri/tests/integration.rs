@@ -1322,3 +1322,133 @@ fn test_knowsphere_export_end_to_end() {
         parsed["narratives"].as_array().unwrap().len()
     );
 }
+
+/// A Markdown file imported on its own: no NLP sidecar, so the dimensions that
+/// need one must say they cannot read rather than report a zero or a score.
+///
+/// This is the whole degradation contract in one test — the text-only dimensions
+/// still measure, the NLP ones stay silent, and the cache stores NULL where there
+/// is no measurement.
+#[test]
+fn test_plaintext_import_reads_what_text_can_answer() {
+    let markdown = "# 第一章 出发\n\n他推开门。街上很安静。\n\n“你来了？”她说。\n\n---\n\n# 第二章 归途\n\n她没有来。\n";
+    let doc = studio_import::parse_markdown("测试书", markdown).expect("parse markdown");
+    assert!(doc.blocks.iter().all(|b| b.tokens.is_empty()));
+    assert_eq!(doc.total_word_count, 0);
+
+    let conn = Connection::open_in_memory().expect("Failed to open in-memory DuckDB");
+    run_migrations(&conn).expect("Failed to run migrations");
+    let project = create(&conn, &Project::new("Plain Text Project")).expect("create project");
+    save_document(&conn, project.project_id, &doc, None).expect("save document");
+
+    let loaded = load_document(&conn, doc.doc_id).expect("load document");
+    let input_hash = document_hash(&loaded).expect("hash");
+    let t0 = run_t0_analysis(&loaded).expect("T0 failed");
+    let t1 = run_t1_analysis(&loaded).expect("T1 failed");
+    let plot = run_plot_analysis(&loaded).expect("plot analysis failed");
+    let pacing = run_pacing_analysis(&loaded).expect("pacing analysis failed");
+    let conflict = run_conflict_analysis(&loaded).expect("conflict analysis failed");
+    let theme = run_theme_analysis(&loaded).expect("theme analysis failed");
+    let setting = run_setting_analysis(&loaded).expect("setting analysis failed");
+    let cliche = run_cliche_analysis(&loaded).expect("cliché analysis failed");
+    let dialogue = run_dialogue_analysis(&loaded).expect("dialogue analysis failed");
+    let explicit = run_explicit_analysis(&loaded).expect("explicit language analysis failed");
+    let structure =
+        run_structure_analysis(&loaded, &pacing, &plot).expect("story structure analysis failed");
+    let timeline = run_timeline_analysis(&loaded).expect("time line analysis failed");
+    let voice = run_voice_analysis(&loaded).expect("author voice analysis failed");
+    let checklist = run_review_checklist(&ChecklistSource {
+        t0: &t0,
+        plot: &plot,
+        pacing: &pacing,
+        conflict: &conflict,
+        setting: &setting,
+        cliche: &cliche,
+        dialogue: &dialogue,
+        explicit: &explicit,
+        structure: &structure,
+        timeline: &timeline,
+        voice: &voice,
+    });
+
+    // What the text alone can answer, it answers: real blocks, real chapters
+    // recovered from the headings, real sentences.
+    assert!(t0.block_count >= 4, "blocks: {}", t0.block_count);
+    assert!(t0.sentence_count >= 4, "sentences: {}", t0.sentence_count);
+    assert_eq!(t1.section_count, 2, "chapters: {:?}", t1.sections);
+    assert_eq!(t0.token_source, "none");
+
+    // What it cannot, it refuses instead of scoring.
+    assert!(!plot.readable);
+    assert_eq!(theme.source, "none");
+    assert!(!setting.places_measured);
+
+    // A scene with no named place is not an unanchored scene when no place could
+    // ever be named: that rule must stay silent.
+    assert!(
+        !checklist
+            .items
+            .iter()
+            .any(|i| i.id == "setting-unanchored" || i.id == "plot-unresolved"),
+        "checklist: {:?}",
+        checklist
+            .items
+            .iter()
+            .map(|i| i.id.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    // The stored rows carry no score where nothing was measured.
+    save_result(
+        &conn,
+        project.project_id,
+        "plot",
+        "t1",
+        &input_hash,
+        plot.readable.then_some(plot.coherence_score as f32),
+        &serde_json::to_string(&plot).unwrap(),
+    )
+    .expect("save plot");
+    let score: Option<f32> = conn
+        .query_row(
+            "SELECT score FROM analysis_results WHERE project_id = ? AND dimension = 'plot'",
+            duckdb::params![project.project_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("read plot score");
+    assert_eq!(score, None, "an untraceable plot must not store a score");
+
+    // And it round-trips: the payload keeps the refusal.
+    let cached: Option<PlotStats> =
+        load_cached(&conn, project.project_id, "plot", &input_hash).expect("load cached plot");
+    assert!(!cached.expect("cached plot").readable);
+
+    // The report says which sections are silent, and does not print a score there.
+    let generated_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let rendered = render_markdown(&ReportInput {
+        project_name: &project.name,
+        generated_at,
+        t0: &t0,
+        t1: &t1,
+        plot: &plot,
+        pacing: &pacing,
+        conflict: &conflict,
+        theme: &theme,
+        setting: &setting,
+        cliche: &cliche,
+        dialogue: &dialogue,
+        explicit: &explicit,
+        structure: &structure,
+        timeline: &timeline,
+        voice: &voice,
+        checklist: &checklist,
+        assessment: &run_assessment(&t0, &t1),
+    });
+    assert!(!rendered.contains("情节连贯性"), "{rendered}");
+    assert!(rendered.contains("无从追踪"));
+    assert!(rendered.contains("词数 | 未测量"), "{rendered}");
+    assert!(rendered.contains("地点清单读不到"));
+    // Every section is still there: a gap in the input does not remove a chapter.
+    assert!(rendered.contains("## 作者声音"));
+    assert!(rendered.contains("## 最终审查清单"));
+}

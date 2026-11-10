@@ -168,7 +168,10 @@ pub fn run_review_checklist(src: &ChecklistSource) -> ReviewChecklist {
             ),
         );
     }
-    if src.setting.scene_count > 0 && src.setting.unanchored_share >= UNANCHORED_SHARE {
+    if src.setting.scene_count > 0
+        && src.setting.places_measured
+        && src.setting.unanchored_share >= UNANCHORED_SHARE
+    {
         push(
             &mut items,
             "setting-unanchored",

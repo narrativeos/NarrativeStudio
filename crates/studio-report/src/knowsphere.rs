@@ -495,6 +495,8 @@ mod tests {
             unresolved_threads: vec![],
             late_arrivals: vec![],
             coherence_score: 100.0,
+            readable: true,
+            note: String::new(),
             section_count: 0,
         }
     }
@@ -535,6 +537,7 @@ mod tests {
             peak_intensity: 0.0,
             issues: vec![],
             longest_absence: 0,
+            places_measured: true,
             setting_score: None,
         }
     }
