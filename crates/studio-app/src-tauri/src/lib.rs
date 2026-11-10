@@ -107,30 +107,28 @@ fn check_db_lock(db_path: &std::path::Path) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
+    // A startup failure must still reach the user as a native dialog: an
+    // error that only reaches stderr is invisible in a double-clicked .app
+    // bundle. It cannot be shown from `setup` though — setup runs on the
+    // main thread, and the dialog plugin warns that `blocking_show` there
+    // deadlocks until the event loop runs. So the error is parked here and
+    // surfaced from `RunEvent::Ready`, exiting once the user dismisses it.
+    let startup_error: std::sync::Arc<std::sync::Mutex<Option<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let error_for_setup = startup_error.clone();
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let state = match AppState::new(app.handle()) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("NarrativeStudio 启动失败:\n{e}");
-                    // 在 macOS 上显示原生错误对话框
-                    #[cfg(target_os = "macos")]
-                    {
-                        let _ = std::process::Command::new("osascript")
-                            .arg("-e")
-                            .arg(format!(
-                                "display dialog \"NarrativeStudio 启动失败\\n\\n{}\" buttons {{\"确定\"}} default-button \"确定\" with icon stop",
-                                e.replace('"', "\\\"")
-                            ))
-                            .output();
-                    }
-                    std::process::exit(1);
-                }
-            };
-            app.manage(state);
-            Ok(())
+        .setup(move |app| match AppState::new(app.handle()) {
+            Ok(state) => {
+                app.manage(state);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("NarrativeStudio 启动失败:\n{e}");
+                *error_for_setup.lock().unwrap() = Some(e);
+                Ok(())
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::project::list_projects,
@@ -149,6 +147,22 @@ pub fn run() {
             commands::report::report_export_html,
             commands::report::export_knowsphere
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(move |app_handle, event| {
+        if let tauri::RunEvent::Ready = event {
+            let error = startup_error.lock().unwrap().take();
+            if let Some(error) = error {
+                use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                let handle = app_handle.clone();
+                app_handle
+                    .dialog()
+                    .message(format!("NarrativeStudio 启动失败:\n{error}"))
+                    .title("NarrativeStudio 启动失败")
+                    .kind(MessageDialogKind::Error)
+                    .show(move |_| handle.exit(1));
+            }
+        }
+    });
 }
